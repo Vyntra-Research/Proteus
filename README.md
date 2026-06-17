@@ -494,6 +494,11 @@ plugins/
     dist/
     scripts/proteus-mcp.cjs
     skills/continuous-vuln-research/SKILL.md
+    skills/chaining/SKILL.md
+    skills/codebase-research/SKILL.md
+    skills/fuzzing/SKILL.md
+    skills/web-intel/SKILL.md
+    skills/web-research/SKILL.md
 src/
   cli.ts
   mcp.ts

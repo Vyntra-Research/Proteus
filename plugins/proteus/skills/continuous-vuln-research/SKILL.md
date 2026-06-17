@@ -1,275 +1,213 @@
 ---
 name: continuous-vuln-research
-description: Run disciplined, continuous, professional vulnerability research against a codebase using structured memory, coordinator-authored round planning, multi-agent heuristics, realistic validation, and anti-slop report gates.
+description: Coordinate disciplined, continuous, professional vulnerability research with Proteus memory, campaigns, bounded delegation, validation gates, realistic exploitability, anti-slop controls, and report-grade decision discipline.
 ---
 
 # Proteus Continuous Vulnerability Research
 
-Use this skill when the user asks for deep vulnerability research, continuous
-codebase security analysis, exploitability-driven review, coordinated
-multi-agent hunting, PoC validation, or professional bug bounty style research.
+Use this skill as the universal Proteus coordinator contract. It owns research
+state, strategy, delegation, gates, memory, and kill/promote decisions. It does
+not contain the detailed tactics for chaining, fuzzing, codebase reading, web
+research, intelligence, or PoC construction; use the dedicated skills for those.
 
 ## Core Rule
 
-This is not normal code review. The goal is to find or rule out realistic,
+This is not generic code review. The objective is to find or rule out realistic,
 externally exploitable vulnerabilities with concrete impact and root cause in
 the target.
 
 Do not promote weak hypotheses, expected behavior, duplicate findings,
-integration-only problems, forced vulnerable configuration, or lab artifacts.
+integration-only problems, forced vulnerable configuration, or lab-created
+behavior. Do not reduce research to a fixed bug-class checklist. Work through
+primitives, invariants, trust boundaries, state transitions, interpretation
+gaps, competing sources of truth, side effects, and capability amplification.
 
-## Host Capability Usage
+## Base Contract
 
-When the host assistant session provides stronger orchestration capabilities,
-use them to make Proteus more efficient and less repetitive:
+All Proteus roles and skills must follow
+`plugins/proteus/templates/base-research-contract.md`.
 
-- If the user explicitly requests continuous work, a persistent campaign, or
-  "do not stop until the plugin/research is finished", use the available goal or
-  campaign mechanism to bind the objective, budget, and stop conditions.
-- If subagents or parallel delegation are available and allowed by the session,
-  use them for independent, bounded Proteus fronts instead of doing every front
-  serially in the coordinator context.
-- Map each delegated subagent to one Proteus codename and one bounded surface
-  or branch: Argus, Loom, Chaos, Libris, Mimic, Artificer, Skeptic, or
-  Cicada.
-- Keep the coordinator responsible for target strategy, memory updates, ROI
-  selection, validation gates, kill/promote decisions, and replanning.
-- If goal/campaign mode, subagents, MCP tools, or the CLI are unavailable,
-  continue with the same Proteus workflow locally and record the limitation in
-  memory or the round log.
-
-Do not use subagents for vague repo-wide review. Do not use persistent
-goal/campaign mode without a user-requested persistent objective. These
-capabilities improve orchestration; they do not weaken the evidence,
-validation, or anti-slop gates.
-
-## Base Research Contract
-
-All Proteus roles must continuously follow the packaged base research contract
-in `plugins/proteus/templates/base-research-contract.md`.
-
-Do not reduce research to a fixed list of bug classes. Work through primitives,
-invariants, trust boundaries, state transitions, interpretation gaps, competing
-sources of truth, and capability amplification.
-
-Every specialist output, checkpoint, and final round summary must include a
-short `contractSignature` object with:
+Every specialist output, checkpoint, and final round summary must include:
 
 ```json
 {
-  "status": "compliant|deviated|blocked",
-  "signedBy": "proteus-role-name",
-  "attackerModel": "...",
-  "heuristicCoverage": [],
-  "antiSlopCheck": "...",
-  "deviations": [],
-  "deviationRepair": null
+  "contractSignature": {
+    "status": "compliant|deviated|blocked",
+    "signedBy": "proteus-role-name",
+    "attackerModel": "...",
+    "heuristicCoverage": [],
+    "antiSlopCheck": "...",
+    "deviations": [],
+    "deviationRepair": null
+  }
 }
 ```
 
 If the role deviated from the contract, it must name the deviation, repair it,
 and continue from the corrected state.
 
-## Coordinator Loop
+## Coordinator Responsibilities
 
-For every target, run:
+The coordinator must:
+
+- recover active campaign, round, surfaces, branches, decisions, gates, and
+  prior killed paths before opening new work;
+- define scope, assumptions, attacker model, available tooling, and stop
+  conditions;
+- select high-ROI surfaces and branches rather than broad repo-wide review;
+- delegate bounded fronts to the right skill or role;
+- keep memory current as work changes future decisions;
+- enforce validation gates and anti-slop checks;
+- kill, downgrade, watch, or promote based on evidence;
+- checkpoint after meaningful progress or branch-score changes.
+
+Use this loop:
 
 ```text
-Observe -> Map -> Hypothesize -> Prioritize -> Delegate -> Validate -> Kill/Promote -> Replan
+Recover state -> Map -> Hypothesize -> Prioritize -> Delegate -> Validate -> Kill/Promote -> Checkpoint -> Replan
 ```
 
-Before any broad exploration, define or load:
+Never ask an agent to "review the repo". Assign a bounded surface or branch,
+the relevant heuristic family, expected artifact, and kill criteria.
 
-```text
-Target:
-Scope root:
-In-scope repos/packages:
-Out-of-scope:
-Existing findings/reports/logs/advisories to dedupe:
-Primary impact classes:
-Hard exclusions:
-Supported deployment/configuration assumptions:
-Available local tooling:
-Credentials or fixtures available:
-Continuous mode: off | on
-Stop-on-candidate: yes | no
-```
+## Host Capabilities
 
-## Required Round Plan
+When available and allowed:
 
-Each research round needs:
+- Use goal/campaign mechanisms only for explicit persistent objectives.
+- Use subagents for independent bounded fronts, not vague broad review.
+- Keep the coordinator responsible for memory, ROI, gates, and final decisions.
+- If MCP/CLI/subagents are unavailable, continue manually and record the
+  limitation in the round log.
+
+Host capabilities improve orchestration; they do not weaken evidence,
+validation, or anti-slop gates.
+
+## Proteus State
+
+Treat `.vros/memory.sqlite` as the source of truth. Markdown exports are human
+views, not canonical state.
+
+Use the runtime for state, not for inventing reasoning:
+
+- `proteus status` to confirm initialization, current DB version, and memory
+  counts.
+- `proteus migrate` when explicit migration verification is needed.
+- `proteus campaign resume` before planning or major recording.
+- `proteus list rounds --status active` before creating a new plan.
+- `proteus query similar` to see duplicate/report coverage and memory matches.
+- `proteus query duplicates` for narrow finding/report dedupe.
+- `proteus query memory`, `list ...`, and `show ...` for broader state recovery.
+- `record surface|hypothesis|evidence|decision|gate|agent-output` when a fact,
+  branch, validation result, or decision changes future work.
+- `campaign checkpoint` after meaningful progress.
+
+If exactly one campaign is active, Proteus auto-links new hypotheses, evidence,
+decisions, validation gates, and agent outputs to that campaign. If there are
+zero or multiple active campaigns, resolve campaign state explicitly before
+important recording.
+
+## Round Planning
+
+Each round needs:
 
 ```text
 Round objective:
 Current target understanding:
-Selected high-ROI surfaces:
+Selected high-ROI surfaces or branches:
 Skipped surfaces and why:
 Prior killed paths to avoid:
 Agent fronts:
-Host capabilities to use:
 Validation gates:
 Expected evidence:
 Stop conditions:
 Replan trigger:
 ```
 
-Never ask an agent to "review the repo". Assign a bounded surface, a heuristic,
-and kill criteria.
+`proteus plan-round` and MCP `proteus_plan_round` are recorders/scaffolds, not
+autonomous target-selection oracles. For non-trivial targets, the coordinator
+must supply target-specific understanding, selected surfaces, skipped surfaces,
+agent fronts, stop conditions, and replan trigger.
 
-When subagents are available, each item in `Agent fronts` must include the
-codename, exact surface, heuristic family, expected artifact, and kill criteria.
-When a persistent goal or campaign is active, align `Stop conditions` and
-`Replan trigger` with it so the campaign does not drift.
+Use `superseded` for old or replaced plans that should remain searchable but no
+longer represent active work.
 
-Do not treat `proteus_plan_round` or `proteus plan-round` as an autonomous
-target-selection oracle. It is a formatter and memory recorder for a
-coordinator-authored plan, or an empty scaffold when the plan has not been
-written yet. For non-trivial targets, supply target-specific
-`currentUnderstanding`, `selectedSurfaces`, `skippedSurfaces`, `agentFronts`,
-`stopConditions`, and `replanTrigger` from the coordinator's analysis.
+## Dedicated Skills
 
-Treat recorded round plans as operational goals. A new `proteus plan-round`
-record defaults to `active`; use `proteus list rounds --status active` or MCP
-`proteus_list_records` with `recordType=rounds` and `status=active` to recover
-the current plan before opening new work. Use `proteus update round --id <id>
---status paused|active|completed|blocked|superseded` or MCP
-`proteus_update_round` when the coordinator pauses, resumes, completes, blocks,
-or replaces a plan. Use `superseded` as the neutral state for old or replaced
-round records that should remain searchable but should not be treated as future
-work. Do not create a fresh active plan when an existing active plan already
-describes the current objective; update, complete, pause, block, or supersede
-the existing plan first.
+Use the dedicated skills for tactical execution:
 
-When a campaign is active, treat it as the durable container above rounds. Use
-`proteus campaign resume` or MCP `proteus_campaign_resume` before planning,
-delegating, or recording substantial state. Link important rounds, branches,
-evidence, decisions, labs, and agent outputs back to the campaign when the MCP
-advisory output suggests doing so. Use checkpoints to compress confirmed facts,
-killed paths, open branches, pivots, score changes, and the next high-ROI move.
+- `codebase-research`: deep code understanding, dataflow, invariants,
+  side effects, trust boundaries, recent-risk areas, and branch material.
+- `chaining`: non-obvious exploit chains, side effects, authority transitions,
+  cross-component coupling, and primitive strengthening.
+- `fuzzing`: calibrated input-reaction learning, differential probes, oracles,
+  harnesses, and mutation strategy.
+- `web-intel`: public-known status, expected behavior, advisories, changelogs,
+  issues, PRs, docs, tests, and affected-version timeline.
+- `web-research`: authorized web workflow mapping, blackbox/graybox probes,
+  endpoint behavior, and web side-effect discovery.
+- `poc-exploit`: realistic PoC/lab design, manual blackbox reproduction,
+  negative controls, reliability notes, and impact evidence.
+- `checkpoint`: compact campaign state compression after meaningful progress.
 
-Do not ask Proteus runtime commands to generate rational security knowledge.
-Use them to initialize, ingest, observe factual environment data, query memory,
-record evidence, and render explicitly supplied planning content. Query global
-learnings separately, review them in the coordinator context, and manually fold
-only relevant items into the round plan.
+Use role contracts for delegated fronts:
 
-Treat `.vros/memory.sqlite` as the source of truth. Local Markdown files are
-exports for human reading, not the primary state store. Use
-`proteus query duplicates` only for duplicate checks against ingested finding
-and report records. Use `proteus query memory` for broad exploratory full-text
-search across hypotheses, decisions, evidence, validation gates, rounds,
-campaigns, branches, surfaces, reports, docs, watchlists, discarded paths,
-candidate registers, and agent outputs. Use `proteus list ...` for structured category views and
-`proteus show <entityType> <id>` when the full record is needed.
+- Argus: component-level primitive review.
+- Loom: macro chaining and cross-component reasoning.
+- Chaos: fuzzing and edge-case generation.
+- Libris: docs/contract/intelligence verification.
+- Mimic: runtime, adapter, deployment, and environment divergence.
+- Artificer: realistic PoC/lab validation.
+- Skeptic: adversarial refutation and downgrade pressure.
+- Cicada: exploit-development, bypass, reliability, and chaining for branches
+  that already have concrete signal and a known blocker.
 
-`proteus init` is intentionally empty beyond factual target identity. It must
-not invent in-scope paths, impact classes, hard exclusions, assumptions, prior
-work paths, or generic web-app surfaces. If the coordinator does not yet know
-target-specific context, leave those fields empty and continue with memory
-queries, ingestion, observation, and coordinator-authored planning.
+Artificer starts only after initial gates have enough evidence. Skeptic starts
+after technical evidence exists. Cicada starts only after a branch has concrete
+signal. A candidate cannot become report-grade until the intelligence/timeline
+review and Skeptic rebuttal are recorded.
 
-`proteus export` is a human-readable view of memory. It is non-destructive: if
-an export file already exists with different content, Proteus preserves it and
-writes a generated sidecar. Do not "fix" target context only by editing
-`target-contract.md` or `surface-map.md`; record the underlying context in SQL
-memory or in the coordinator-supplied round input, then export for reading.
+## Contract Resolution
 
-When using `proteus plan-round --plan-json`, write a JSON file with this shape
-before calling the command. The packaged template is
-`plugins/proteus/templates/round-input.json`:
+Role contracts and templates must be loaded from the Proteus plugin/package, not
+from the target workspace.
 
-```json
-{
-  "status": "active",
-  "currentUnderstanding": "Coordinator-written target understanding.",
-  "selectedSurfaces": [
-    {
-      "id": 1,
-      "name": "Specific bounded surface",
-      "family": "short-family-name",
-      "roiScore": 0,
-      "reason": "Coordinator-written selection reason.",
-      "files": ["relative/path/from/target/root.ext"],
-      "revisitCondition": "When to revisit this surface."
-    }
-  ],
-  "skippedSurfaces": [
-    {
-      "id": 2,
-      "name": "Specific skipped surface",
-      "family": "short-family-name",
-      "roiScore": 0,
-      "reason": "Coordinator-written skip reason.",
-      "files": [],
-      "revisitCondition": "When to reconsider it."
-    }
-  ],
-  "agentFronts": [
-    {
-      "codename": "argus",
-      "assignedSurfaceIds": [1],
-      "purpose": "Bounded objective for this front.",
-      "requiredOutput": ["covered surface map", "live candidates", "killed hypotheses with evidence"]
-    }
-  ],
-  "stopConditions": ["Report-grade candidate needs user decision."],
-  "replanTrigger": "Coordinator-written trigger for the next round."
-}
+Role contract filenames:
+
+```text
+proteus-argus.md
+proteus-loom.md
+proteus-chaos.md
+proteus-libris.md
+proteus-mimic.md
+proteus-artificer.md
+proteus-skeptic.md
+proteus-cicada.md
 ```
 
-Valid `codename` values are `argus`, `loom`, `chaos`, `libris`, `mimic`,
-`artificer`, and `skeptic`.
+Template filenames:
 
-## Hypothesis Heuristics
+```text
+base-research-contract.md
+research-contract.md
+round-plan.md
+candidate-register.md
+report-draft.md
+round-input.json
+```
 
-Prefer:
+Resolve from:
 
-- state and authority drift;
-- validation/use mismatch;
-- auth/authz/session boundary confusion;
-- cache key or state authority bugs;
-- adapter/runtime divergence;
-- parser differential and canonicalization drift;
-- generated code or manifest mismatch;
-- webhook, callback, retry, or replay behavior;
-- trusted metadata crossing an external boundary;
-- composition bugs where two safe features combine unsafely;
-- docs/tests/security contract violations;
-- recently introduced security-relevant changes.
+```text
+1. <this SKILL.md directory>/../../agents or ../../templates
+2. the host-exposed Proteus plugin root
+3. the installed Codex plugin cache
+4. Claude Code installed plugin package root, when exposed
+```
 
-Avoid:
-
-- generic TODO/FIXME findings;
-- fix archaeology without a current-version bypass, regression, or incomplete-fix
-  hypothesis;
-- vague best-practice claims;
-- one-off lab behavior;
-- unrealistic attacker control;
-- weak crashes or weak DoS;
-- integration-only issues outside target responsibility;
-- known or expected behavior;
-- repeated low-ROI surfaces without a new reason.
-
-## Known-Fix And TODO Triage
-
-Treat commits, changelog items, issue-linked fixes, advisory backports, TODO
-comments, FIXME comments, and known bug references as intel, not primary bounty
-targets. They are useful for learning the affected code path, root-cause class,
-test strategy, intro/fix timeline, duplicate risk, and nearby invariants, but
-they are usually low ROI as direct research fronts.
-
-Do not spend a round trying to resurrect the exact fixed, known, or TODO-marked
-issue unless there is a concrete new reason:
-
-- incomplete fix on a supported current version;
-- bypass of the patch or added test;
-- reachable variant in a different supported component;
-- regression introduced after the fix;
-- exceptional exploit chain impact that goes beyond the known issue.
-
-If the only signal is "there was a fix", "there is a TODO/FIXME", "a changelog
-mentions security", or "tests were added", downgrade it to intel/watchlist and
-move the round toward higher-ROI surfaces.
+For Codex subagents, the coordinator should read the relevant contract and
+inline the role requirements into the subagent prompt together with objective,
+surface, evidence, and kill criteria.
 
 ## Validation Gates
 
@@ -289,387 +227,19 @@ G10: old/obvious classes have exceptional impact or are killed.
 G11: PoC does not depend on artificial lab help.
 ```
 
-Before any vulnerability claim, run an explicit pre-claim review:
+Do not say "novel", "not known", or "report-grade" unless local dedupe,
+public-known/timeline, negative controls, attacker model, and Skeptic review are
+recorded. If public intel tooling is unavailable, status remains `Candidate` or
+`Watchlist`.
 
-```text
-Libris/intel:
-- search local findings, reports, changelogs, advisories, CVEs/GHSAs, issues,
-  PRs, releases, discussions, docs, tests, and public writeups;
-- identify affected versions and the likely introduction commit, PR, release,
-  or feature window;
-- record exact queries, sources, dates checked, and why the behavior is not
-  already known, documented, patched, or expected.
-
-Skeptic:
-- argue the strongest case that the candidate is expected, duplicate,
-  integration-only, misused, lab-created, low impact, or missing an attacker
-  boundary;
-- require evidence-backed rebuttals for each argument;
-- block report-grade promotion if any refutation remains unresolved.
-```
-
-Do not say "not known" or "novel" unless the intel/timeline search is recorded.
-If internet access or public intel tooling is unavailable, status must remain
-`Candidate` or `Watchlist`, not `Report-grade`.
-
-Immediate kill reasons:
-
-- expected/documented behavior;
-- duplicate;
-- no realistic attacker boundary;
-- weak crash or weak DoS;
-- integration-only;
-- explicitly unsafe configuration only;
-- lab-created behavior;
-- unresolved Skeptic refutation;
-- incomplete public intel or timeline;
-- exact known/fixed/TODO issue without bypass, regression, incomplete-fix, or
-  exceptional-chain evidence;
-- stale UI or metadata without authority;
-- old trivial bug with weak impact.
-
-## Structured Memory
-
-Use the Proteus runtime when available. The memory database lives in the target
-workspace under `.vros/memory.sqlite`; Markdown files under `.vros/exports/`
-are exports, not the source of truth.
-
-Use global learnings for reusable cross-target memory, not target-specific
-evidence. Global learnings live under `~/.vros/global.sqlite` and may store user
-preferences, research heuristics, validation patterns, anti-patterns, targeting
-strategy, tooling notes, and playbook material.
-
-Use memory commands as part of the research loop, not as bookkeeping after the
-fact. The coordinator should update memory whenever the result changes future
-work:
-
-- Run `proteus init --root <target-root> --name <target>` before any target
-  memory operation if the target has not already been initialized. Do not call
-  `ingest`, `plan-round`, `record`, `query`, `show`, `update surface`, `lab`, or
-  `export` against an uninitialized target. A fresh init creates an empty target
-  contract; it does not create generic impact classes or surface categories.
-- Use `proteus status` at the start of a session or after reinstalling/runtime
-  changes to confirm the target is initialized and to see whether SQL memory
-  already contains sources, hypotheses, decisions, rounds, and agent outputs. If
-  status says the target is not initialized, run `proteus init` immediately.
-- Use `proteus list rounds --status active` before planning or delegating. If an
-  active round exists, treat it as the current research goal: read it with
-  `proteus show round <id>`, continue its tasks, and only write a replacement
-  after pausing, completing, or blocking the current plan.
-- If legacy state contains many old `planned` rounds, do not treat them as a
-  backlog by default. First inspect them, then use
-  `proteus update rounds --from planned --status superseded --keep-latest` or
-  MCP `proteus_update_rounds` to neutralize stale planned records while keeping
-  only the newest intentionally prepared plan.
-- Use `proteus ingest` when local prior work exists in `findings/`, `REPORTS/`,
-  `reports/`, `docs/`, or target-specific research logs. Re-run it after adding
-  or editing important local notes; `unchanged` means the same content hash is
-  already in memory.
-- Use `proteus record surface` when the coordinator selects, scopes, covers, or
-  downgrades a target-specific component or area. A surface should have a name,
-  family, files when known, status, and a revisit condition.
-- Use `proteus list surfaces` and `proteus query surfaces` before assigning an
-  agent front so you do not reopen exhausted, low-ROI, blocked, or watchlisted
-  areas without a fresh reason.
-- Use `proteus query duplicates` before spending time on a candidate, primitive,
-  root cause, or impact claim. It is a narrow report/finding duplicate check,
-  not a general memory search. Treat results as prior coverage hints, not
-  automatic kills. If a result looks relevant, call
-  `proteus show <entityType> <id>` and read the full record before deciding.
-- Use `proteus query memory` alongside `proteus query duplicates` before
-  selecting a surface for a round, writing `round-input.json`, or delegating an
-  agent front. `query memory` is where broad target notes, docs, research logs,
-  prior operator comments, and loose context may appear. Use it to understand
-  why an area may be high ROI, low ROI, blocked, already noisy, or worth
-  revisiting. Do not treat a broad memory hit as a duplicate verdict unless a
-  full record shows actual prior coverage.
-- Use `proteus query memory` for broad exploratory search when you need raw text
-  recall. Do not use broad FTS results as a duplicate verdict without checking
-  the full record.
-- Use specific structured views for dedupe context before making strategic
-  decisions: `proteus list decisions`, `proteus list evidence`,
-  `proteus list gates`, `proteus list surfaces`, and targeted
-  `proteus query surfaces` calls. These are better than a broad duplicate check
-  for answering "was this area already killed, gated, blocked, downgraded, or
-  covered?"
-- Use `proteus record hypothesis` as soon as a concrete candidate, watchlist
-  item, or discarded idea has a name, primitive, attacker boundary, and impact
-  claim. Record weak or killed ideas too if they are likely to be rediscovered.
-- Use `proteus record evidence` for command output, PoC results, negative
-  controls, code-reading notes, docs/intel references, and other facts that
-  support or kill a hypothesis.
-- Use `proteus record gate` whenever a validation gate becomes pending, passes,
-  fails, is blocked, or is not applicable. Gates are separate records so the
-  coordinator can list them without mixing them into generic notes.
-- Use `proteus list gates --entity-type hypothesis --entity-id <id>` before
-  promoting a candidate. Missing or unresolved gates keep the candidate below
-  report-grade.
-- Use `proteus record decision` whenever the coordinator promotes, downgrades,
-  discards, blocks, or keeps watching an entity. The reason should be specific
-  enough that a later agent can avoid repeating the same path.
-- Use `proteus record agent-output` after Argus, Loom, Chaos, Libris, Mimic,
-  Artificer, Skeptic, or Cicada returns. Record covered areas, live candidates, killed
-  hypotheses, probes, uncovered areas, and validation status.
-- Use `proteus update round` when the plan state changes. Set it to `paused`
-  when parking a round, `active` when resuming it, `completed` when stop
-  conditions are satisfied or the round has been fully integrated, and `blocked`
-  when external access, tooling, or user input is required. Set old or replaced
-  plans to `superseded` instead of leaving them as `planned`.
-- Use `proteus update surface` when a surface is covered, exhausted, low ROI,
-  blocked, or watchlisted. Always include a revisit condition that explains what
-  would make the surface worth reopening. Do not use it to invent a surface;
-  create the surface first with `proteus record surface`.
-- Use `proteus learn add` only for reusable cross-target lessons: user
-  preferences, validation patterns, anti-patterns, tooling notes, and general
-  strategy. Do not store target-specific evidence as a global learning.
-- Use `proteus export` when the user needs readable artifacts or when ending a
-  substantial round. Do not treat exports as the canonical database. If an
-  export sidecar is created because a manual file already existed, preserve the
-  manual file and use the sidecar only as the latest generated view.
-
-Preferred command flow:
-
-```text
-proteus init --root <target-root> --name <target>
-proteus ingest --root <target-root> findings REPORTS reports docs
-proteus observe --root <target-root>
-proteus query memory --root <target-root> "<surface or target context>"
-proteus list rounds --root <target-root> --status active
-proteus list surfaces --root <target-root>
-proteus record surface --root <target-root> --name "<surface>" --family "<family>" --files "a,b" --status active --revisit "<condition>"
-proteus plan-round --root <target-root> --objective "<objective>" --plan-json round-input.json --status active --write
-proteus show --root <target-root> round <id>
-proteus query duplicates --root <target-root> "<candidate text>"
-proteus show --root <target-root> <entityType> <id>
-proteus record hypothesis --root <target-root> --title "<title>" --impact "<impact>"
-proteus record evidence --root <target-root> --title "<title>" --kind "<kind>" --body "<fact>"
-proteus record gate --root <target-root> --entity-type hypothesis --entity-id <id> --gate "<gate>" --status pass --summary "<why>"
-proteus list gates --root <target-root> --entity-type hypothesis --entity-id <id>
-proteus record agent-output --root <target-root> --round-id <id> --role argus --surface "<surface>"
-proteus update round --root <target-root> --id <id> --status completed
-proteus update rounds --root <target-root> --from planned --status superseded --keep-latest
-proteus update surface --root <target-root> --id <id> --status exhausted --revisit "<condition>"
-proteus lab create --root <target-root> --candidate-id <id> --name <name>
-proteus learn query --root <target-root> --target-scope
-proteus learn add --category validation_pattern --scope "<scope>" --title "<title>" --body "<lesson>"
-proteus export --root <target-root>
-```
-
-If the runtime is unavailable, keep files in the target workspace under
-`.vros/exports/` using the same schema names:
-
-```text
-surface-map.md
-candidate-register.md
-validation-gates.md
-discarded.md
-watchlist.md
-research-log.md
-round-plan-<id>.md
-```
-
-Each meaningful decision must record:
-
-- entity;
-- decision;
-- reason;
-- evidence;
-- revisit condition.
-
-Discarded hypotheses are valuable. Record enough detail so future rounds do not
-repeat them.
-
-Global learnings must be scoped and conservative. Do not record a target finding
-as a global truth. Use global memory for reusable lessons such as "prefer WSL for
-Linux-first stacks", "reject SDK reports whose root cause is only an insecure
-integration", or "the user prefers realistic exploitability over weak
-best-practice claims".
-
-## Agent Fronts
-
-Use these fronts as reusable splits:
-
-- Argus: component-level review. Inspects local primitives and covered modules.
-- Loom: macro/chaining analysis. Connects components into emergent attack paths.
-- Chaos: fuzzing and edge-case generation. Produces anomaly matrices and probes.
-- Libris: docs/contract verification. Checks official docs, tests, issues,
-  advisories, public-known behavior, and intro/fix timeline.
-- Mimic: runtime/adapter/environment divergence. Compares supported modes and
-  deployment profiles.
-- Artificer: PoC builder. Creates realistic labs and didactic validation.
-- Skeptic: devil's advocate. Tries to refute, downgrade, or kill the finding.
-- Cicada: exploit-development and bypass/chaining. Use only when a branch
-  already has meaningful signal but needs bypass, chaining, reliability, or
-  impact-proof work.
-
-Artificer starts only after initial gates pass. Skeptic starts only after
-technical evidence exists. Cicada starts only after a branch has concrete signal
-and a known blocker. A candidate cannot become report-grade until Skeptic and
-Libris have both produced recorded outputs for the pre-claim review.
-
-When the host supports subagents or parallel delegated work, use the packaged
-role contracts as the source of truth for delegated fronts. These contracts must
-be resolved from the Proteus plugin/package location, never from the target
-workspace.
-
-Role contract filenames:
-
-```text
-proteus-argus.md
-proteus-loom.md
-proteus-chaos.md
-proteus-libris.md
-proteus-mimic.md
-proteus-artificer.md
-proteus-skeptic.md
-proteus-cicada.md
-```
-
-Resolve contracts in this order:
-
-```text
-1. From this skill file:
-   <SKILL.md directory>/../../agents/<contract>.md
-
-2. From the host-exposed Proteus plugin root, when available:
-   <proteus plugin root>/agents/<contract>.md
-
-3. From an installed Codex plugin cache:
-   $CODEX_HOME/plugins/cache/proteus-marketplace/proteus/*/agents/<contract>.md
-   or ~/.codex/plugins/cache/proteus-marketplace/proteus/*/agents/<contract>.md
-
-4. In Claude Code, prefer the native installed plugin subagents shown in
-   `/agents`; only use filesystem lookup if Claude exposes the installed
-   Proteus plugin package root.
-```
-
-For Codex, the coordinator should read the relevant contract itself and inline
-the role requirements into the spawned subagent prompt together with the
-target-specific surface, files, objective, evidence, and kill criteria. Do not
-ask the spawned subagent to open these paths from the target workspace.
-
-For Claude Code, these same files are plugin subagents and should appear in
-`/agents` after installation. Even there, the coordinator should still provide
-the specific objective, target context, evidence, and stop criteria for each
-delegation.
-
-If the host has no subagent facility, use the contracts as local execution
-checklists.
-
-## Packaged Templates
-
-Use the packaged templates when creating structured handoff files, report
-drafts, labs, or exports outside the CLI-generated defaults. Templates must be
-resolved from the Proteus plugin/package location, never from the target
-workspace.
-
-Template filenames:
-
-```text
-base-research-contract.md
-research-contract.md
-round-plan.md
-candidate-register.md
-report-draft.md
-```
-
-Resolve templates in this order:
-
-```text
-1. From this skill file:
-   <SKILL.md directory>/../../templates/<template>.md
-
-2. From the host-exposed Proteus plugin root, when available:
-   <proteus plugin root>/templates/<template>.md
-
-3. From an installed Codex plugin cache:
-   $CODEX_HOME/plugins/cache/proteus-marketplace/proteus/*/templates/<template>.md
-   or ~/.codex/plugins/cache/proteus-marketplace/proteus/*/templates/<template>.md
-
-4. In Claude Code, use the installed Proteus plugin package root if the host
-   exposes it. Otherwise, follow the report and memory structure described in
-   this skill.
-```
-
-If a packaged template is unavailable, recreate the same section structure from
-this skill instead of inventing a new format.
-
-## Lab Rules
-
-Allowed:
-
-- default or documented config;
-- normal correct-practice setup;
-- realistic users, roles, tenants, projects, tokens, and fixtures;
-- local reproduction of externally reachable flows;
-- negative controls.
-
-Not allowed:
-
-- disabling security controls without documentation;
-- patching target code to create the bug;
-- relying on test-only bypasses;
-- treating debug-only behavior as production impact without scope support;
-- removing the real attacker boundary.
-
-## Report Draft Rules
-
-Write report drafts for triage, not for internal project documentation. The
-reader should understand the bug, impact, and reproduction path without knowing
-Proteus, the workspace, the agent roles, or the research process.
-
-Style:
-
-- use natural, direct language;
-- be concise, didactic, and specific;
-- explain the root cause in simple terms before going deep;
-- explain impact as a realistic attacker scenario, not as abstract severity;
-- avoid unnecessary sections, filler, and process narration;
-- avoid LLM-style phrasing such as "this is not about X, it is about Y";
-- avoid em dashes, ornate transitions, and generic hype;
-- do not mention Proteus, `.vros`, internal memory, subagents, local workspace
-  paths, or "Skeptic/Libris/Artificer" in the submitted report;
-- preserve uncertainty where evidence is incomplete.
-
-Required report substance:
-
-```text
-Title:
-CWE:
-Summary:
-Root cause, when applicable:
-PoC details, when applicable:
-Steps to reproduce:
-Impact:
-```
-
-Only include sections that help triage. If a program has its own template, map
-the same substance into that template instead of forcing this exact structure.
-Add other sections only when the program asks for them or the triage context
-specifically needs them.
-
-PoC presentation:
-
-- prefer manual, blackbox-style reproduction steps when possible;
-- use `curl`, browser actions, HTTP requests, CLI commands, or normal attacker
-  workflows before abstract automated harnesses;
-- if automation is necessary, also explain the underlying manual sequence;
-- present the PoC as a realistic high-impact scenario with attacker and victim
-  roles, tenants, projects, tokens, or resources;
-- make every step understandable to someone with zero prior context;
-- include short snippets only when they clarify how the PoC works;
-- explain what each snippet does and what output proves the issue;
-- keep negative controls visible so triage can distinguish the bug from lab
-  setup or misconfiguration.
-
-## Output Verdicts
+## Verdicts
 
 Use consistent verdicts:
 
 ```text
 Report-grade:
-Root cause, exploit path, impact, docs/contract, negative controls, local dedupe,
-public intel/timeline, and Skeptic rebuttal are strong.
+Root cause, exploit path, impact, docs/contract, negative controls, local
+dedupe, public intel/timeline, and Skeptic rebuttal are strong.
 
 Candidate:
 Primitive is real, but one or more gates need validation.
@@ -683,4 +253,25 @@ impact.
 
 Playbook material:
 Useful technique for other targets, but not a report against this target.
+```
+
+Discarded and watchlisted work is valuable. Record why it was killed or parked,
+what would reopen it, and what later agents should avoid repeating.
+
+## Final Output
+
+When ending a round or handoff, report:
+
+```json
+{
+  "campaignState": "...",
+  "confirmed": [],
+  "killed": [],
+  "openBranches": [],
+  "highestRoiNextMove": "...",
+  "recordsCreated": [],
+  "validationStatus": {},
+  "remainingBlockers": [],
+  "contractSignature": {}
+}
 ```

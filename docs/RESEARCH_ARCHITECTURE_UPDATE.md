@@ -62,6 +62,7 @@ Split the current broad `continuous-vuln-research` guidance into precise skills 
 - `proteus:coordinator`: campaign and round orchestration, dedupe, state recovery, branch selection, promotion and kill decisions.
 - `proteus:codebase-research`: code reading, architecture, dataflow, trust boundaries, recent diffs.
 - `proteus:web-intel`: docs, changelogs, advisories, maintainer comments, expected behavior, duplicate risk.
+- `proteus:web-research`: authorized web workflow mapping, blackbox/graybox probes, endpoint behavior, and web side-effect discovery.
 - `proteus:chaining`: heuristic chaining, authority transitions, primitive strengthening, cross-component reasoning.
 - `proteus:fuzzing`: harness and oracle design, stateful probes, differential testing, mutation strategy.
 - `proteus:poc-exploit`: lab construction, exploit reliability, negative controls, impact validation.

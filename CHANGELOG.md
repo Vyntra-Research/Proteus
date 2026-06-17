@@ -11,7 +11,8 @@
 - Deterministic similarity query that separates duplicate/report coverage from broader memory matches.
 - Auto-linking from the single active campaign to newly recorded hypotheses, evidence, decisions, validation gates, and specialist outputs.
 - Database-level Proteus version metadata so automatic migrations run only when the stored base version is missing or differs from the runtime version.
-- Modular Proteus skills for chaining, fuzzing, codebase research, web intel, PoC/exploit work, and checkpoints.
+- Modular Proteus skills for chaining, fuzzing, codebase research, web intel, web research, PoC/exploit work, and checkpoints.
+- Expanded individual skill contracts with professional heuristics for non-obvious chaining, calibrated fuzzing, active codebase learning, realistic PoCs, and intelligence-driven pivots.
 - Cicada specialist role for advanced exploit development, bypass work, and chaining on already-promising targets.
 - Shared base research contract requiring realistic exploitability, anti-slop validation, dedupe, public-known checks, and explicit contract attestation.
 - GitHub Actions CI and tag-based release automation for `v*` tags.
