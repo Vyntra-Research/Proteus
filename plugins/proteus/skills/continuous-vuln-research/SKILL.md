@@ -258,6 +258,19 @@ Useful technique for other targets, but not a report against this target.
 Discarded and watchlisted work is valuable. Record why it was killed or parked,
 what would reopen it, and what later agents should avoid repeating.
 
+## Report Writing Discipline
+
+When drafting a report, follow any user, program, or platform template first.
+Do not invent extra sections or heavy formatting unless they are necessary for
+triage. Write for a human triager with zero context: natural, objective,
+concise, and precise.
+
+The report should explain the flaw, realistic impact, attacker boundary, target
+root cause, and PoC legitimacy organically, usually inside the summary and the
+existing template fields. Do not turn validation gates into a visible checklist,
+questionnaire, or legal-style document. Do not mention Proteus, internal memory,
+agent roles, workspace paths, or research workflow in a submitted report.
+
 ## Final Output
 
 When ending a round or handoff, report:

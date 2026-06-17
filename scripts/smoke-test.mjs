@@ -476,6 +476,11 @@ try {
       throw new Error(`report draft missing expected section: ${section}`);
     }
   }
+  for (const guidance of ["follow that structure first", "should not read like a legal document", "Anticipate the triager's likely questions organically"]) {
+    if (!reportDraft.includes(guidance)) {
+      throw new Error(`report draft missing writing guidance: ${guidance}`);
+    }
+  }
 
   console.log(`Proteus smoke test passed: ${tmpRoot}`);
 } finally {

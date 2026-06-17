@@ -118,10 +118,28 @@ objections, keep the verdict at Candidate or Watchlist.
 
 ## Report Draft Discipline
 
-Write reports for triage, not for Proteus. Use natural, concise language.
-Avoid em dashes, filler, unnecessary sections, and phrases like "this is not
-about X, it is about Y". Do not mention Proteus, `.vros`, Claude subagents,
-workspace paths, or internal workflow in a submitted report.
+Write reports for triage, not for Proteus. If the user, program, or platform
+provides a template or custom instructions, follow that structure first. Do not
+add extra sections that are not in the template unless they are truly necessary
+for triage.
+
+Use natural, objective, concise language. The report should not read like a
+legal document, a checklist, a questionnaire, or an AI-generated worksheet. A
+human with zero prior context should understand the flaw in simple terms, the
+realistic impact, and the reproduction path without reading internal research
+notes.
+
+Include likely triager questions organically in the prose, usually in the
+summary or existing template fields: why the attacker boundary is realistic, why
+the target owns the root cause, why the behavior is not expected, what the
+victim loses, and why the PoC is not a lab artifact. Do not create a separate
+section for every gate or validation concern unless the supplied template asks
+for it.
+
+Avoid em dashes, filler, unnecessary sections, long bullet lists, legalistic
+caveats, generic hype, and phrases like "this is not about X, it is about Y".
+Do not mention Proteus, `.vros`, Claude subagents, workspace paths, memory
+records, or internal workflow in a submitted report.
 
 Prefer manual blackbox reproduction with browser actions, HTTP requests, `curl`,
 or normal CLI commands. If automation is necessary, explain the manual flow it

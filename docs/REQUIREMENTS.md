@@ -203,7 +203,14 @@ handoff.
 Requirements:
 
 - use natural, concise, didactic language;
+- follow user, program, or platform templates when provided;
 - avoid unnecessary formatting and sections;
+- avoid adding sections that do not exist in the supplied template unless they
+  are truly required for triage;
+- include likely triager questions organically in the summary or existing
+  fields instead of turning validation gates into a visible checklist;
+- avoid legalistic tone, long bullet lists, questionnaire-style writing, and
+  report text that feels artificially generated;
 - avoid LLM-style phrasing, em dashes, filler, and generic hype;
 - do not mention Proteus, `.vros`, internal workspace paths, memory, or agent
   roles in the submitted report;

@@ -35,8 +35,9 @@ negative controls, and PoC validation without artificial lab help.
   the terminal, Codex, Claude Code, or other MCP-capable assistants.
 - Realistic PoC lab scaffolding with attacker model, documented/default config,
   negative controls, limitations, and evidence capture.
-- Triage-ready report draft guidance that favors natural language, concise root
-  cause explanation, realistic impact scenarios, and manual blackbox-style PoCs.
+- Triage-ready report draft guidance that follows user/program templates,
+  favors natural language, concise root-cause explanation, realistic impact
+  scenarios, and manual blackbox-style PoCs.
 
 ## Install
 
