@@ -564,7 +564,37 @@ class ProteusDb {
         version TEXT PRIMARY KEY,
         applied_at TEXT NOT NULL
       );
-
+    `);
+        this.applyMigration("2026-05-17-validation-gates-surfaces-and-focused-duplicates", BASE_SCHEMA_SQL);
+        this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL);
+    }
+    applyMigration(version, sql) {
+        const existing = this.db
+            .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+            .get(version);
+        if (existing)
+            return;
+        this.db.exec("BEGIN");
+        try {
+            this.db.exec(sql);
+            this.db
+                .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+                .run(version, nowIso());
+            this.db.exec("COMMIT");
+        }
+        catch (error) {
+            this.db.exec("ROLLBACK");
+            throw error;
+        }
+    }
+    indexFts(entityType, entityId, content) {
+        this.db
+            .prepare("INSERT INTO proteus_fts (entity_type, entity_id, content) VALUES (?, ?, ?)")
+            .run(entityType, entityId, content);
+    }
+}
+exports.ProteusDb = ProteusDb;
+const BASE_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS targets (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
@@ -688,6 +718,42 @@ class ProteusDb {
         completed_at TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS labs (
+        id INTEGER PRIMARY KEY,
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        candidate_id INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        config_legitimacy TEXT NOT NULL,
+        status TEXT NOT NULL,
+        limitations TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS agent_outputs (
+        id INTEGER PRIMARY KEY,
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        round_id INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+        agent_codename TEXT NOT NULL,
+        agent_role_family TEXT NOT NULL,
+        assigned_surface TEXT NOT NULL,
+        output_path TEXT NOT NULL,
+        covered_surface_json TEXT NOT NULL,
+        live_candidates_json TEXT NOT NULL,
+        killed_hypotheses_json TEXT NOT NULL,
+        probes_json TEXT NOT NULL,
+        uncovered_areas_json TEXT NOT NULL,
+        validation_status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS proteus_fts USING fts5(
+        entity_type,
+        entity_id UNINDEXED,
+        content
+      );
+`;
+const CAMPAIGN_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS campaigns (
         id INTEGER PRIMARY KEY,
         target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
@@ -744,56 +810,7 @@ class ProteusDb {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
-
-      CREATE TABLE IF NOT EXISTS labs (
-        id INTEGER PRIMARY KEY,
-        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
-        candidate_id INTEGER NOT NULL,
-        path TEXT NOT NULL,
-        config_legitimacy TEXT NOT NULL,
-        status TEXT NOT NULL,
-        limitations TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS agent_outputs (
-        id INTEGER PRIMARY KEY,
-        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
-        round_id INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
-        agent_codename TEXT NOT NULL,
-        agent_role_family TEXT NOT NULL,
-        assigned_surface TEXT NOT NULL,
-        output_path TEXT NOT NULL,
-        covered_surface_json TEXT NOT NULL,
-        live_candidates_json TEXT NOT NULL,
-        killed_hypotheses_json TEXT NOT NULL,
-        probes_json TEXT NOT NULL,
-        uncovered_areas_json TEXT NOT NULL,
-        validation_status TEXT NOT NULL,
-        created_at TEXT NOT NULL
-      );
-
-      CREATE VIRTUAL TABLE IF NOT EXISTS proteus_fts USING fts5(
-        entity_type,
-        entity_id UNINDEXED,
-        content
-      );
-
-      INSERT OR IGNORE INTO schema_migrations (version, applied_at)
-      VALUES ('2026-05-17-validation-gates-surfaces-and-focused-duplicates', CURRENT_TIMESTAMP);
-
-      INSERT OR IGNORE INTO schema_migrations (version, applied_at)
-      VALUES ('2026-06-17-campaigns-links-branches', CURRENT_TIMESTAMP);
-    `);
-    }
-    indexFts(entityType, entityId, content) {
-        this.db
-            .prepare("INSERT INTO proteus_fts (entity_type, entity_id, content) VALUES (?, ?, ?)")
-            .run(entityType, entityId, content);
-    }
-}
-exports.ProteusDb = ProteusDb;
+`;
 const duplicateSourceKinds = new Set(["finding", "report"]);
 function toSourceRow(row) {
     return {
