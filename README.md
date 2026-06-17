@@ -329,6 +329,7 @@ easier to trust.
 ```text
 proteus init [--root <path>] [--name <target>]
 proteus status [--root <path>]
+proteus migrate [--root <path>]
 proteus ingest [--root <path>] [paths...]
 proteus observe [--root <path>]
 proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
@@ -386,6 +387,7 @@ The server exposes:
 ```text
 proteus_init
 proteus_status
+proteus_migrate
 proteus_ingest
 proteus_observe
 proteus_plan_round

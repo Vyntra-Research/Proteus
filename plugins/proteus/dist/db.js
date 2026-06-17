@@ -525,6 +525,15 @@ class ProteusDb {
                 : null
         };
     }
+    listMigrations() {
+        return this.db
+            .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY applied_at ASC, version ASC")
+            .all()
+            .map((row) => ({
+            version: String(row.version),
+            appliedAt: String(row.applied_at)
+        }));
+    }
     count(table) {
         const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get();
         return Number(row.count);

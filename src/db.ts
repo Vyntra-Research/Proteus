@@ -837,6 +837,16 @@ export class ProteusDb {
     };
   }
 
+  listMigrations(): MigrationRow[] {
+    return this.db
+      .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY applied_at ASC, version ASC")
+      .all()
+      .map((row: Row) => ({
+        version: String(row.version),
+        appliedAt: String(row.applied_at)
+      }));
+  }
+
   private count(table: string): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as Row;
     return Number(row.count);
@@ -1276,6 +1286,11 @@ export interface MemoryStats {
   labs: number;
   latestSource: { id: number; kind: string; pathOrUrl: string; title: string; createdAt: string } | null;
   latestDecision: { id: number; entityType: string; entityId: number; decision: string; createdAt: string } | null;
+}
+
+export interface MigrationRow {
+  version: string;
+  appliedAt: string;
 }
 
 export interface SourceRow {

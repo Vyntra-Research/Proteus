@@ -69,6 +69,7 @@ try {
   for (const expectedTool of [
     "proteus_init",
     "proteus_status",
+    "proteus_migrate",
     "proteus_ingest",
     "proteus_observe",
     "proteus_plan_round",
@@ -110,6 +111,13 @@ try {
     name: "proteus_init",
     arguments: { root: tmpRoot, name: "mcp-smoke-target" }
   });
+  const migrations = await request("tools/call", {
+    name: "proteus_migrate",
+    arguments: { root: tmpRoot }
+  });
+  if (!String(migrations.content?.[0]?.text ?? "").includes("2026-06-17-campaigns-links-branches")) {
+    throw new Error("proteus_migrate did not report campaigns/links/branches migration");
+  }
   fs.mkdirSync(path.join(tmpRoot, "REPORTS"), { recursive: true });
   fs.writeFileSync(
     path.join(tmpRoot, "REPORTS", "smoke-report.md"),

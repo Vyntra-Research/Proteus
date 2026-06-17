@@ -69,6 +69,18 @@ const tools: ToolDefinition[] = [
       })
   },
   {
+    name: "proteus_migrate",
+    title: "Run Migration Check",
+    description: "Open the target memory database, run idempotent migrations, and return applied migration versions.",
+    inputSchema: schema({ root: stringProp("Target root path.") }, ["root"]),
+    handler: ({ root }) =>
+      withDb(str(root), (db) =>
+        toolEnvelope({
+          migrations: db.listMigrations()
+        })
+      )
+  },
+  {
     name: "proteus_ingest",
     title: "Ingest Prior Research",
     description: "Index local docs, findings, reports, and notes into Proteus memory.",

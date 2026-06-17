@@ -44,6 +44,9 @@ function main(): void {
       case "status":
         cmdStatus(db);
         break;
+      case "migrate":
+        cmdMigrate(db);
+        break;
       case "ingest":
         cmdIngest(db, parsed.command.slice(1));
         break;
@@ -148,6 +151,14 @@ function cmdStatus(db: ProteusDb): void {
     console.log(
       `Latest decision: decision#${stats.latestDecision.id} ${stats.latestDecision.decision} ${stats.latestDecision.entityType}#${stats.latestDecision.entityId}`
     );
+  }
+}
+
+function cmdMigrate(db: ProteusDb): void {
+  const migrations = db.listMigrations();
+  console.log(`Migration check complete: ${migrations.length} applied`);
+  for (const migration of migrations) {
+    console.log(`- ${migration.version} @ ${migration.appliedAt}`);
   }
 }
 
@@ -924,6 +935,7 @@ function printHelp(): void {
 Usage:
   proteus init [--root <path>] [--name <target>]
   proteus status [--root <path>]
+  proteus migrate [--root <path>]
   proteus ingest [--root <path>] [paths...]
   proteus observe [--root <path>]
   proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]

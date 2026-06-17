@@ -81,6 +81,10 @@ try {
   if (!migratedStatus.includes("legacy-target") || !migratedStatus.includes("Gates: 0")) {
     throw new Error("legacy memory migration did not preserve target and create new gate schema");
   }
+  const migratedVersions = run(["migrate", "--root", legacyRoot], legacyRoot);
+  if (!migratedVersions.includes("2026-06-17-campaigns-links-branches")) {
+    throw new Error("migrate did not report the campaigns/links/branches migration");
+  }
   run([
     "record",
     "gate",
