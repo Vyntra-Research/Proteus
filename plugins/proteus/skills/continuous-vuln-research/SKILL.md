@@ -29,8 +29,9 @@ use them to make Proteus more efficient and less repetitive:
 - If subagents or parallel delegation are available and allowed by the session,
   use them for independent, bounded Proteus fronts instead of doing every front
   serially in the coordinator context.
-- Map each delegated subagent to one Proteus codename and one bounded surface:
-  Argus, Loom, Chaos, Libris, Mimic, Artificer, or Skeptic.
+- Map each delegated subagent to one Proteus codename and one bounded surface
+  or branch: Argus, Loom, Chaos, Libris, Mimic, Artificer, Skeptic, or
+  Cicada.
 - Keep the coordinator responsible for target strategy, memory updates, ROI
   selection, validation gates, kill/promote decisions, and replanning.
 - If goal/campaign mode, subagents, MCP tools, or the CLI are unavailable,
@@ -41,6 +42,33 @@ Do not use subagents for vague repo-wide review. Do not use persistent
 goal/campaign mode without a user-requested persistent objective. These
 capabilities improve orchestration; they do not weaken the evidence,
 validation, or anti-slop gates.
+
+## Base Research Contract
+
+All Proteus roles must continuously follow the packaged base research contract
+in `plugins/proteus/templates/base-research-contract.md`.
+
+Do not reduce research to a fixed list of bug classes. Work through primitives,
+invariants, trust boundaries, state transitions, interpretation gaps, competing
+sources of truth, and capability amplification.
+
+Every specialist output, checkpoint, and final round summary must include a
+short `contractSignature` object with:
+
+```json
+{
+  "status": "compliant|deviated|blocked",
+  "signedBy": "proteus-role-name",
+  "attackerModel": "...",
+  "heuristicCoverage": [],
+  "antiSlopCheck": "...",
+  "deviations": [],
+  "deviationRepair": null
+}
+```
+
+If the role deviated from the contract, it must name the deviation, repair it,
+and continue from the corrected state.
 
 ## Coordinator Loop
 
@@ -112,6 +140,13 @@ work. Do not create a fresh active plan when an existing active plan already
 describes the current objective; update, complete, pause, block, or supersede
 the existing plan first.
 
+When a campaign is active, treat it as the durable container above rounds. Use
+`proteus campaign resume` or MCP `proteus_campaign_resume` before planning,
+delegating, or recording substantial state. Link important rounds, branches,
+evidence, decisions, labs, and agent outputs back to the campaign when the MCP
+advisory output suggests doing so. Use checkpoints to compress confirmed facts,
+killed paths, open branches, pivots, score changes, and the next high-ROI move.
+
 Do not ask Proteus runtime commands to generate rational security knowledge.
 Use them to initialize, ingest, observe factual environment data, query memory,
 record evidence, and render explicitly supplied planning content. Query global
@@ -123,8 +158,8 @@ exports for human reading, not the primary state store. Use
 `proteus query duplicates` only for duplicate checks against ingested finding
 and report records. Use `proteus query memory` for broad exploratory full-text
 search across hypotheses, decisions, evidence, validation gates, rounds,
-surfaces, reports, docs, watchlists, discarded paths, candidate registers, and
-agent outputs. Use `proteus list ...` for structured category views and
+campaigns, branches, surfaces, reports, docs, watchlists, discarded paths,
+candidate registers, and agent outputs. Use `proteus list ...` for structured category views and
 `proteus show <entityType> <id>` when the full record is needed.
 
 `proteus init` is intentionally empty beyond factual target identity. It must
@@ -373,7 +408,7 @@ work:
   discards, blocks, or keeps watching an entity. The reason should be specific
   enough that a later agent can avoid repeating the same path.
 - Use `proteus record agent-output` after Argus, Loom, Chaos, Libris, Mimic,
-  Artificer, or Skeptic returns. Record covered areas, live candidates, killed
+  Artificer, Skeptic, or Cicada returns. Record covered areas, live candidates, killed
   hypotheses, probes, uncovered areas, and validation status.
 - Use `proteus update round` when the plan state changes. Set it to `paused`
   when parking a round, `active` when resuming it, `completed` when stop
@@ -463,10 +498,14 @@ Use these fronts as reusable splits:
   deployment profiles.
 - Artificer: PoC builder. Creates realistic labs and didactic validation.
 - Skeptic: devil's advocate. Tries to refute, downgrade, or kill the finding.
+- Cicada: exploit-development and bypass/chaining. Use only when a branch
+  already has meaningful signal but needs bypass, chaining, reliability, or
+  impact-proof work.
 
 Artificer starts only after initial gates pass. Skeptic starts only after
-technical evidence exists. A candidate cannot become report-grade until Skeptic
-and Libris have both produced recorded outputs for the pre-claim review.
+technical evidence exists. Cicada starts only after a branch has concrete signal
+and a known blocker. A candidate cannot become report-grade until Skeptic and
+Libris have both produced recorded outputs for the pre-claim review.
 
 When the host supports subagents or parallel delegated work, use the packaged
 role contracts as the source of truth for delegated fronts. These contracts must
@@ -483,6 +522,7 @@ proteus-libris.md
 proteus-mimic.md
 proteus-artificer.md
 proteus-skeptic.md
+proteus-cicada.md
 ```
 
 Resolve contracts in this order:
@@ -526,6 +566,7 @@ workspace.
 Template filenames:
 
 ```text
+base-research-contract.md
 research-contract.md
 round-plan.md
 candidate-register.md

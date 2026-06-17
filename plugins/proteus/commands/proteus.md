@@ -89,7 +89,8 @@ When Claude Code subagents are available, delegate bounded independent fronts:
 - `proteus-libris`: docs, contract, public intel, and timeline verification;
 - `proteus-mimic`: runtime, adapter, and environment divergence;
 - `proteus-artificer`: realistic PoC/lab/report-draft construction;
-- `proteus-skeptic`: devil's advocate and pre-claim refutation.
+- `proteus-skeptic`: devil's advocate and pre-claim refutation;
+- `proteus-cicada`: exploit-development, bypass, and chaining for branches with concrete signal.
 
 Never delegate "review the repo". Assign one surface, one heuristic family,
 expected evidence, and kill criteria.

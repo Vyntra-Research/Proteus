@@ -25,7 +25,9 @@ negative controls, and PoC validation without artificial lab help.
 - ROI-based surface planning to avoid wandering through the same low-signal
   areas.
 - Named specialist fronts for repeatable multi-agent research: Argus, Loom,
-  Chaos, Libris, Mimic, Artificer, and Skeptic.
+  Chaos, Libris, Mimic, Artificer, Skeptic, and Cicada.
+- Campaign-scoped state, hypothesis branches, entity links, and MCP advisories
+  so agents can recover active context without searching the whole memory base.
 - Validation gates that aggressively suppress weak hypotheses, duplicates,
   expected behavior, public-known issues, forced-vulnerable configs, and
   lab-created bugs.
@@ -118,7 +120,7 @@ Example prompts:
 
 When available, Proteus should use persistent goal/campaign features for
 long-running objectives and subagents for bounded fronts such as Argus, Loom,
-Chaos, Libris, Mimic, Artificer, and Skeptic. The coordinator still owns
+Chaos, Libris, Mimic, Artificer, Skeptic, and Cicada. The coordinator still owns
 strategy, memory, dedupe, validation gates, and final kill/promote decisions.
 Codex can use the packaged role contracts in `plugins/proteus/agents/*.md` when
 spawning subagents by reading the contract and inlining it into the delegated
@@ -162,6 +164,15 @@ Plan a focused research round:
 ```powershell
 proteus plan-round --root C:\path\to\target --objective "Find high-ROI daemon, archive, indexer, and storage candidates" --plan-json round-input.json --write
 proteus list rounds --root C:\path\to\target --status active
+```
+
+Create or resume campaign-scoped state:
+
+```powershell
+proteus campaign create --root C:\path\to\target --title "Recent-delta research" --objective "Find high-ROI, non-obvious chains"
+proteus campaign resume --root C:\path\to\target
+proteus branch add --root C:\path\to\target --campaign-id 1 --title "Cache authority branch" --primitive "attacker-controlled state transition"
+proteus link --root C:\path\to\target --from-type campaign --from-id 1 --relation has_round --to-type round --to-id 1
 ```
 
 `plan-round` is a structured recorder and scaffold, not an autonomous target
@@ -241,7 +252,7 @@ coordinator:
   - ingests existing findings, reports, docs, and prior research logs
   - observes the repo, toolchain, package managers, tests, and runtime hints
   - builds a round plan with high-ROI surfaces and skipped low-ROI areas
-  - assigns bounded fronts to Argus, Loom, Chaos, Libris, Mimic, Artificer, or Skeptic
+  - assigns bounded fronts to Argus, Loom, Chaos, Libris, Mimic, Artificer, Skeptic, or Cicada
   - records hypotheses, evidence, decisions, killed paths, and revisit conditions
   - promotes only candidates that survive the validation gates
   - replans from what was learned instead of restarting from scratch
@@ -321,15 +332,20 @@ proteus status [--root <path>]
 proteus ingest [--root <path>] [paths...]
 proteus observe [--root <path>]
 proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
+proteus campaign create --title <text> [--objective <text>]
+proteus campaign resume [--id <id>]
+proteus campaign checkpoint --id <id> [--state <text>] [--learnings <text>]
+proteus branch add --title <text> [--campaign-id <id>] [--round-id <id>]
+proteus link --from-type <type> --from-id <id> --relation <text> --to-type <type> --to-id <id>
 proteus roles
-proteus prompt --role <argus|loom|chaos|libris|mimic|artificer|skeptic> --surface <text>
+proteus prompt --role <argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text>
 proteus record surface --name <text> [--family <text>] [--files a,b] [--status active|covered|exhausted|low_roi|blocked|watch]
 proteus record hypothesis --title <text> [--surface-id <id>] [--impact <text>]
 proteus record evidence --title <text> [--kind <kind>] [--body <text>]
 proteus record decision --entity-type <type> --entity-id <id> --decision <text> --reason <text>
 proteus record gate --entity-type <type> --entity-id <id> --gate <G1|...> [--status pending|pass|fail|blocked|not_applicable]
 proteus record agent-output --round-id <id> --role <codename> --surface <text>
-proteus list surfaces|hypotheses|evidence|decisions|gates|rounds [--status <status>] [--limit <n>]
+proteus list surfaces|hypotheses|evidence|decisions|gates|rounds|campaigns|branches|links [--status <status>] [--limit <n>]
 proteus update surface --id <id> [--status exhausted|low_roi|covered|blocked|watch] [--revisit <text>]
 proteus update round --id <id> --status active|paused|completed|blocked|planned|superseded
 proteus update rounds --from planned --status superseded [--keep-latest]
@@ -337,7 +353,7 @@ proteus query duplicates <text>
 proteus query memory <text>
 proteus query revisit <surface>
 proteus query surfaces <text>
-proteus show <source|surface|hypothesis|evidence|decision|gate|round|agent_output|lab> <id>
+proteus show <source|surface|hypothesis|evidence|decision|gate|round|campaign|branch|entity_link|agent_output|lab> <id>
 proteus export [--root <path>]
 proteus lab create --candidate-id <id> [--name <name>]
 proteus learn add --title <text> [--category <category>] [--scope <scope>] [--body <text>] [--tags a,b]
@@ -373,6 +389,12 @@ proteus_status
 proteus_ingest
 proteus_observe
 proteus_plan_round
+proteus_campaign_create
+proteus_campaign_resume
+proteus_campaign_checkpoint
+proteus_campaign_close
+proteus_record_branch
+proteus_link_entities
 proteus_roles
 proteus_prompt
 proteus_query_memory
@@ -396,6 +418,11 @@ proteus_record_global_learning
 proteus_query_global_learnings
 proteus_export_global_learnings
 ```
+
+Record-oriented MCP tools return a compact research-state envelope with the
+main record plus optional advisories, related records, suggested reads, and
+state deltas. Agents should treat those advisories as live context hints, not as
+automatic findings or kills.
 
 You can run it manually for local testing:
 

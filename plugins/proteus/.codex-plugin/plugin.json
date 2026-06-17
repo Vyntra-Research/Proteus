@@ -22,7 +22,7 @@
   "interface": {
     "displayName": "Proteus",
     "shortDescription": "Coordinate professional vulnerability research with memory, strategy, and realistic validation.",
-    "longDescription": "Proteus coordinates structured vulnerability research for arbitrary codebases through named specialist agents: Argus, Loom, Chaos, Libris, Mimic, Artificer, and Skeptic. It emphasizes ROI-based surface selection, anti-revisit memory, realistic validation gates, PoC/lab discipline, and conservative exploitability decisions.",
+    "longDescription": "Proteus coordinates structured vulnerability research for arbitrary codebases through named specialist agents: Argus, Loom, Chaos, Libris, Mimic, Artificer, Skeptic, and Cicada. It emphasizes ROI-based surface selection, campaign state, hypothesis branching, anti-revisit memory, realistic validation gates, PoC/lab discipline, and conservative exploitability decisions.",
     "developerName": "rafabd1",
     "category": "Developer Tools",
     "capabilities": [

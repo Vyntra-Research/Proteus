@@ -182,6 +182,36 @@ try {
     throw new Error("target-scope global learning query did not return expected record");
   }
   run(["plan-round", "--objective", "Smoke high-ROI round", "--write"]);
+  run(["campaign", "create", "--title", "Smoke campaign", "--objective", "Smoke campaign objective"]);
+  const campaignDigest = run(["campaign", "resume"]);
+  if (!campaignDigest.includes('"title": "Smoke campaign"')) {
+    throw new Error("campaign resume did not return active campaign digest");
+  }
+  run([
+    "branch",
+    "add",
+    "--campaign-id",
+    "1",
+    "--round-id",
+    "1",
+    "--title",
+    "Smoke branch",
+    "--primitive",
+    "attacker-controlled transition",
+    "--steps",
+    "step one,step two",
+    "--kill-conditions",
+    "control fails"
+  ]);
+  const branches = run(["branch", "list", "--campaign-id", "1"]);
+  if (!branches.includes("B1 [open] Smoke branch")) {
+    throw new Error("branch list did not return recorded branch");
+  }
+  run(["link", "--from-type", "campaign", "--from-id", "1", "--relation", "has_round", "--to-type", "round", "--to-id", "1"]);
+  const links = run(["list", "links", "--entity-type", "campaign", "--entity-id", "1"]);
+  if (!links.includes("campaign#1 -[has_round]-> round#1")) {
+    throw new Error("list links did not return recorded campaign-round link");
+  }
   const activeRounds = run(["list", "rounds", "--status", "active"]);
   if (!activeRounds.includes("R1 [active]") || !activeRounds.includes("Smoke high-ROI round")) {
     throw new Error("list rounds did not return the active round plan");
@@ -189,6 +219,14 @@ try {
   const roundRecord = run(["show", "round", "1"]);
   if (!roundRecord.includes('"status": "active"') || !roundRecord.includes("Smoke high-ROI round")) {
     throw new Error("show round did not expose active plan status");
+  }
+  const campaignRecord = run(["show", "campaign", "1"]);
+  if (!campaignRecord.includes('"entityType": "campaign"') || !campaignRecord.includes("Smoke campaign")) {
+    throw new Error("show campaign did not return campaign record");
+  }
+  const branchRecord = run(["show", "branch", "1"]);
+  if (!branchRecord.includes('"entityType": "hypothesis_branch"') || !branchRecord.includes("Smoke branch")) {
+    throw new Error("show branch did not return hypothesis branch record");
   }
   run(["update", "round", "--id", "1", "--status", "paused"]);
   const pausedRounds = run(["list", "rounds", "--status", "paused"]);

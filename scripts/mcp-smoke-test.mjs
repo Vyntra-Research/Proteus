@@ -72,6 +72,12 @@ try {
     "proteus_ingest",
     "proteus_observe",
     "proteus_plan_round",
+    "proteus_campaign_create",
+    "proteus_campaign_resume",
+    "proteus_campaign_checkpoint",
+    "proteus_campaign_close",
+    "proteus_record_branch",
+    "proteus_link_entities",
     "proteus_roles",
     "proteus_prompt",
     "proteus_query_duplicates",
@@ -130,6 +136,33 @@ try {
     name: "proteus_plan_round",
     arguments: { root: tmpRoot, objective: "MCP smoke plan", markdown: false }
   });
+  await request("tools/call", {
+    name: "proteus_campaign_create",
+    arguments: { root: tmpRoot, title: "MCP smoke campaign", objective: "MCP smoke campaign objective" }
+  });
+  const campaignDigest = await request("tools/call", {
+    name: "proteus_campaign_resume",
+    arguments: { root: tmpRoot }
+  });
+  if (!String(campaignDigest.content?.[0]?.text ?? "").includes("MCP smoke campaign")) {
+    throw new Error("proteus_campaign_resume did not return campaign digest");
+  }
+  await request("tools/call", {
+    name: "proteus_record_branch",
+    arguments: {
+      root: tmpRoot,
+      campaignId: 1,
+      roundId: 1,
+      title: "MCP smoke branch",
+      attackPrimitive: "attacker-controlled transition",
+      steps: ["step one"],
+      killConditions: ["control fails"]
+    }
+  });
+  await request("tools/call", {
+    name: "proteus_link_entities",
+    arguments: { root: tmpRoot, fromType: "campaign", fromId: 1, relation: "has_round", toType: "round", toId: 1 }
+  });
   const suppliedPlan = await request("tools/call", {
     name: "proteus_plan_round",
     arguments: {
@@ -169,6 +202,13 @@ try {
   });
   if (!String(activePlans.content?.[0]?.text ?? "").includes("MCP coordinator supplied plan")) {
     throw new Error("proteus_list_records did not return active rounds");
+  }
+  const branchRecords = await request("tools/call", {
+    name: "proteus_list_records",
+    arguments: { root: tmpRoot, recordType: "branches", entityType: "campaign", entityId: 1 }
+  });
+  if (!String(branchRecords.content?.[0]?.text ?? "").includes("MCP smoke branch")) {
+    throw new Error("proteus_list_records did not return recorded branches");
   }
   await request("tools/call", {
     name: "proteus_update_round",
