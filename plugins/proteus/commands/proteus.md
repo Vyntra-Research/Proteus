@@ -89,7 +89,8 @@ When Claude Code subagents are available, delegate bounded independent fronts:
 - `proteus-libris`: docs, contract, public intel, and timeline verification;
 - `proteus-mimic`: runtime, adapter, and environment divergence;
 - `proteus-artificer`: realistic PoC/lab/report-draft construction;
-- `proteus-skeptic`: devil's advocate and pre-claim refutation.
+- `proteus-skeptic`: devil's advocate and pre-claim refutation;
+- `proteus-cicada`: exploit-development, bypass, and chaining for branches with concrete signal.
 
 Never delegate "review the repo". Assign one surface, one heuristic family,
 expected evidence, and kill criteria.
@@ -117,10 +118,45 @@ objections, keep the verdict at Candidate or Watchlist.
 
 ## Report Draft Discipline
 
-Write reports for triage, not for Proteus. Use natural, concise language.
-Avoid em dashes, filler, unnecessary sections, and phrases like "this is not
-about X, it is about Y". Do not mention Proteus, `.vros`, Claude subagents,
-workspace paths, or internal workflow in a submitted report.
+Write reports for triage, not for Proteus. If the user, program, or platform
+provides a template or custom instructions, follow that structure first. Do not
+add extra sections that are not in the template unless they are truly necessary
+for triage.
+
+Use natural, objective, concise language. The report should not read like a
+legal document, a checklist, a questionnaire, or an AI-generated worksheet. A
+human with zero prior context should understand the flaw in simple terms, the
+realistic impact, and the reproduction path without reading internal research
+notes.
+
+Include likely triager questions organically in the prose, usually in the
+summary or existing template fields: why the attacker boundary is realistic, why
+the target owns the root cause, why the behavior is not expected, what the
+victim loses, and why the PoC is not a lab artifact. Do not create a separate
+section for every gate or validation concern unless the supplied template asks
+for it.
+
+Avoid em dashes, filler, unnecessary sections, long bullet lists, legalistic
+caveats, generic hype, and phrases like "this is not about X, it is about Y".
+Do not mention Proteus, `.vros`, Claude subagents, workspace paths, memory
+records, or internal workflow in a submitted report.
+
+When adjusting a report, write the final report text for the external triager.
+Do not answer the user, narrate the edit, cite local workspace details, or keep
+context that only exists in the local research session.
+
+Avoid common LLM habits: defensive phrasing, unnecessary caveats, reframing the
+Impact section around what the issue is not, headings or transitions like "Why
+this matters", "This matters", or "This is security relevant because", and em
+dashes.
+
+Impact should preferably be bullet points listing concrete impacts only. Do not
+use Impact to explain prerequisites, caveats, or why the bug is security
+relevant. Put necessary conditions in the Summary, PoC Details, or Limitations.
+
+Steps To Reproduce should keep each step to an action title and expected output.
+Do not include long redundant explanations in the numbered steps. Put output
+interpretation in PoC Details or immediately after the steps.
 
 Prefer manual blackbox reproduction with browser actions, HTTP requests, `curl`,
 or normal CLI commands. If automation is necessary, explain the manual flow it

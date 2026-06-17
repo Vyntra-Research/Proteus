@@ -19,7 +19,9 @@ import type {
   RoundStatus,
   SurfaceInput,
   TargetContract,
-  ValidationGateInput
+  ValidationGateInput,
+  CampaignStatus,
+  BranchStatus
 } from "./types";
 
 const emitWarning = process.emitWarning;
@@ -31,6 +33,7 @@ process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
 }) as typeof process.emitWarning;
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 process.emitWarning = emitWarning;
+const CURRENT_PROTEUS_VERSION = packageVersion();
 
 export class ProteusDb {
   readonly targetRoot: string;
@@ -44,7 +47,7 @@ export class ProteusDb {
     this.db = new DatabaseSync(this.dbPath);
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA journal_mode = WAL;");
-    this.migrate();
+    this.migrateIfNeeded();
   }
 
   close(): void {
@@ -340,6 +343,369 @@ export class ProteusDb {
     return this.db.prepare("SELECT * FROM validation_gates ORDER BY id DESC").all().map(toValidationGateRow);
   }
 
+  addCampaign(input: {
+    title: string;
+    objective: string;
+    status?: CampaignStatus;
+    currentStateSummary?: string;
+    recentLearningSummary?: string;
+  }): number {
+    const target = requireTarget(this);
+    const now = nowIso();
+    const status = input.status ?? "active";
+    const result = this.db
+      .prepare(
+        `INSERT INTO campaigns
+          (target_id, title, objective, status, current_state_summary,
+           recent_learning_summary, created_at, updated_at, closed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        target.id,
+        input.title,
+        input.objective,
+        status,
+        input.currentStateSummary ?? "",
+        input.recentLearningSummary ?? "",
+        now,
+        now,
+        null
+      );
+    const id = Number(result.lastInsertRowid);
+    this.indexFts("campaign", id, `${status}\n${input.title}\n${input.objective}\n${input.currentStateSummary ?? ""}`);
+    this.addCampaignEvent({
+      campaignId: id,
+      eventType: "campaign_created",
+      entityType: "campaign",
+      entityId: id,
+      summary: `Campaign created: ${input.title}`
+    });
+    return id;
+  }
+
+  listCampaigns(status?: CampaignStatus): CampaignRow[] {
+    return this.db
+      .prepare("SELECT * FROM campaigns ORDER BY id DESC")
+      .all()
+      .map(toCampaignRow)
+      .filter((campaign) => !status || campaign.status === status);
+  }
+
+  getCampaign(id: number): CampaignRow | null {
+    const row = this.db.prepare("SELECT * FROM campaigns WHERE id = ?").get(id) as Row | undefined;
+    return row ? toCampaignRow(row) : null;
+  }
+
+  updateCampaign(input: {
+    id: number;
+    status?: CampaignStatus;
+    currentStateSummary?: string;
+    recentLearningSummary?: string;
+    eventSummary?: string;
+  }): void {
+    const current = this.getCampaign(input.id);
+    if (!current) throw new Error(`Campaign not found: ${input.id}`);
+    const status = input.status ?? current.status;
+    const now = nowIso();
+    const closedAt = status === "completed" || status === "superseded" ? now : current.closedAt || null;
+    const currentStateSummary = input.currentStateSummary ?? current.currentStateSummary;
+    const recentLearningSummary = input.recentLearningSummary ?? current.recentLearningSummary;
+    this.db
+      .prepare(
+        `UPDATE campaigns
+         SET status = ?, current_state_summary = ?, recent_learning_summary = ?,
+             updated_at = ?, closed_at = ?
+         WHERE id = ?`
+      )
+      .run(status, currentStateSummary, recentLearningSummary, now, closedAt, input.id);
+    this.indexFts("campaign", input.id, `${status}\n${current.title}\n${current.objective}\n${currentStateSummary}\n${recentLearningSummary}`);
+    if (input.eventSummary) {
+      this.addCampaignEvent({
+        campaignId: input.id,
+        eventType: "campaign_checkpoint",
+        entityType: "campaign",
+        entityId: input.id,
+        summary: input.eventSummary
+      });
+    }
+  }
+
+  addEntityLink(input: {
+    fromType: string;
+    fromId: number;
+    toType: string;
+    toId: number;
+    relation: string;
+    confidence?: number;
+    note?: string;
+  }): number {
+    const target = requireTarget(this);
+    const existing = this.db
+      .prepare(
+        `SELECT id FROM entity_links
+         WHERE target_id = ? AND from_type = ? AND from_id = ?
+           AND to_type = ? AND to_id = ? AND relation = ?
+         LIMIT 1`
+      )
+      .get(target.id, input.fromType, input.fromId, input.toType, input.toId, input.relation) as Row | undefined;
+    if (existing) return Number(existing.id);
+    const now = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO entity_links
+          (target_id, from_type, from_id, to_type, to_id, relation,
+           confidence, note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        target.id,
+        input.fromType,
+        input.fromId,
+        input.toType,
+        input.toId,
+        input.relation,
+        input.confidence ?? 1,
+        input.note ?? "",
+        now
+      );
+    const id = Number(result.lastInsertRowid);
+    this.indexFts(
+      "entity_link",
+      id,
+      `${input.fromType}#${input.fromId}\n${input.relation}\n${input.toType}#${input.toId}\n${input.note ?? ""}`
+    );
+    return id;
+  }
+
+  linkActiveCampaignTo(input: {
+    toType: string;
+    toId: number;
+    relation: string;
+    note?: string;
+    eventType?: string;
+    eventSummary?: string;
+  }): { campaignId: number; linkId: number } | null {
+    const campaigns = this.listCampaigns("active");
+    if (campaigns.length !== 1) return null;
+    const campaign = campaigns[0];
+    const linkId = this.addEntityLink({
+      fromType: "campaign",
+      fromId: campaign.id,
+      toType: input.toType,
+      toId: input.toId,
+      relation: input.relation,
+      confidence: 1,
+      note: input.note ?? "Auto-linked to the single active campaign."
+    });
+    if (input.eventSummary) {
+      this.addCampaignEvent({
+        campaignId: campaign.id,
+        eventType: input.eventType ?? "entity_linked",
+        entityType: input.toType,
+        entityId: input.toId,
+        summary: input.eventSummary
+      });
+    }
+    return { campaignId: campaign.id, linkId };
+  }
+
+  listEntityLinks(input: { entityType?: string; entityId?: number; limit?: number } = {}): EntityLinkRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM entity_links ORDER BY id DESC")
+      .all()
+      .map(toEntityLinkRow)
+      .filter(
+        (link) =>
+          !input.entityType ||
+          input.entityId === undefined ||
+          (link.fromType === input.entityType && link.fromId === input.entityId) ||
+          (link.toType === input.entityType && link.toId === input.entityId)
+      );
+    return rows.slice(0, input.limit ?? 50);
+  }
+
+  addCampaignEvent(input: {
+    campaignId: number;
+    eventType: string;
+    entityType?: string;
+    entityId?: number;
+    summary: string;
+  }): number {
+    const now = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO campaign_events
+          (campaign_id, event_type, entity_type, entity_id, summary, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(input.campaignId, input.eventType, input.entityType ?? null, input.entityId ?? null, input.summary, now);
+    const id = Number(result.lastInsertRowid);
+    this.indexFts("campaign_event", id, `${input.eventType}\n${input.entityType ?? ""}\n${input.entityId ?? ""}\n${input.summary}`);
+    return id;
+  }
+
+  addCampaignCheckpoint(input: {
+    campaignId: number;
+    confirmed: JsonValue;
+    killed: JsonValue;
+    open: JsonValue;
+    pivots: JsonValue;
+    scoreChanges: JsonValue;
+    contextToPersist: JsonValue;
+    nextHighRoiMove: string;
+    contractSignature: JsonValue;
+    summary?: string;
+  }): number {
+    const now = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO campaign_checkpoints
+          (campaign_id, confirmed_json, killed_json, open_json, pivots_json,
+           score_changes_json, context_to_persist_json, next_high_roi_move,
+           contract_signature_json, summary, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.campaignId,
+        json(input.confirmed),
+        json(input.killed),
+        json(input.open),
+        json(input.pivots),
+        json(input.scoreChanges),
+        json(input.contextToPersist),
+        input.nextHighRoiMove,
+        json(input.contractSignature),
+        input.summary ?? "",
+        now
+      );
+    const id = Number(result.lastInsertRowid);
+    this.indexFts(
+      "campaign_checkpoint",
+      id,
+      `${input.summary ?? ""}\n${input.nextHighRoiMove}\n${json(input.confirmed)}\n${json(input.killed)}\n${json(input.open)}`
+    );
+    this.addCampaignEvent({
+      campaignId: input.campaignId,
+      eventType: "campaign_checkpoint_recorded",
+      entityType: "campaign_checkpoint",
+      entityId: id,
+      summary: input.summary ?? `Checkpoint recorded; next move: ${input.nextHighRoiMove || "unspecified"}`
+    });
+    return id;
+  }
+
+  listCampaignCheckpoints(campaignId: number, limit = 10): CampaignCheckpointRow[] {
+    return this.db
+      .prepare("SELECT * FROM campaign_checkpoints WHERE campaign_id = ? ORDER BY id DESC LIMIT ?")
+      .all(campaignId, limit)
+      .map(toCampaignCheckpointRow);
+  }
+
+  listCampaignEvents(campaignId: number, limit = 25): CampaignEventRow[] {
+    return this.db
+      .prepare("SELECT * FROM campaign_events WHERE campaign_id = ? ORDER BY id DESC LIMIT ?")
+      .all(campaignId, limit)
+      .map(toCampaignEventRow);
+  }
+
+  addHypothesisBranch(input: {
+    campaignId?: number;
+    roundId?: number;
+    surfaceId?: number;
+    title: string;
+    hypothesis: string;
+    attackPrimitive: string;
+    whyNonObvious: string;
+    preconditions: JsonValue;
+    steps: JsonValue;
+    successCriteria: JsonValue;
+    negativeControls: JsonValue;
+    killConditions: JsonValue;
+    roi: JsonValue;
+    status?: BranchStatus;
+  }): number {
+    const target = requireTarget(this);
+    const now = nowIso();
+    const status = input.status ?? "open";
+    const result = this.db
+      .prepare(
+        `INSERT INTO hypothesis_branches
+          (target_id, campaign_id, round_id, surface_id, title, hypothesis,
+           attack_primitive, why_non_obvious, preconditions_json, steps_json,
+           success_criteria_json, negative_controls_json, kill_conditions_json,
+           roi_json, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        target.id,
+        input.campaignId ?? null,
+        input.roundId ?? null,
+        input.surfaceId ?? null,
+        input.title,
+        input.hypothesis,
+        input.attackPrimitive,
+        input.whyNonObvious,
+        json(input.preconditions),
+        json(input.steps),
+        json(input.successCriteria),
+        json(input.negativeControls),
+        json(input.killConditions),
+        json(input.roi),
+        status,
+        now,
+        now
+      );
+    const id = Number(result.lastInsertRowid);
+    this.indexFts(
+      "hypothesis_branch",
+      id,
+      `${status}\n${input.title}\n${input.hypothesis}\n${input.attackPrimitive}\n${input.whyNonObvious}`
+    );
+    if (input.campaignId) {
+      this.addCampaignEvent({
+        campaignId: input.campaignId,
+        eventType: "branch_created",
+        entityType: "hypothesis_branch",
+        entityId: id,
+        summary: `Branch created: ${input.title}`
+      });
+    }
+    return id;
+  }
+
+  listHypothesisBranches(input: { campaignId?: number; roundId?: number; status?: BranchStatus; limit?: number } = {}): HypothesisBranchRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM hypothesis_branches ORDER BY id DESC")
+      .all()
+      .map(toHypothesisBranchRow)
+      .filter((branch) => input.campaignId === undefined || branch.campaignId === input.campaignId)
+      .filter((branch) => input.roundId === undefined || branch.roundId === input.roundId)
+      .filter((branch) => !input.status || branch.status === input.status);
+    return rows.slice(0, input.limit ?? 50);
+  }
+
+  campaignDigest(campaignId: number): CampaignDigest {
+    const campaign = this.getCampaign(campaignId);
+    if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
+    const links = this.listEntityLinks({ entityType: "campaign", entityId: campaignId, limit: 50 });
+    const linkedRoundIds = links
+      .filter((link) => link.relation === "has_round" && link.toType === "round")
+      .map((link) => link.toId);
+    const rounds = this.listRounds().filter((round) => linkedRoundIds.includes(round.id) || round.status === "active").slice(0, 10);
+    const branches = this.listHypothesisBranches({ campaignId, limit: 20 });
+    const events = this.listCampaignEvents(campaignId, 15);
+    const checkpoints = this.listCampaignCheckpoints(campaignId, 5);
+    return {
+      campaign,
+      activeRounds: rounds.filter((round) => round.status === "active"),
+      openBranches: branches.filter((branch) => branch.status === "open" || branch.status === "testing"),
+      killedBranches: branches.filter((branch) => branch.status === "killed").slice(0, 10),
+      recentEvents: events,
+      recentCheckpoints: checkpoints,
+      links
+    };
+  }
+
   addRound(round: {
     objective: string;
     currentUnderstanding: string;
@@ -511,6 +877,13 @@ export class ProteusDb {
     return rows.map(({ searchText: _searchText, phraseMatched: _phraseMatched, ...row }) => row);
   }
 
+  querySimilar(query: string, limit = 10): SimilarityResult {
+    return {
+      duplicateCoverage: this.queryCoverage(query, Math.max(3, Math.ceil(limit / 2))),
+      memoryMatches: this.search(query, limit)
+    };
+  }
+
   getRecord(entityType: string, entityId: number): Record<string, unknown> | null {
     const table = tableForEntity(entityType);
     if (!table) throw new Error(`Unsupported entity type: ${entityType}`);
@@ -547,6 +920,7 @@ export class ProteusDb {
       decisions: this.count("decisions"),
       gates: this.count("validation_gates"),
       rounds: this.count("rounds"),
+      campaigns: this.count("campaigns"),
       activeRounds,
       agentOutputs: this.count("agent_outputs"),
       labs: this.count("labs"),
@@ -568,6 +942,35 @@ export class ProteusDb {
             createdAt: String(latestDecision.created_at)
           }
         : null
+    };
+  }
+
+  listMigrations(): MigrationRow[] {
+    return this.db
+      .prepare("SELECT version, applied_at FROM schema_migrations ORDER BY applied_at ASC, version ASC")
+      .all()
+      .map((row: Row) => ({
+        version: String(row.version),
+        appliedAt: String(row.applied_at)
+      }));
+  }
+
+  getProteusVersionRecord(): ProteusVersionRecord {
+    const storedVersion = this.getMetadata("proteus_version");
+    return {
+      currentVersion: CURRENT_PROTEUS_VERSION,
+      storedVersion,
+      migrationRequired: storedVersion !== CURRENT_PROTEUS_VERSION
+    };
+  }
+
+  runMigrations(): ProteusVersionRecord {
+    const before = this.getProteusVersionRecord();
+    this.migrate(true);
+    const after = this.getProteusVersionRecord();
+    return {
+      ...after,
+      previousStoredVersion: before.storedVersion
     };
   }
 
@@ -596,13 +999,80 @@ export class ProteusDb {
     return candidates;
   }
 
-  private migrate(): void {
+  private migrateIfNeeded(): void {
+    this.ensureMetadataTable();
+    if (this.getMetadata("proteus_version") === CURRENT_PROTEUS_VERSION) return;
+    this.migrate(false);
+  }
+
+  private migrate(force: boolean): void {
+    this.ensureMetadataTable();
+    if (!force && this.getMetadata("proteus_version") === CURRENT_PROTEUS_VERSION) return;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version TEXT PRIMARY KEY,
         applied_at TEXT NOT NULL
       );
+    `);
+    this.applyMigration("2026-05-17-validation-gates-surfaces-and-focused-duplicates", BASE_SCHEMA_SQL);
+    this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL);
+    this.applyMigration("2026-06-17-campaign-checkpoints", CAMPAIGN_CHECKPOINT_SCHEMA_SQL);
+    this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
+  }
 
+  private ensureMetadataTable(): void {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS proteus_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  private getMetadata(key: string): string | null {
+    this.ensureMetadataTable();
+    const row = this.db.prepare("SELECT value FROM proteus_metadata WHERE key = ?").get(key) as Row | undefined;
+    return row ? String(row.value) : null;
+  }
+
+  private setMetadata(key: string, value: string): void {
+    this.ensureMetadataTable();
+    this.db
+      .prepare(
+        `INSERT INTO proteus_metadata (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+      )
+      .run(key, value, nowIso());
+  }
+
+  private applyMigration(version: string, sql: string): void {
+    const existing = this.db
+      .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+      .get(version) as Row | undefined;
+    if (existing) return;
+    this.db.exec("BEGIN");
+    try {
+      this.db.exec(sql);
+      this.db
+        .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .run(version, nowIso());
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private indexFts(entityType: string, entityId: number, content: string): void {
+    this.db
+      .prepare("INSERT INTO proteus_fts (entity_type, entity_id, content) VALUES (?, ?, ?)")
+      .run(entityType, entityId, content);
+  }
+}
+
+const BASE_SCHEMA_SQL = `
       CREATE TABLE IF NOT EXISTS targets (
         id INTEGER PRIMARY KEY,
         name TEXT NOT NULL,
@@ -760,18 +1230,83 @@ export class ProteusDb {
         entity_id UNINDEXED,
         content
       );
+`;
 
-      INSERT OR IGNORE INTO schema_migrations (version, applied_at)
-      VALUES ('2026-05-17-validation-gates-surfaces-and-focused-duplicates', CURRENT_TIMESTAMP);
-    `);
-  }
+const CAMPAIGN_SCHEMA_SQL = `
+      CREATE TABLE IF NOT EXISTS campaigns (
+        id INTEGER PRIMARY KEY,
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        objective TEXT NOT NULL,
+        status TEXT NOT NULL,
+        current_state_summary TEXT,
+        recent_learning_summary TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        closed_at TEXT
+      );
 
-  private indexFts(entityType: string, entityId: number, content: string): void {
-    this.db
-      .prepare("INSERT INTO proteus_fts (entity_type, entity_id, content) VALUES (?, ?, ?)")
-      .run(entityType, entityId, content);
-  }
-}
+      CREATE TABLE IF NOT EXISTS entity_links (
+        id INTEGER PRIMARY KEY,
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        from_type TEXT NOT NULL,
+        from_id INTEGER NOT NULL,
+        to_type TEXT NOT NULL,
+        to_id INTEGER NOT NULL,
+        relation TEXT NOT NULL,
+        confidence REAL NOT NULL DEFAULT 1.0,
+        note TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS campaign_events (
+        id INTEGER PRIMARY KEY,
+        campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        entity_type TEXT,
+        entity_id INTEGER,
+        summary TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS hypothesis_branches (
+        id INTEGER PRIMARY KEY,
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,
+        round_id INTEGER REFERENCES rounds(id) ON DELETE SET NULL,
+        surface_id INTEGER REFERENCES surfaces(id) ON DELETE SET NULL,
+        title TEXT NOT NULL,
+        hypothesis TEXT NOT NULL,
+        attack_primitive TEXT NOT NULL,
+        why_non_obvious TEXT NOT NULL,
+        preconditions_json TEXT NOT NULL,
+        steps_json TEXT NOT NULL,
+        success_criteria_json TEXT NOT NULL,
+        negative_controls_json TEXT NOT NULL,
+        kill_conditions_json TEXT NOT NULL,
+        roi_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+`;
+
+const CAMPAIGN_CHECKPOINT_SCHEMA_SQL = `
+      CREATE TABLE IF NOT EXISTS campaign_checkpoints (
+        id INTEGER PRIMARY KEY,
+        campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        confirmed_json TEXT NOT NULL,
+        killed_json TEXT NOT NULL,
+        open_json TEXT NOT NULL,
+        pivots_json TEXT NOT NULL,
+        score_changes_json TEXT NOT NULL,
+        context_to_persist_json TEXT NOT NULL,
+        next_high_roi_move TEXT NOT NULL,
+        contract_signature_json TEXT NOT NULL,
+        summary TEXT,
+        created_at TEXT NOT NULL
+      );
+`;
 
 export interface SurfaceRow {
   id: number;
@@ -849,6 +1384,85 @@ export interface RoundRow {
   completedAt: string;
 }
 
+export interface CampaignRow {
+  id: number;
+  title: string;
+  objective: string;
+  status: CampaignStatus;
+  currentStateSummary: string;
+  recentLearningSummary: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string;
+}
+
+export interface EntityLinkRow {
+  id: number;
+  fromType: string;
+  fromId: number;
+  toType: string;
+  toId: number;
+  relation: string;
+  confidence: number;
+  note: string;
+  createdAt: string;
+}
+
+export interface CampaignEventRow {
+  id: number;
+  campaignId: number;
+  eventType: string;
+  entityType: string;
+  entityId: number | null;
+  summary: string;
+  createdAt: string;
+}
+
+export interface CampaignCheckpointRow {
+  id: number;
+  campaignId: number;
+  confirmed: JsonValue;
+  killed: JsonValue;
+  open: JsonValue;
+  pivots: JsonValue;
+  scoreChanges: JsonValue;
+  contextToPersist: JsonValue;
+  nextHighRoiMove: string;
+  contractSignature: JsonValue;
+  summary: string;
+  createdAt: string;
+}
+
+export interface HypothesisBranchRow {
+  id: number;
+  campaignId: number | null;
+  roundId: number | null;
+  surfaceId: number | null;
+  title: string;
+  hypothesis: string;
+  attackPrimitive: string;
+  whyNonObvious: string;
+  preconditions: JsonValue;
+  steps: JsonValue;
+  successCriteria: JsonValue;
+  negativeControls: JsonValue;
+  killConditions: JsonValue;
+  roi: JsonValue;
+  status: BranchStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CampaignDigest {
+  campaign: CampaignRow;
+  activeRounds: RoundRow[];
+  openBranches: HypothesisBranchRow[];
+  killedBranches: HypothesisBranchRow[];
+  recentEvents: CampaignEventRow[];
+  recentCheckpoints: CampaignCheckpointRow[];
+  links: EntityLinkRow[];
+}
+
 export interface SearchRow {
   entityType: string;
   entityId: number;
@@ -868,6 +1482,11 @@ export interface CoverageRow {
   summary: string;
 }
 
+export interface SimilarityResult {
+  duplicateCoverage: CoverageRow[];
+  memoryMatches: SearchRow[];
+}
+
 export interface MemoryStats {
   dbPath: string;
   dbSizeBytes: number;
@@ -881,11 +1500,24 @@ export interface MemoryStats {
   decisions: number;
   gates: number;
   rounds: number;
+  campaigns: number;
   activeRounds: RoundRow[];
   agentOutputs: number;
   labs: number;
   latestSource: { id: number; kind: string; pathOrUrl: string; title: string; createdAt: string } | null;
   latestDecision: { id: number; entityType: string; entityId: number; decision: string; createdAt: string } | null;
+}
+
+export interface MigrationRow {
+  version: string;
+  appliedAt: string;
+}
+
+export interface ProteusVersionRecord {
+  currentVersion: string;
+  storedVersion: string | null;
+  migrationRequired: boolean;
+  previousStoredVersion?: string | null;
 }
 
 export interface SourceRow {
@@ -1020,6 +1652,85 @@ function toRoundRow(row: Row): RoundRow {
   };
 }
 
+function toCampaignRow(row: Row): CampaignRow {
+  return {
+    id: Number(row.id),
+    title: String(row.title),
+    objective: String(row.objective),
+    status: normalizeCampaignStatus(String(row.status ?? "")),
+    currentStateSummary: String(row.current_state_summary ?? ""),
+    recentLearningSummary: String(row.recent_learning_summary ?? ""),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    closedAt: String(row.closed_at ?? "")
+  };
+}
+
+function toEntityLinkRow(row: Row): EntityLinkRow {
+  return {
+    id: Number(row.id),
+    fromType: String(row.from_type),
+    fromId: Number(row.from_id),
+    toType: String(row.to_type),
+    toId: Number(row.to_id),
+    relation: String(row.relation),
+    confidence: Number(row.confidence),
+    note: String(row.note ?? ""),
+    createdAt: String(row.created_at)
+  };
+}
+
+function toCampaignEventRow(row: Row): CampaignEventRow {
+  return {
+    id: Number(row.id),
+    campaignId: Number(row.campaign_id),
+    eventType: String(row.event_type),
+    entityType: String(row.entity_type ?? ""),
+    entityId: row.entity_id === null || row.entity_id === undefined ? null : Number(row.entity_id),
+    summary: String(row.summary),
+    createdAt: String(row.created_at)
+  };
+}
+
+function toCampaignCheckpointRow(row: Row): CampaignCheckpointRow {
+  return {
+    id: Number(row.id),
+    campaignId: Number(row.campaign_id),
+    confirmed: parseJson(String(row.confirmed_json)),
+    killed: parseJson(String(row.killed_json)),
+    open: parseJson(String(row.open_json)),
+    pivots: parseJson(String(row.pivots_json)),
+    scoreChanges: parseJson(String(row.score_changes_json)),
+    contextToPersist: parseJson(String(row.context_to_persist_json)),
+    nextHighRoiMove: String(row.next_high_roi_move),
+    contractSignature: parseJson(String(row.contract_signature_json)),
+    summary: String(row.summary ?? ""),
+    createdAt: String(row.created_at)
+  };
+}
+
+function toHypothesisBranchRow(row: Row): HypothesisBranchRow {
+  return {
+    id: Number(row.id),
+    campaignId: row.campaign_id === null ? null : Number(row.campaign_id),
+    roundId: row.round_id === null ? null : Number(row.round_id),
+    surfaceId: row.surface_id === null ? null : Number(row.surface_id),
+    title: String(row.title),
+    hypothesis: String(row.hypothesis),
+    attackPrimitive: String(row.attack_primitive),
+    whyNonObvious: String(row.why_non_obvious),
+    preconditions: parseJson(String(row.preconditions_json)),
+    steps: parseJson(String(row.steps_json)),
+    successCriteria: parseJson(String(row.success_criteria_json)),
+    negativeControls: parseJson(String(row.negative_controls_json)),
+    killConditions: parseJson(String(row.kill_conditions_json)),
+    roi: parseJson(String(row.roi_json)),
+    status: normalizeBranchStatus(String(row.status ?? "")),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
 function normalizeRoundStatus(value: string): RoundStatus {
   if (
     value === "active" ||
@@ -1032,6 +1743,32 @@ function normalizeRoundStatus(value: string): RoundStatus {
     return value;
   }
   return value.length > 0 ? "superseded" : "active";
+}
+
+function normalizeCampaignStatus(value: string): CampaignStatus {
+  if (
+    value === "active" ||
+    value === "paused" ||
+    value === "completed" ||
+    value === "blocked" ||
+    value === "superseded"
+  ) {
+    return value;
+  }
+  return value.length > 0 ? "superseded" : "active";
+}
+
+function normalizeBranchStatus(value: string): BranchStatus {
+  if (
+    value === "open" ||
+    value === "testing" ||
+    value === "killed" ||
+    value === "promoted" ||
+    value === "blocked"
+  ) {
+    return value;
+  }
+  return value.length > 0 ? "blocked" : "open";
 }
 
 function scoreCoverageCandidate(candidate: CoverageCandidate, query: string, queryTerms: string[]): ScoredCoverageCandidate {
@@ -1114,7 +1851,21 @@ function truncateText(value: string, limit: number): string {
 }
 
 function entityRank(entityType: string): number {
-  return ["hypothesis", "decision", "agent_output", "surface", "source", "evidence", "round", "lab"].indexOf(entityType);
+  return [
+    "hypothesis",
+    "hypothesis_branch",
+    "decision",
+    "agent_output",
+    "surface",
+    "campaign",
+    "source",
+    "evidence",
+    "round",
+    "campaign_event",
+    "campaign_checkpoint",
+    "entity_link",
+    "lab"
+  ].indexOf(entityType);
 }
 
 function sourceCoverageWeight(kind: string): number {
@@ -1147,6 +1898,13 @@ function tableForEntity(entityType: string): string | null {
     gate: "validation_gates",
     validation_gate: "validation_gates",
     round: "rounds",
+    campaign: "campaigns",
+    entity_link: "entity_links",
+    campaign_event: "campaign_events",
+    campaign_checkpoint: "campaign_checkpoints",
+    checkpoint: "campaign_checkpoints",
+    hypothesis_branch: "hypothesis_branches",
+    branch: "hypothesis_branches",
     agent_output: "agent_outputs",
     lab: "labs"
   };
@@ -1172,6 +1930,27 @@ function materializeRecord(entityType: string, row: Row): Record<string, unknown
   if (entityType === "decision") return { ...toDecisionRow(row), entityType };
   if (entityType === "gate" || entityType === "validation_gate") return { ...toValidationGateRow(row), entityType: "gate" };
   if (entityType === "round") return { entityType, ...toRoundRow(row) };
+  if (entityType === "campaign") return { entityType, ...toCampaignRow(row) };
+  if (entityType === "entity_link") return { entityType, ...toEntityLinkRow(row) };
+  if (entityType === "campaign_event") {
+    const event = toCampaignEventRow(row);
+    return {
+      entityType,
+      id: event.id,
+      campaignId: event.campaignId,
+      eventType: event.eventType,
+      linkedEntityType: event.entityType,
+      entityId: event.entityId,
+      summary: event.summary,
+      createdAt: event.createdAt
+    };
+  }
+  if (entityType === "campaign_checkpoint" || entityType === "checkpoint") {
+    return { entityType: "campaign_checkpoint", ...toCampaignCheckpointRow(row) };
+  }
+  if (entityType === "hypothesis_branch" || entityType === "branch") {
+    return { entityType: "hypothesis_branch", ...toHypothesisBranchRow(row) };
+  }
   return { entityType, ...row };
 }
 
@@ -1213,6 +1992,22 @@ function sha256(value: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function packageVersion(): string {
+  for (const candidate of [
+    path.resolve(__dirname, "..", "package.json"),
+    path.resolve(__dirname, "..", "..", "..", "package.json")
+  ]) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(candidate, "utf8")) as { version?: string };
+      if (pkg.version) return pkg.version;
+    } catch {
+      continue;
+    }
+  }
+  return "unknown";
 }
 
 export function createDefaultContract(targetRoot: string, name?: string): TargetContract {

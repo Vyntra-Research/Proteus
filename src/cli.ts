@@ -11,7 +11,7 @@ import { planRound, renderRoundPlan } from "./planner";
 import { renderAgentPrompt } from "./prompts";
 import { ROLE_ORDER, ROLES } from "./roles";
 import { ensureDir, exportsDir, resolveTargetRoot } from "./paths";
-import type { AgentCodename, HypothesisInput, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
+import type { AgentCodename, BranchStatus, CampaignStatus, HypothesisInput, JsonValue, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
 
 interface ParsedArgs {
   command: string[];
@@ -44,6 +44,9 @@ function main(): void {
       case "status":
         cmdStatus(db);
         break;
+      case "migrate":
+        cmdMigrate(db);
+        break;
       case "ingest":
         cmdIngest(db, parsed.command.slice(1));
         break;
@@ -52,6 +55,15 @@ function main(): void {
         break;
       case "plan-round":
         cmdPlanRound(db, parsed);
+        break;
+      case "campaign":
+        cmdCampaign(db, subcommand, parsed);
+        break;
+      case "branch":
+        cmdBranch(db, subcommand, parsed);
+        break;
+      case "link":
+        cmdLink(db, parsed);
         break;
       case "roles":
         cmdRoles();
@@ -116,6 +128,8 @@ function cmdStatus(db: ProteusDb): void {
   console.log(`Target: ${target.name}`);
   console.log(`Root: ${target.rootPath}`);
   console.log(`Memory: ${stats.dbPath} (${stats.dbSizeBytes} bytes)`);
+  const versionRecord = db.getProteusVersionRecord();
+  console.log(`Proteus DB version: ${versionRecord.storedVersion ?? "none"} (runtime ${versionRecord.currentVersion})`);
   console.log(`Sources: ${stats.sources}${stats.sourcesByKind.length > 0 ? ` (${stats.sourcesByKind.map((row) => `${row.kind}=${row.count}`).join(", ")})` : ""}`);
   console.log(`Surfaces: ${stats.surfaces}`);
   console.log(`Hypotheses: ${stats.hypotheses}`);
@@ -123,6 +137,7 @@ function cmdStatus(db: ProteusDb): void {
   console.log(`Decisions: ${stats.decisions}`);
   console.log(`Gates: ${stats.gates}`);
   console.log(`Rounds: ${stats.rounds}`);
+  console.log(`Campaigns: ${stats.campaigns}`);
   if (stats.activeRounds.length > 0) {
     console.log(`Active rounds: ${stats.activeRounds.map((round) => `R${round.id} ${round.objective}`).join(" | ")}`);
   } else {
@@ -138,6 +153,16 @@ function cmdStatus(db: ProteusDb): void {
     console.log(
       `Latest decision: decision#${stats.latestDecision.id} ${stats.latestDecision.decision} ${stats.latestDecision.entityType}#${stats.latestDecision.entityId}`
     );
+  }
+}
+
+function cmdMigrate(db: ProteusDb): void {
+  const versionRecord = db.runMigrations();
+  const migrations = db.listMigrations();
+  console.log(`Migration check complete: ${migrations.length} applied`);
+  console.log(`Proteus DB version: ${versionRecord.storedVersion ?? "none"} (runtime ${versionRecord.currentVersion}, previous ${versionRecord.previousStoredVersion ?? "none"})`);
+  for (const migration of migrations) {
+    console.log(`- ${migration.version} @ ${migration.appliedAt}`);
   }
 }
 
@@ -167,6 +192,13 @@ function cmdPlanRound(db: ProteusDb, parsed: ParsedArgs): void {
         currentUnderstanding: getString(parsed, "context")
       };
   const plan = planRound(db, planInput);
+  db.linkActiveCampaignTo({
+    toType: "round",
+    toId: plan.id,
+    relation: "has_round",
+    eventType: "round_linked",
+    eventSummary: `Round linked: ${plan.objective}`
+  });
   const markdown = renderRoundPlan(plan);
   if (getBoolean(parsed, "write")) {
     const out = path.join(exportsDir(db.targetRoot), `round-plan-${plan.id}.md`);
@@ -176,6 +208,144 @@ function cmdPlanRound(db: ProteusDb, parsed: ParsedArgs): void {
   } else {
     console.log(markdown);
   }
+}
+
+function cmdCampaign(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
+  requireInitialized(db);
+  if (subcommand === "create") {
+    const id = db.addCampaign({
+      title: requiredString(parsed, "title"),
+      objective: getString(parsed, "objective") ?? requiredString(parsed, "title"),
+      status: campaignStatus(parsed) ?? "active",
+      currentStateSummary: getString(parsed, "state"),
+      recentLearningSummary: getString(parsed, "learnings")
+    });
+    console.log(`Created campaign C${id}`);
+    return;
+  }
+
+  if (subcommand === "resume" || subcommand === "digest") {
+    const id = getNumber(parsed, "id") ?? db.listCampaigns("active")[0]?.id;
+    if (!id) {
+      console.log("No active campaign found.");
+      return;
+    }
+    console.log(JSON.stringify(db.campaignDigest(id), null, 2));
+    return;
+  }
+
+  if (subcommand === "checkpoint") {
+    const id = requiredNumber(parsed, "id");
+    const checkpointId = db.addCampaignCheckpoint({
+      campaignId: id,
+      confirmed: splitList(getString(parsed, "confirmed") ?? ""),
+      killed: splitList(getString(parsed, "killed") ?? ""),
+      open: splitList(getString(parsed, "open") ?? ""),
+      pivots: splitList(getString(parsed, "pivots") ?? ""),
+      scoreChanges: splitList(getString(parsed, "score-changes") ?? ""),
+      contextToPersist: splitList(getString(parsed, "context") ?? ""),
+      nextHighRoiMove: getString(parsed, "next") ?? "",
+      contractSignature: parseJsonFlag(getString(parsed, "contract-signature")) ?? {},
+      summary: getString(parsed, "summary") ?? ""
+    });
+    db.updateCampaign({
+      id,
+      status: campaignStatus(parsed),
+      currentStateSummary: getString(parsed, "state"),
+      recentLearningSummary: getString(parsed, "learnings"),
+      eventSummary: getString(parsed, "summary") ?? "Campaign checkpoint recorded."
+    });
+    console.log(`Checkpointed campaign C${id} as K${checkpointId}`);
+    return;
+  }
+
+  if (subcommand === "close") {
+    const id = requiredNumber(parsed, "id");
+    db.updateCampaign({
+      id,
+      status: campaignStatus(parsed) ?? "completed",
+      eventSummary: getString(parsed, "summary") ?? "Campaign closed."
+    });
+    console.log(`Closed campaign C${id}`);
+    return;
+  }
+
+  throw new Error("campaign requires one of: create, resume, digest, checkpoint, close");
+}
+
+function cmdBranch(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
+  requireInitialized(db);
+  if (subcommand === "add" || subcommand === "create") {
+    const explicitCampaignId = getNumber(parsed, "campaign-id");
+    const activeCampaigns = db.listCampaigns("active");
+    const activeCampaignId = explicitCampaignId ?? (activeCampaigns.length === 1 ? activeCampaigns[0].id : undefined);
+    const id = db.addHypothesisBranch({
+      campaignId: activeCampaignId,
+      roundId: getNumber(parsed, "round-id"),
+      surfaceId: getNumber(parsed, "surface-id"),
+      title: requiredString(parsed, "title"),
+      hypothesis: getString(parsed, "hypothesis") ?? requiredString(parsed, "title"),
+      attackPrimitive: getString(parsed, "primitive") ?? "unknown",
+      whyNonObvious: getString(parsed, "why-non-obvious") ?? "",
+      preconditions: splitList(getString(parsed, "preconditions") ?? ""),
+      steps: splitList(getString(parsed, "steps") ?? ""),
+      successCriteria: splitList(getString(parsed, "success") ?? ""),
+      negativeControls: splitList(getString(parsed, "negative-controls") ?? ""),
+      killConditions: splitList(getString(parsed, "kill-conditions") ?? ""),
+      roi: {
+        probability: getNumber(parsed, "probability") ?? 1,
+        impact: getNumber(parsed, "impact") ?? 1,
+        effort: getNumber(parsed, "effort") ?? 1,
+        novelty: getNumber(parsed, "novelty") ?? 1
+      },
+      status: branchStatus(parsed) ?? "open"
+    });
+    if (activeCampaignId) {
+      db.addEntityLink({
+        fromType: "campaign",
+        fromId: activeCampaignId,
+        toType: "hypothesis_branch",
+        toId: id,
+        relation: "has_branch",
+        confidence: 1,
+        note: "Linked from branch add."
+      });
+    }
+    console.log(`Recorded branch B${id}`);
+    return;
+  }
+
+  if (subcommand === "list" || subcommand === "branches") {
+    const rows = db.listHypothesisBranches({
+      campaignId: getNumber(parsed, "campaign-id"),
+      roundId: getNumber(parsed, "round-id"),
+      status: branchStatus(parsed),
+      limit: getNumber(parsed, "limit") ?? 50
+    });
+    for (const row of rows) {
+      console.log(`B${row.id} [${row.status}] ${row.title}`);
+      console.log(`  primitive=${row.attackPrimitive} campaign=${row.campaignId ?? "-"} round=${row.roundId ?? "-"} surface=${row.surfaceId ?? "-"}`);
+      console.log(`  kill=${arrayLength(row.killConditions)} steps=${arrayLength(row.steps)} non-obvious=${truncateForCli(row.whyNonObvious || "-", 120)}`);
+    }
+    if (rows.length === 0) console.log("No branches recorded.");
+    return;
+  }
+
+  throw new Error("branch requires one of: add, create, list");
+}
+
+function cmdLink(db: ProteusDb, parsed: ParsedArgs): void {
+  requireInitialized(db);
+  const id = db.addEntityLink({
+    fromType: requiredString(parsed, "from-type"),
+    fromId: requiredNumber(parsed, "from-id"),
+    toType: requiredString(parsed, "to-type"),
+    toId: requiredNumber(parsed, "to-id"),
+    relation: requiredString(parsed, "relation"),
+    confidence: getNumber(parsed, "confidence") ?? 1,
+    note: getString(parsed, "note")
+  });
+  console.log(`Recorded link L${id}`);
 }
 
 function readPlanInput(filePath: string): Record<string, unknown> {
@@ -245,6 +415,7 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       revisitCondition: getString(parsed, "revisit") ?? ""
     };
     const id = db.addHypothesis(input);
+    autoLinkActiveCampaign(db, "hypothesis", id, "tracks_hypothesis", `Hypothesis H${id} recorded in active campaign.`);
     console.log(`Recorded hypothesis H${id}`);
     return;
   }
@@ -257,6 +428,7 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       pathOrUrl: getString(parsed, "path"),
       command: getString(parsed, "command")
     });
+    autoLinkActiveCampaign(db, "evidence", id, "has_evidence", `Evidence E${id} recorded in active campaign.`);
     console.log(`Recorded evidence E${id}`);
     return;
   }
@@ -270,6 +442,7 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       evidenceIds: splitList(getString(parsed, "evidence-ids") ?? "").map((item) => Number(item)).filter(Boolean),
       actor: getString(parsed, "actor") ?? "coordinator"
     });
+    autoLinkActiveCampaign(db, "decision", id, "has_decision", `Decision D${id} recorded in active campaign.`);
     console.log(`Recorded decision D${id}`);
     return;
   }
@@ -284,6 +457,7 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       evidenceIds: splitList(getString(parsed, "evidence-ids") ?? "").map((item) => Number(item)).filter(Boolean),
       actor: getString(parsed, "actor") ?? "coordinator"
     });
+    autoLinkActiveCampaign(db, "gate", id, "has_validation_gate", `Validation gate G${id} recorded in active campaign.`);
     console.log(`Recorded gate G${id}`);
     return;
   }
@@ -304,6 +478,7 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       uncoveredAreas: splitList(getString(parsed, "uncovered") ?? ""),
       validationStatus: getString(parsed, "validation-status") ?? "unvalidated"
     });
+    autoLinkActiveCampaign(db, "agent_output", id, "has_agent_output", `Agent output A${id} recorded in active campaign.`);
     console.log(`Recorded agent output A${id}`);
     return;
   }
@@ -393,7 +568,59 @@ function cmdList(db: ProteusDb, subcommand: string | undefined, parsed: ParsedAr
     return;
   }
 
-  throw new Error("list requires one of: surfaces, hypotheses, evidence, decisions, gates, rounds");
+  if (subcommand === "campaigns") {
+    const status = campaignStatus(parsed);
+    const rows = db.listCampaigns(status).slice(0, limit);
+    for (const row of rows) {
+      console.log(`C${row.id} [${row.status}] ${row.title}`);
+      console.log(`  objective=${truncateForCli(row.objective, 180)}`);
+      console.log(`  state=${truncateForCli(row.currentStateSummary || "-", 180)}`);
+    }
+    if (rows.length === 0) console.log("No campaigns recorded.");
+    return;
+  }
+
+  if (subcommand === "branches") {
+    const rows = db.listHypothesisBranches({
+      campaignId: getNumber(parsed, "campaign-id"),
+      roundId: getNumber(parsed, "round-id"),
+      status: branchStatus(parsed),
+      limit
+    });
+    for (const row of rows) {
+      console.log(`B${row.id} [${row.status}] ${row.title}`);
+      console.log(`  primitive=${row.attackPrimitive} campaign=${row.campaignId ?? "-"} round=${row.roundId ?? "-"}`);
+    }
+    if (rows.length === 0) console.log("No branches recorded.");
+    return;
+  }
+
+  if (subcommand === "links") {
+    const rows = db.listEntityLinks({
+      entityType: getString(parsed, "entity-type"),
+      entityId: getNumber(parsed, "entity-id"),
+      limit
+    });
+    for (const row of rows) {
+      console.log(`L${row.id} ${row.fromType}#${row.fromId} -[${row.relation}]-> ${row.toType}#${row.toId} confidence=${row.confidence}`);
+      if (row.note) console.log(`  ${truncateForCli(row.note, 180)}`);
+    }
+    if (rows.length === 0) console.log("No entity links recorded.");
+    return;
+  }
+
+  if (subcommand === "checkpoints") {
+    const campaignId = requiredNumber(parsed, "campaign-id");
+    const rows = db.listCampaignCheckpoints(campaignId, limit);
+    for (const row of rows) {
+      console.log(`K${row.id} campaign=C${row.campaignId} next=${truncateForCli(row.nextHighRoiMove || "-", 120)}`);
+      console.log(`  confirmed=${arrayLength(row.confirmed)} killed=${arrayLength(row.killed)} open=${arrayLength(row.open)} summary=${truncateForCli(row.summary || "-", 120)}`);
+    }
+    if (rows.length === 0) console.log("No campaign checkpoints recorded.");
+    return;
+  }
+
+  throw new Error("list requires one of: surfaces, hypotheses, evidence, decisions, gates, rounds, campaigns, branches, links, checkpoints");
 }
 
 function cmdUpdate(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
@@ -462,6 +689,26 @@ function cmdQuery(db: ProteusDb, subcommand: string | undefined, parsed: ParsedA
     return;
   }
 
+  if (subcommand === "similar") {
+    const text = parsed.command.slice(2).join(" ") || requiredString(parsed, "text");
+    const result = db.querySimilar(text, getNumber(parsed, "limit") ?? 10);
+    console.log("Duplicate/report coverage:");
+    if (result.duplicateCoverage.length === 0) {
+      console.log("  none");
+    } else {
+      for (const row of result.duplicateCoverage) {
+        console.log(`  ${row.entityType}#${row.entityId} score=${row.score} ${row.status ? `status=${row.status} ` : ""}${row.title}`);
+      }
+    }
+    console.log("Memory matches:");
+    if (result.memoryMatches.length === 0) {
+      console.log("  none");
+    } else {
+      for (const row of result.memoryMatches) console.log(`  ${row.entityType}#${row.entityId}: ${row.snippet}`);
+    }
+    return;
+  }
+
   if (subcommand === "revisit") {
     const text = parsed.command.slice(2).join(" ") || requiredString(parsed, "surface");
     const rows = db
@@ -494,7 +741,7 @@ function cmdQuery(db: ProteusDb, subcommand: string | undefined, parsed: ParsedA
     return;
   }
 
-  throw new Error("query requires one of: duplicates, memory, revisit, surfaces");
+  throw new Error("query requires one of: duplicates, memory, similar, revisit, surfaces");
 }
 
 function cmdShow(db: ProteusDb, parsed: ParsedArgs): void {
@@ -636,11 +883,41 @@ function getBoolean(parsed: ParsedArgs, key: string): boolean {
   return parsed.flags[key] === true || parsed.flags[key] === "true";
 }
 
+function autoLinkActiveCampaign(db: ProteusDb, entityType: string, entityId: number, relation: string, eventSummary: string): void {
+  db.linkActiveCampaignTo({
+    toType: entityType,
+    toId: entityId,
+    relation,
+    eventType: "record_auto_linked",
+    eventSummary
+  });
+}
+
 function splitList(value: string): string[] {
   return value
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parseJsonFlag(value: string | undefined): JsonValue | undefined {
+  if (!value) return undefined;
+  const parsed = JSON.parse(value) as unknown;
+  if (!isJsonValue(parsed)) {
+    throw new Error("Flag value must be valid JSON.");
+  }
+  return parsed;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null) return true;
+  if (typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).every(isJsonValue);
+  }
+  return false;
 }
 
 function roiFromFlags(parsed: ParsedArgs): RoiFactors {
@@ -691,6 +968,38 @@ function parseRoundStatus(status: string): RoundStatus {
   throw new Error("Round status must be one of: active, paused, completed, blocked, planned, superseded");
 }
 
+function campaignStatus(parsed: ParsedArgs): CampaignStatus | undefined {
+  const status = getString(parsed, "status");
+  if (status === undefined) return undefined;
+  return parseCampaignStatus(status);
+}
+
+function parseCampaignStatus(status: string): CampaignStatus {
+  if (
+    status === "active" ||
+    status === "paused" ||
+    status === "completed" ||
+    status === "blocked" ||
+    status === "superseded"
+  ) {
+    return status;
+  }
+  throw new Error("Campaign status must be one of: active, paused, completed, blocked, superseded");
+}
+
+function branchStatus(parsed: ParsedArgs): BranchStatus | undefined {
+  const status = getString(parsed, "status");
+  if (status === undefined) return undefined;
+  return parseBranchStatus(status);
+}
+
+function parseBranchStatus(status: string): BranchStatus {
+  if (status === "open" || status === "testing" || status === "killed" || status === "promoted" || status === "blocked") {
+    return status;
+  }
+  throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
+}
+
 function isHelpRequested(parsed: ParsedArgs): boolean {
   return (
     parsed.flags.help === true ||
@@ -729,26 +1038,34 @@ function printHelp(): void {
 Usage:
   proteus init [--root <path>] [--name <target>]
   proteus status [--root <path>]
+  proteus migrate [--root <path>]
   proteus ingest [--root <path>] [paths...]
   proteus observe [--root <path>]
   proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
+  proteus campaign create --title <text> [--objective <text>] [--status active|paused|completed|blocked|superseded]
+  proteus campaign resume [--id <id>]
+  proteus campaign checkpoint --id <id> [--confirmed a,b] [--killed a,b] [--open a,b] [--next <text>]
+  proteus branch add --title <text> [--campaign-id <id>] [--round-id <id>] [--primitive <text>]
+  proteus branch list [--campaign-id <id>] [--status open|testing|killed|promoted|blocked]
+  proteus link --from-type <type> --from-id <id> --relation <text> --to-type <type> --to-id <id>
   proteus roles
-  proteus prompt --role <argus|loom|chaos|libris|mimic|artificer|skeptic> --surface <text>
+  proteus prompt --role <argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text>
   proteus record surface --name <text> [--family <text>] [--files a,b] [--status active|covered|exhausted|low_roi|blocked|watch]
   proteus record hypothesis --title <text> [--surface-id <id>] [--impact <text>]
   proteus record evidence --title <text> [--kind <kind>] [--body <text>]
   proteus record decision --entity-type <type> --entity-id <id> --decision <text> --reason <text>
   proteus record gate --entity-type <type> --entity-id <id> --gate <G1|...> [--status pending|pass|fail|blocked|not_applicable]
   proteus record agent-output --round-id <id> --role <codename> --surface <text>
-  proteus list surfaces|hypotheses|evidence|decisions|gates|rounds [--status <status>] [--limit <n>]
+  proteus list surfaces|hypotheses|evidence|decisions|gates|rounds|campaigns|branches|links|checkpoints [--status <status>] [--limit <n>]
   proteus update surface --id <id> [--status exhausted|low_roi|covered|blocked|watch] [--revisit <text>]
   proteus update round --id <id> --status active|paused|completed|blocked|planned|superseded
   proteus update rounds --from planned --status superseded [--keep-latest]
   proteus query duplicates <text>
   proteus query memory <text>
+  proteus query similar <text>
   proteus query revisit <surface>
   proteus query surfaces <text>
-  proteus show <source|surface|hypothesis|evidence|decision|gate|round|agent_output|lab> <id>
+  proteus show <source|surface|hypothesis|evidence|decision|gate|round|campaign|branch|checkpoint|entity_link|agent_output|lab> <id>
   proteus export [--root <path>]
   proteus lab create --candidate-id <id> [--name <name>]
   proteus learn add --title <text> [--category <category>] [--scope <scope>] [--body <text>] [--tags a,b]

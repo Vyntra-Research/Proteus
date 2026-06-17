@@ -78,8 +78,15 @@ try {
   );
   legacyDb.close();
   const migratedStatus = run(["status", "--root", legacyRoot], legacyRoot);
-  if (!migratedStatus.includes("legacy-target") || !migratedStatus.includes("Gates: 0")) {
+  if (!migratedStatus.includes("legacy-target") || !migratedStatus.includes("Gates: 0") || !migratedStatus.includes("Proteus DB version: 1.0.0")) {
     throw new Error("legacy memory migration did not preserve target and create new gate schema");
+  }
+  const migratedVersions = run(["migrate", "--root", legacyRoot], legacyRoot);
+  if (!migratedVersions.includes("2026-06-17-campaigns-links-branches")) {
+    throw new Error("migrate did not report the campaigns/links/branches migration");
+  }
+  if (!migratedVersions.includes("Proteus DB version: 1.0.0") || !migratedVersions.includes("previous 1.0.0")) {
+    throw new Error("migrate did not report the stored Proteus database version");
   }
   run([
     "record",
@@ -116,7 +123,7 @@ try {
 
   run(["init", "--name", "smoke-target"]);
   const status = run(["status"]);
-  if (!status.includes("smoke-target")) {
+  if (!status.includes("smoke-target") || !status.includes("Proteus DB version: 1.0.0")) {
     throw new Error("status did not return initialized target");
   }
   run(["ingest", "docs"]);
@@ -182,6 +189,68 @@ try {
     throw new Error("target-scope global learning query did not return expected record");
   }
   run(["plan-round", "--objective", "Smoke high-ROI round", "--write"]);
+  run(["campaign", "create", "--title", "Smoke campaign", "--objective", "Smoke campaign objective"]);
+  const campaignDigest = run(["campaign", "resume"]);
+  if (!campaignDigest.includes('"title": "Smoke campaign"')) {
+    throw new Error("campaign resume did not return active campaign digest");
+  }
+  run([
+    "branch",
+    "add",
+    "--campaign-id",
+    "1",
+    "--round-id",
+    "1",
+    "--title",
+    "Smoke branch",
+    "--primitive",
+    "attacker-controlled transition",
+    "--steps",
+    "step one,step two",
+    "--kill-conditions",
+    "control fails"
+  ]);
+  const branches = run(["branch", "list", "--campaign-id", "1"]);
+  if (!branches.includes("B1 [open] Smoke branch")) {
+    throw new Error("branch list did not return recorded branch");
+  }
+  run([
+    "campaign",
+    "checkpoint",
+    "--id",
+    "1",
+    "--confirmed",
+    "surface mapped",
+    "--open",
+    "Smoke branch",
+    "--pivots",
+    "stay on transition boundary",
+    "--context",
+    "Smoke context capsule",
+    "--next",
+    "Validate smoke branch",
+    "--contract-signature",
+    "{\"status\":\"compliant\",\"agent\":\"smoke\"}",
+    "--summary",
+    "Smoke checkpoint"
+  ]);
+  const checkpoints = run(["list", "checkpoints", "--campaign-id", "1"]);
+  if (!checkpoints.includes("K1 campaign=C1") || !checkpoints.includes("Validate smoke branch")) {
+    throw new Error("list checkpoints did not return recorded checkpoint");
+  }
+  const checkpointRecord = run(["show", "checkpoint", "1"]);
+  if (!checkpointRecord.includes('"entityType": "campaign_checkpoint"') || !checkpointRecord.includes("Smoke context capsule")) {
+    throw new Error("show checkpoint did not return campaign checkpoint record");
+  }
+  const campaignDigestWithCheckpoint = run(["campaign", "resume"]);
+  if (!campaignDigestWithCheckpoint.includes('"recentCheckpoints"') || !campaignDigestWithCheckpoint.includes("Validate smoke branch")) {
+    throw new Error("campaign resume did not include recent checkpoints");
+  }
+  run(["link", "--from-type", "campaign", "--from-id", "1", "--relation", "has_round", "--to-type", "round", "--to-id", "1"]);
+  const links = run(["list", "links", "--entity-type", "campaign", "--entity-id", "1"]);
+  if (!links.includes("campaign#1 -[has_round]-> round#1")) {
+    throw new Error("list links did not return recorded campaign-round link");
+  }
   const activeRounds = run(["list", "rounds", "--status", "active"]);
   if (!activeRounds.includes("R1 [active]") || !activeRounds.includes("Smoke high-ROI round")) {
     throw new Error("list rounds did not return the active round plan");
@@ -189,6 +258,14 @@ try {
   const roundRecord = run(["show", "round", "1"]);
   if (!roundRecord.includes('"status": "active"') || !roundRecord.includes("Smoke high-ROI round")) {
     throw new Error("show round did not expose active plan status");
+  }
+  const campaignRecord = run(["show", "campaign", "1"]);
+  if (!campaignRecord.includes('"entityType": "campaign"') || !campaignRecord.includes("Smoke campaign")) {
+    throw new Error("show campaign did not return campaign record");
+  }
+  const branchRecord = run(["show", "branch", "1"]);
+  if (!branchRecord.includes('"entityType": "hypothesis_branch"') || !branchRecord.includes("Smoke branch")) {
+    throw new Error("show branch did not return hypothesis branch record");
   }
   run(["update", "round", "--id", "1", "--status", "paused"]);
   const pausedRounds = run(["list", "rounds", "--status", "paused"]);
@@ -262,7 +339,7 @@ try {
     "--reason",
     "Smoke candidate decision",
     "--evidence-ids",
-    "1"
+    "2"
   ]);
   run([
     "record",
@@ -278,11 +355,23 @@ try {
     "--summary",
     "Smoke gate passed",
     "--evidence-ids",
-    "1"
+    "2"
   ]);
   const gates = run(["list", "gates", "--entity-type", "hypothesis", "--entity-id", "1"]);
   if (!gates.includes("G2 realistic external attacker input") || !gates.includes("[pass]")) {
     throw new Error("list gates did not return recorded validation gate");
+  }
+  const campaignAutoLinks = run(["list", "links", "--entity-type", "campaign", "--entity-id", "1"]);
+  for (const expectedLink of [
+    "campaign#1 -[tracks_hypothesis]-> hypothesis#1",
+    "campaign#1 -[has_evidence]-> evidence#2",
+    "campaign#1 -[has_decision]-> decision#1",
+    "campaign#1 -[has_validation_gate]-> gate#1",
+    "campaign#1 -[has_agent_output]-> agent_output#1"
+  ]) {
+    if (!campaignAutoLinks.includes(expectedLink)) {
+      throw new Error(`campaign active-state auto-link missing: ${expectedLink}`);
+    }
   }
   const gateRecord = run(["show", "gate", "1"]);
   if (!gateRecord.includes('"entityType": "gate"') || !gateRecord.includes("Smoke gate passed")) {
@@ -301,6 +390,10 @@ try {
   const memory = run(["query", "memory", "validation gate"]);
   if (!memory.includes("source#") && !memory.includes("hypothesis#")) {
     throw new Error("memory query did not return indexed records");
+  }
+  const similar = run(["query", "similar", "validation gate"]);
+  if (!similar.includes("Duplicate/report coverage:") || !similar.includes("Memory matches:")) {
+    throw new Error("similar query did not return coverage and memory sections");
   }
   const broadDuplicate = run(["query", "duplicates", "broad-only cache glossary phrase"]);
   if (!broadDuplicate.includes("No prior coverage found.")) {
@@ -381,6 +474,19 @@ try {
   for (const section of ["## Title", "## CWE", "## Summary", "## Steps To Reproduce", "## Impact"]) {
     if (!reportDraft.includes(section)) {
       throw new Error(`report draft missing expected section: ${section}`);
+    }
+  }
+  for (const guidance of [
+    "follow that structure first",
+    "should not read like a legal document",
+    "Anticipate the triager's likely questions organically",
+    "When adjusting a draft, write the external report text",
+    "Do not use headings or stock transitions like \"Why this matters\"",
+    "Do not put long, redundant explanations inside the steps",
+    "Impact should preferably be bullet points"
+  ]) {
+    if (!reportDraft.includes(guidance)) {
+      throw new Error(`report draft missing writing guidance: ${guidance}`);
     }
   }
 

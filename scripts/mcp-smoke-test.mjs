@@ -69,13 +69,21 @@ try {
   for (const expectedTool of [
     "proteus_init",
     "proteus_status",
+    "proteus_migrate",
     "proteus_ingest",
     "proteus_observe",
     "proteus_plan_round",
+    "proteus_campaign_create",
+    "proteus_campaign_resume",
+    "proteus_campaign_checkpoint",
+    "proteus_campaign_close",
+    "proteus_record_branch",
+    "proteus_link_entities",
     "proteus_roles",
     "proteus_prompt",
     "proteus_query_duplicates",
     "proteus_query_memory",
+    "proteus_query_similar",
     "proteus_get_record",
     "proteus_list_records",
     "proteus_record_surface",
@@ -104,6 +112,17 @@ try {
     name: "proteus_init",
     arguments: { root: tmpRoot, name: "mcp-smoke-target" }
   });
+  const migrations = await request("tools/call", {
+    name: "proteus_migrate",
+    arguments: { root: tmpRoot }
+  });
+  const migrationsText = String(migrations.content?.[0]?.text ?? "");
+  if (!migrationsText.includes("2026-06-17-campaigns-links-branches")) {
+    throw new Error("proteus_migrate did not report campaigns/links/branches migration");
+  }
+  if (!migrationsText.includes('"currentVersion": "1.0.0"') || !migrationsText.includes('"storedVersion": "1.0.0"')) {
+    throw new Error("proteus_migrate did not report the Proteus database version");
+  }
   fs.mkdirSync(path.join(tmpRoot, "REPORTS"), { recursive: true });
   fs.writeFileSync(
     path.join(tmpRoot, "REPORTS", "smoke-report.md"),
@@ -125,10 +144,65 @@ try {
   if (!text.includes('"memory"')) {
     throw new Error("proteus_status did not return memory stats");
   }
+  if (!text.includes('"proteusVersion"') || !text.includes('"storedVersion": "1.0.0"')) {
+    throw new Error("proteus_status did not return Proteus database version state");
+  }
 
   await request("tools/call", {
     name: "proteus_plan_round",
     arguments: { root: tmpRoot, objective: "MCP smoke plan", markdown: false }
+  });
+  await request("tools/call", {
+    name: "proteus_campaign_create",
+    arguments: { root: tmpRoot, title: "MCP smoke campaign", objective: "MCP smoke campaign objective" }
+  });
+  const campaignDigest = await request("tools/call", {
+    name: "proteus_campaign_resume",
+    arguments: { root: tmpRoot }
+  });
+  if (!String(campaignDigest.content?.[0]?.text ?? "").includes("MCP smoke campaign")) {
+    throw new Error("proteus_campaign_resume did not return campaign digest");
+  }
+  await request("tools/call", {
+    name: "proteus_record_branch",
+    arguments: {
+      root: tmpRoot,
+      campaignId: 1,
+      roundId: 1,
+      title: "MCP smoke branch",
+      attackPrimitive: "attacker-controlled transition",
+      steps: ["step one"],
+      killConditions: ["control fails"]
+    }
+  });
+  const checkpoint = await request("tools/call", {
+    name: "proteus_campaign_checkpoint",
+    arguments: {
+      root: tmpRoot,
+      id: 1,
+      confirmed: ["surface mapped"],
+      open: ["MCP smoke branch"],
+      pivots: ["stay on daemon boundary"],
+      contextToPersist: ["MCP checkpoint context"],
+      nextHighRoiMove: "Validate MCP smoke branch",
+      contractSignature: { status: "compliant", agent: "mcp-smoke" },
+      summary: "MCP smoke checkpoint"
+    }
+  });
+  const checkpointText = String(checkpoint.content?.[0]?.text ?? "");
+  if (!checkpointText.includes('"checkpointId"') || !checkpointText.includes('"campaign_checkpoint"')) {
+    throw new Error("proteus_campaign_checkpoint did not return the structured checkpoint envelope");
+  }
+  const checkpointRecord = await request("tools/call", {
+    name: "proteus_get_record",
+    arguments: { root: tmpRoot, entityType: "checkpoint", entityId: 1 }
+  });
+  if (!String(checkpointRecord.content?.[0]?.text ?? "").includes("MCP checkpoint context")) {
+    throw new Error("proteus_get_record did not return the campaign checkpoint");
+  }
+  await request("tools/call", {
+    name: "proteus_link_entities",
+    arguments: { root: tmpRoot, fromType: "campaign", fromId: 1, relation: "has_round", toType: "round", toId: 1 }
   });
   const suppliedPlan = await request("tools/call", {
     name: "proteus_plan_round",
@@ -169,6 +243,13 @@ try {
   });
   if (!String(activePlans.content?.[0]?.text ?? "").includes("MCP coordinator supplied plan")) {
     throw new Error("proteus_list_records did not return active rounds");
+  }
+  const branchRecords = await request("tools/call", {
+    name: "proteus_list_records",
+    arguments: { root: tmpRoot, recordType: "branches", entityType: "campaign", entityId: 1 }
+  });
+  if (!String(branchRecords.content?.[0]?.text ?? "").includes("MCP smoke branch")) {
+    throw new Error("proteus_list_records did not return recorded branches");
   }
   await request("tools/call", {
     name: "proteus_update_round",
@@ -216,7 +297,24 @@ try {
   if (!String(surfaces.content?.[0]?.text ?? "").includes("Smoke daemon protocol surface")) {
     throw new Error("proteus_list_records did not return recorded surface");
   }
-  await request("tools/call", {
+  const hypothesis = await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: tmpRoot,
+      title: "MCP smoke hypothesis",
+      primitive: "daemon transition",
+      attackerBoundary: "external request",
+      impactClaim: "mcp smoke impact",
+      heuristicFamily: "state transition",
+      surfaceId: 1,
+      score: 8
+    }
+  });
+  const hypothesisText = String(hypothesis.content?.[0]?.text ?? "");
+  if (!hypothesisText.includes("active_campaign_linked") || !hypothesisText.includes("tracks_hypothesis")) {
+    throw new Error("proteus_record_hypothesis did not auto-link to the active campaign");
+  }
+  const evidence = await request("tools/call", {
     name: "proteus_record_evidence",
     arguments: {
       root: tmpRoot,
@@ -225,6 +323,45 @@ try {
       body: "MCP smoke evidence body"
     }
   });
+  const evidenceText = String(evidence.content?.[0]?.text ?? "");
+  if (!evidenceText.includes("active_campaign_linked") || !evidenceText.includes("has_evidence")) {
+    throw new Error("proteus_record_evidence did not auto-link to the active campaign");
+  }
+  const decision = await request("tools/call", {
+    name: "proteus_record_decision",
+    arguments: {
+      root: tmpRoot,
+      entityType: "hypothesis",
+      entityId: 1,
+      decision: "candidate",
+      reason: "MCP smoke candidate decision",
+      evidenceIds: [1]
+    }
+  });
+  const decisionText = String(decision.content?.[0]?.text ?? "");
+  if (!decisionText.includes("active_campaign_linked") || !decisionText.includes("has_decision")) {
+    throw new Error("proteus_record_decision did not auto-link to the active campaign");
+  }
+  const agentOutput = await request("tools/call", {
+    name: "proteus_record_agent_output",
+    arguments: {
+      root: tmpRoot,
+      roundId: 1,
+      codename: "argus",
+      roleFamily: "intake",
+      assignedSurface: "Smoke daemon protocol surface",
+      coveredSurface: ["daemon.ts"],
+      liveCandidates: ["MCP smoke hypothesis"],
+      killedHypotheses: [],
+      probes: ["read daemon.ts"],
+      uncoveredAreas: [],
+      validationStatus: "unvalidated"
+    }
+  });
+  const agentOutputText = String(agentOutput.content?.[0]?.text ?? "");
+  if (!agentOutputText.includes("active_campaign_linked") || !agentOutputText.includes("has_agent_output")) {
+    throw new Error("proteus_record_agent_output did not auto-link to the active campaign");
+  }
   const roles = await request("tools/call", { name: "proteus_roles", arguments: {} });
   if (!String(roles.content?.[0]?.text ?? "").includes("Argus")) {
     throw new Error("proteus_roles did not return role definitions");
@@ -255,7 +392,15 @@ try {
   if (!coverageText.includes('"entityType": "source"') || coverageText.includes('"entityType": "round"')) {
     throw new Error("proteus_query_duplicates should only return finding/report source coverage");
   }
-  await request("tools/call", {
+  const similar = await request("tools/call", {
+    name: "proteus_query_similar",
+    arguments: { root: tmpRoot, text: "Smoke daemon protocol surface", limit: 5 }
+  });
+  const similarText = String(similar.content?.[0]?.text ?? "");
+  if (!similarText.includes("duplicateCoverage") || !similarText.includes("memoryMatches")) {
+    throw new Error("proteus_query_similar did not return duplicate and memory sections");
+  }
+  const gate = await request("tools/call", {
     name: "proteus_record_gate",
     arguments: {
       root: tmpRoot,
@@ -266,6 +411,10 @@ try {
       summary: "MCP gate smoke"
     }
   });
+  const gateText = String(gate.content?.[0]?.text ?? "");
+  if (!gateText.includes("active_campaign_linked") || !gateText.includes("has_validation_gate")) {
+    throw new Error("proteus_record_gate did not auto-link to the active campaign");
+  }
   const gates = await request("tools/call", {
     name: "proteus_list_records",
     arguments: { root: tmpRoot, recordType: "gates", entityType: "hypothesis", entityId: 1 }
