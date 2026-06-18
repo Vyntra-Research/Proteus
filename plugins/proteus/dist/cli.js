@@ -866,11 +866,61 @@ function splitList(value) {
 function parseJsonFlag(value) {
     if (!value)
         return undefined;
-    const parsed = JSON.parse(value);
+    let parsed;
+    try {
+        parsed = JSON.parse(value);
+    }
+    catch {
+        parsed = parseLooseObjectFlag(value);
+        if (parsed === undefined) {
+            throw new Error("Flag value must be valid JSON or comma-separated key=value pairs.");
+        }
+    }
     if (!isJsonValue(parsed)) {
         throw new Error("Flag value must be valid JSON.");
     }
     return parsed;
+}
+function parseLooseObjectFlag(value) {
+    const trimmed = value.trim();
+    if (!trimmed)
+        return undefined;
+    const body = trimmed.startsWith("{") && trimmed.endsWith("}") ? trimmed.slice(1, -1) : trimmed;
+    const pairs = body
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean);
+    if (pairs.length === 0)
+        return {};
+    const result = {};
+    for (const pair of pairs) {
+        const separatorIndex = pair.includes("=") ? pair.indexOf("=") : pair.indexOf(":");
+        if (separatorIndex <= 0)
+            return undefined;
+        const key = stripLooseQuotes(pair.slice(0, separatorIndex).trim());
+        if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(key))
+            return undefined;
+        result[key] = parseLooseScalar(pair.slice(separatorIndex + 1).trim());
+    }
+    return result;
+}
+function parseLooseScalar(value) {
+    const unquoted = stripLooseQuotes(value);
+    if (unquoted === "true")
+        return true;
+    if (unquoted === "false")
+        return false;
+    if (unquoted === "null")
+        return null;
+    if (/^-?\d+(?:\.\d+)?$/.test(unquoted))
+        return Number(unquoted);
+    return unquoted;
+}
+function stripLooseQuotes(value) {
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        return value.slice(1, -1);
+    }
+    return value;
 }
 function isJsonValue(value) {
     if (value === null)

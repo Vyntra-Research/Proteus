@@ -70,7 +70,7 @@ try {
     "--next",
     "verify active-state links",
     "--contract-signature",
-    "{\"status\":\"compliant\",\"agent\":\"release-validation\"}"
+    "status=compliant,agent=release-validation"
   ]);
   run("node", [newCli, "record", "hypothesis", "--root", tmpRoot, "--title", "Release validation hypothesis", "--primitive", "state transition"]);
   run("node", [newCli, "record", "evidence", "--root", tmpRoot, "--title", "Release validation evidence", "--body", "release validation evidence body"]);
@@ -107,6 +107,14 @@ try {
   assertIncludes(generatedChangelog, "### Added", "generated changelog body");
   if (generatedChangelog.includes("## Verification")) {
     throw new Error("generated changelog used commit fallback instead of CHANGELOG.md version notes");
+  }
+  const fallbackChangelogPath = path.join(tmpRoot, "CHANGELOG.fallback.md");
+  run("node", [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", "v9.9.9", "--out", fallbackChangelogPath]);
+  const fallbackChangelog = fs.readFileSync(fallbackChangelogPath, "utf8");
+  assertIncludes(fallbackChangelog, "## 1.0.0 - 2026-06-17", "fallback changelog latest version section");
+  assertIncludes(fallbackChangelog, "### Added", "fallback changelog body");
+  if (fallbackChangelog.includes("## Verification")) {
+    throw new Error("generated changelog used commit fallback instead of latest CHANGELOG.md version notes");
   }
 
   if (process.platform === "win32") {
