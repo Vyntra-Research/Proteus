@@ -20,7 +20,7 @@ proteus --version
 Expected shape:
 
 ```text
-@rafabd1/proteus 0.1.20
+@rafabd1/proteus 1.0.1
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no
@@ -94,6 +94,17 @@ Then register the MCP server from the CLI install:
 ```powershell
 codex mcp add proteus -- proteus-mcp
 ```
+
+In Codex, invoke the plugin with `@proteus`, for example:
+
+```text
+@proteus initialize continuous vulnerability research for this repository
+```
+
+Use `@proteus` as the normal entrypoint so Codex can load the plugin and choose
+the main coordinator skill plus any specialist skill it needs. Slash-style skill
+mentions are for explicitly targeting a single skill and are less ergonomic now
+that Proteus ships multiple skills.
 
 ## 3. Claude Code Plugin Install
 

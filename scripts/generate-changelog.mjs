@@ -20,7 +20,7 @@ const plainVersion = normalizedVersion.slice(1);
 const outputPath = path.resolve(repoRoot, String(args.get("out") ?? path.join("artifacts", `CHANGELOG-${normalizedVersion}.md`)));
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 
-const changelogSection = extractChangelogSection(plainVersion);
+const changelogSection = extractChangelogSection(plainVersion) || extractLatestChangelogSection();
 if (changelogSection) {
   fs.writeFileSync(outputPath, `${changelogSection.trim()}\n`);
   console.log(outputPath);
@@ -66,28 +66,37 @@ fs.writeFileSync(outputPath, `${lines.join("\n")}\n`);
 console.log(outputPath);
 
 function extractChangelogSection(targetVersion) {
+  const sections = readChangelogSections();
+  return sections.find((section) => section.version === targetVersion)?.text ?? "";
+}
+
+function extractLatestChangelogSection() {
+  return readChangelogSections()[0]?.text ?? "";
+}
+
+function readChangelogSections() {
   const changelogPath = path.join(repoRoot, "CHANGELOG.md");
-  if (!fs.existsSync(changelogPath)) return "";
+  if (!fs.existsSync(changelogPath)) return [];
   const changelog = fs.readFileSync(changelogPath, "utf8").replace(/\r\n/g, "\n");
   const lines = changelog.split("\n");
   const headingPattern = /^##\s+\[?v?([0-9]+(?:\.[0-9]+){1,2}(?:[-+][^\]\s]+)?)\]?(?:\s+-.*)?\s*$/i;
-  let start = -1;
+  const sections = [];
   for (let i = 0; i < lines.length; i += 1) {
     const match = lines[i].match(headingPattern);
-    if (match && match[1] === targetVersion) {
-      start = i;
-      break;
+    if (!match) continue;
+    let end = lines.length;
+    for (let next = i + 1; next < lines.length; next += 1) {
+      if (/^##\s+/.test(lines[next])) {
+        end = next;
+        break;
+      }
     }
+    sections.push({
+      version: match[1],
+      text: lines.slice(i, end).join("\n").trim()
+    });
   }
-  if (start === -1) return "";
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (/^##\s+/.test(lines[i])) {
-      end = i;
-      break;
-    }
-  }
-  return lines.slice(start, end).join("\n").trim();
+  return sections;
 }
 
 function findPreviousTag(currentTag) {

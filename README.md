@@ -44,7 +44,8 @@ negative controls, and PoC validation without artificial lab help.
 Proteus has three install surfaces:
 
 - CLI/runtime: `proteus` and `proteus-mcp`
-- Codex plugin: the `continuous-vuln-research` skill plus MCP configuration
+- Codex plugin: the main `continuous-vuln-research` coordinator skill,
+  specialist skills, and MCP configuration
 - Claude Code plugin: `/proteus`, plugin subagents, and plugin MCP configuration
 
 Install the CLI first. The plugin instructions and skills can load without it,
@@ -64,7 +65,7 @@ proteus --version
 Expected:
 
 ```text
-@rafabd1/proteus 1.0.0
+@rafabd1/proteus 1.0.1
 ```
 
 The codeload tarball is the recommended install path while Proteus is distributed
@@ -103,20 +104,26 @@ claude mcp add -s user proteus -- proteus-mcp
 
 ## Quick Start
 
-After installing the plugin in Codex or Claude Code, use Proteus with `/proteus`.
+After installing the plugin in Codex, invoke Proteus with `@proteus`. This loads
+the plugin as the entrypoint so the assistant can choose the main coordinator
+skill and any specialist skills it needs. Avoid using a slash-style skill
+mention in Codex for normal Proteus work; slash syntax is better reserved for
+direct skill references when you explicitly want one specific skill.
+
+In Claude Code, use the plugin slash command `/proteus`.
 
 Example prompts:
 
 ```text
-/proteus initialize continuous vulnerability research for this repository
+@proteus initialize continuous vulnerability research for this repository
 
-/proteus plan the next high-ROI offensive research round for this codebase
+@proteus plan the next high-ROI offensive research round for this codebase
 
-/proteus use the existing findings and REPORTS folders, avoid duplicates, and focus on realistic exploitability
+@proteus use the existing findings and REPORTS folders, avoid duplicates, and focus on realistic exploitability
 
-/proteus validate this candidate with realistic PoC gates, negative controls, and no forced vulnerable config
+@proteus validate this candidate with realistic PoC gates, negative controls, and no forced vulnerable config
 
-/proteus draft a triage-ready report without internal workflow references
+@proteus draft a triage-ready report without internal workflow references
 ```
 
 When available, Proteus should use persistent goal/campaign features for

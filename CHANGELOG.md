@@ -25,6 +25,9 @@
 - Updated README and architecture docs to explain plugin, CLI, MCP runtime, campaigns, branches, checkpoints, and release behavior.
 - Expanded CLI and MCP smoke coverage to exercise campaigns, branches, checkpoints, links, similarity, migration, and MCP state recovery.
 - Updated release automation so GitHub Release notes are copied from the matching `CHANGELOG.md` version section, and merges to `main` create the version tag/release when the tag is missing.
+- Clarified that Codex users should invoke the plugin with `@proteus`, while `/proteus` is the Claude Code slash command.
+- Made checkpoint contract-signature parsing friendlier to Windows shells by accepting comma-separated `key=value` pairs in addition to JSON.
+- Changed release-note generation so a missing changelog section for a new version reuses the latest version notes instead of falling back to commit summaries.
 
 ### Migration
 

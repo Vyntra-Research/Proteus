@@ -19,6 +19,14 @@ Proteus requires Node.js 24 or newer because the first runtime uses
 
 ## Assistant Orchestration
 
+In Codex, invoke Proteus with `@proteus`. Treat `@proteus` as the normal
+entrypoint because it lets the assistant load the plugin, start from the main
+coordinator skill, and pull in specialist skills only when needed. Slash-style
+skill references should be reserved for cases where the user intentionally wants
+one specific skill.
+
+In Claude Code, use the plugin command `/proteus`.
+
 Proteus is designed to benefit from host-assistant orchestration features when
 they are available in the session:
 
@@ -27,7 +35,7 @@ they are available in the session:
   stop conditions are met.
 - Use subagents for independent, bounded Proteus fronts when delegation is
   available and allowed. Assign one codename and one surface per subagent:
-  Argus, Loom, Chaos, Libris, Mimic, Artificer, or Skeptic.
+  Argus, Loom, Chaos, Libris, Mimic, Artificer, Skeptic, or Cicada.
 - Keep the coordinator in charge of ROI selection, memory updates, validation
   gates, duplicate checks, kill/promote decisions, and replanning.
 - Fall back to serial local execution when goal mode, subagents, MCP tools, or
@@ -157,6 +165,7 @@ libris
 mimic
 artificer
 skeptic
+cicada
 ```
 
 ## Record Research State
