@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+const expectedVersion = String(packageJson.version);
 const serverPath = path.join(repoRoot, "plugins", "proteus", "scripts", "proteus-mcp.cjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
@@ -120,7 +122,7 @@ try {
   if (!migrationsText.includes("2026-06-17-campaigns-links-branches")) {
     throw new Error("proteus_migrate did not report campaigns/links/branches migration");
   }
-  if (!migrationsText.includes('"currentVersion": "1.0.0"') || !migrationsText.includes('"storedVersion": "1.0.0"')) {
+  if (!migrationsText.includes(`"currentVersion": "${expectedVersion}"`) || !migrationsText.includes(`"storedVersion": "${expectedVersion}"`)) {
     throw new Error("proteus_migrate did not report the Proteus database version");
   }
   fs.mkdirSync(path.join(tmpRoot, "REPORTS"), { recursive: true });
@@ -144,7 +146,7 @@ try {
   if (!text.includes('"memory"')) {
     throw new Error("proteus_status did not return memory stats");
   }
-  if (!text.includes('"proteusVersion"') || !text.includes('"storedVersion": "1.0.0"')) {
+  if (!text.includes('"proteusVersion"') || !text.includes(`"storedVersion": "${expectedVersion}"`)) {
     throw new Error("proteus_status did not return Proteus database version state");
   }
 

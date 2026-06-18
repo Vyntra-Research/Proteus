@@ -7,16 +7,18 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(import.meta.url);
+const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+const expectedVersion = String(packageJson.version);
 const newCli = path.join(repoRoot, "dist", "cli.js");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-validate-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-global-"));
 
 try {
   const version = run("node", [newCli, "--version"]);
-  assertIncludes(version, "@rafabd1/proteus 1.0.0", "new CLI version");
+  assertIncludes(version, `@rafabd1/proteus ${expectedVersion}`, "new CLI version");
 
   const oldVersion = runOptional("proteus", ["--version"]);
-  const hasOldProteus = oldVersion.ok && !oldVersion.output.includes("1.0.0");
+  const hasOldProteus = oldVersion.ok && !oldVersion.output.includes(expectedVersion);
   if (hasOldProteus) {
     createRecordsWithOldProteus(tmpRoot);
   } else {
@@ -26,11 +28,11 @@ try {
   const migrations = run("node", [newCli, "migrate", "--root", tmpRoot]);
   assertIncludes(migrations, "2026-06-17-campaigns-links-branches", "campaign migration");
   assertIncludes(migrations, "2026-06-17-campaign-checkpoints", "checkpoint migration");
-  assertIncludes(migrations, "Proteus DB version: 1.0.0", "stored Proteus database version");
+  assertIncludes(migrations, `Proteus DB version: ${expectedVersion}`, "stored Proteus database version");
 
   const status = run("node", [newCli, "status", "--root", tmpRoot]);
   assertIncludes(status, "release-legacy-target", "migrated target status");
-  assertIncludes(status, "Proteus DB version: 1.0.0", "status Proteus database version");
+  assertIncludes(status, `Proteus DB version: ${expectedVersion}`, "status Proteus database version");
   const metadataUpdatedAt = readProteusMetadataUpdatedAt(tmpRoot);
   run("node", [newCli, "status", "--root", tmpRoot]);
   if (readProteusMetadataUpdatedAt(tmpRoot) !== metadataUpdatedAt) {
@@ -100,7 +102,7 @@ try {
   }
 
   const changelogPath = path.join(tmpRoot, "CHANGELOG.generated.md");
-  const changelogOutput = run("node", [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", "v1.0.0", "--out", changelogPath]);
+  const changelogOutput = run("node", [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", `v${expectedVersion}`, "--out", changelogPath]);
   assertIncludes(changelogOutput, changelogPath, "changelog output path");
   const generatedChangelog = fs.readFileSync(changelogPath, "utf8");
   assertIncludes(generatedChangelog, "## 1.0.0 - 2026-06-17", "generated changelog version section");
@@ -123,7 +125,7 @@ try {
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(repoRoot, "plugins", "proteus", "scripts", "proteus.ps1"), "--version"],
       { cwd: repoRoot, encoding: "utf8", env: releaseEnv() }
     );
-    assertIncludes(wrapperVersion, "@rafabd1/proteus 1.0.0", "PowerShell plugin wrapper");
+    assertIncludes(wrapperVersion, `@rafabd1/proteus ${expectedVersion}`, "PowerShell plugin wrapper");
   }
 
   console.log(`Proteus release validation passed: ${tmpRoot}`);
