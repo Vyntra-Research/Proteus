@@ -65,7 +65,7 @@ proteus --version
 Expected:
 
 ```text
-@rafabd1/proteus 1.0.1
+@rafabd1/proteus 1.0.2
 ```
 
 The codeload tarball is the recommended install path while Proteus is distributed
@@ -188,6 +188,15 @@ Each target database records the Proteus runtime version that last migrated it.
 On startup, Proteus runs automatic migrations only when that stored version is
 missing or different from the current runtime. `proteus migrate` forces a full
 idempotent migration check and refreshes the stored version.
+
+Use the actual workspace/repository root as `--root` unless you intentionally
+want a separate target memory. If a nested `.vros` is created by mistake, merge
+it back into the canonical workspace base:
+
+```powershell
+proteus merge --root C:\path\to\workspace --source C:\path\to\workspace\packages\foo\.vros\memory.sqlite
+proteus merge --root C:\path\to\workspace --sources .\old\.vros\memory.sqlite,.\nested\.vros --dry-run
+```
 
 When exactly one campaign is active, Proteus automatically links new hypotheses,
 evidence, decisions, validation gates, and agent outputs back to that campaign.
@@ -357,6 +366,7 @@ easier to trust.
 proteus init [--root <path>] [--name <target>]
 proteus status [--root <path>]
 proteus migrate [--root <path>]
+proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
 proteus ingest [--root <path>] [paths...]
 proteus observe [--root <path>]
 proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
@@ -416,6 +426,7 @@ The server exposes:
 proteus_init
 proteus_status
 proteus_migrate
+proteus_merge_memory
 proteus_ingest
 proteus_observe
 proteus_plan_round

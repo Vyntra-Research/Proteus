@@ -10,8 +10,9 @@ const expectedVersion = String(packageJson.version);
 const serverPath = path.join(repoRoot, "plugins", "proteus", "scripts", "proteus-mcp.cjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
+const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
 
-const child = spawn("node", [serverPath], {
+const child = spawn(process.execPath, [serverPath], {
   cwd: repoRoot,
   env: {
     ...process.env,
@@ -72,6 +73,7 @@ try {
     "proteus_init",
     "proteus_status",
     "proteus_migrate",
+    "proteus_merge_memory",
     "proteus_ingest",
     "proteus_observe",
     "proteus_plan_round",
@@ -134,6 +136,43 @@ try {
     name: "proteus_ingest",
     arguments: { root: tmpRoot, paths: ["REPORTS"] }
   });
+
+  await request("tools/call", {
+    name: "proteus_init",
+    arguments: { root: mergeSourceRoot, name: "mcp-stray-merge-target" }
+  });
+  await request("tools/call", {
+    name: "proteus_record_evidence",
+    arguments: {
+      root: mergeSourceRoot,
+      title: "MCP stray merge evidence",
+      kind: "note",
+      body: "MCP stray merge evidence body"
+    }
+  });
+  const mergeDryRun = await request("tools/call", {
+    name: "proteus_merge_memory",
+    arguments: { root: tmpRoot, sources: [path.join(mergeSourceRoot, ".vros", "memory.sqlite")], dryRun: true }
+  });
+  const mergeDryRunText = String(mergeDryRun.content?.[0]?.text ?? "");
+  if (!mergeDryRunText.includes('"dryRun": true') || !mergeDryRunText.includes('"evidence": 1')) {
+    throw new Error("proteus_merge_memory dry-run did not preview source evidence");
+  }
+  const mergeResult = await request("tools/call", {
+    name: "proteus_merge_memory",
+    arguments: { root: tmpRoot, sources: [path.join(mergeSourceRoot, ".vros")] }
+  });
+  const mergeResultText = String(mergeResult.content?.[0]?.text ?? "");
+  if (!mergeResultText.includes('"dryRun": false') || !mergeResultText.includes('"evidence": 1')) {
+    throw new Error("proteus_merge_memory did not merge source evidence");
+  }
+  const mergedMemory = await request("tools/call", {
+    name: "proteus_query_memory",
+    arguments: { root: tmpRoot, text: "MCP stray merge evidence body" }
+  });
+  if (!String(mergedMemory.content?.[0]?.text ?? "").includes('"entityType": "evidence"')) {
+    throw new Error("merged MCP evidence was not searchable in destination memory");
+  }
 
   const status = await request("tools/call", {
     name: "proteus_status",
@@ -445,4 +484,5 @@ try {
   child.kill();
   fs.rmSync(tmpRoot, { recursive: true, force: true });
   fs.rmSync(globalRoot, { recursive: true, force: true });
+  fs.rmSync(mergeSourceRoot, { recursive: true, force: true });
 }

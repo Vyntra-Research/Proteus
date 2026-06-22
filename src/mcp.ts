@@ -83,6 +83,21 @@ const tools: ToolDefinition[] = [
       )
   },
   {
+    name: "proteus_merge_memory",
+    title: "Merge Proteus Memory Bases",
+    description: "Merge one or more Proteus .vros/memory.sqlite bases into the destination target root. Accepts source roots, .vros directories, or memory.sqlite paths.",
+    inputSchema: schema(
+      {
+        root: stringProp("Destination workspace root. Prefer the actual repository/workspace root unless explicitly instructed otherwise."),
+        sources: arrayProp("Source roots, .vros directories, or .vros/memory.sqlite files to merge into root."),
+        dryRun: booleanProp("Preview counts without writing.")
+      },
+      ["root", "sources"]
+    ),
+    handler: ({ root, sources, dryRun }) =>
+      withDb(str(root), (db) => toolEnvelope(db.mergeMemoryBases(stringArray(sources), { dryRun: dryRun === true })))
+  },
+  {
     name: "proteus_ingest",
     title: "Ingest Prior Research",
     description: "Index local docs, findings, reports, and notes into Proteus memory.",

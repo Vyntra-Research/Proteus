@@ -20,7 +20,7 @@ proteus --version
 Expected shape:
 
 ```text
-@rafabd1/proteus 1.0.1
+@rafabd1/proteus 1.0.2
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no
@@ -129,6 +129,15 @@ claude mcp add -s user proteus -- proteus-mcp
 proteus --version
 proteus roles
 proteus --help
+```
+
+Use the repository/workspace root as the normal Proteus `--root`. If a memory
+base is accidentally created in a nested folder, merge it into the intended
+root before continuing:
+
+```powershell
+proteus merge --root C:\path\to\workspace --source .\packages\foo\.vros\memory.sqlite --dry-run
+proteus merge --root C:\path\to\workspace --source .\packages\foo\.vros\memory.sqlite
 ```
 
 ## Verify MCP

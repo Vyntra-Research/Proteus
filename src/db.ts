@@ -974,9 +974,472 @@ export class ProteusDb {
     };
   }
 
+  mergeMemoryBases(sources: string[], options: { dryRun?: boolean; sourceBaseRoot?: string } = {}): MergeMemoryResult {
+    const destinationTarget = requireTarget(this);
+    const sourceInputs = sources.map((source) => source.trim()).filter(Boolean);
+    if (sourceInputs.length === 0) throw new Error("At least one source base is required.");
+
+    const result: MergeMemoryResult = {
+      ok: true,
+      dryRun: options.dryRun === true,
+      destinationRoot: this.targetRoot,
+      destinationDbPath: this.dbPath,
+      sources: [],
+      totals: emptyMergeCounts()
+    };
+
+    if (!options.dryRun) this.db.exec("BEGIN");
+    try {
+      for (const sourceInput of sourceInputs) {
+        const sourceRoot = resolveProteusSourceRoot(sourceInput, options.sourceBaseRoot ?? this.targetRoot);
+        const source = new ProteusDb(sourceRoot);
+        try {
+          if (path.resolve(source.dbPath) === path.resolve(this.dbPath)) {
+            result.sources.push({
+              input: sourceInput,
+              root: source.targetRoot,
+              dbPath: source.dbPath,
+              skipped: true,
+              reason: "source and destination are the same database",
+              counts: emptyMergeCounts()
+            });
+            continue;
+          }
+          const sourceResult = this.mergeOneSource(source, destinationTarget.id, options.dryRun === true);
+          result.sources.push({
+            input: sourceInput,
+            root: source.targetRoot,
+            dbPath: source.dbPath,
+            skipped: false,
+            counts: sourceResult.counts,
+            sourceTarget: source.getTarget()?.name ?? null
+          });
+          addMergeCounts(result.totals, sourceResult.counts);
+        } finally {
+          source.close();
+        }
+      }
+      if (!options.dryRun) this.db.exec("COMMIT");
+    } catch (error) {
+      if (!options.dryRun) this.db.exec("ROLLBACK");
+      throw error;
+    }
+    return result;
+  }
+
   private count(table: string): number {
     const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as Row;
     return Number(row.count);
+  }
+
+  private mergeOneSource(source: ProteusDb, destinationTargetId: number, dryRun: boolean): { counts: MergeCounts } {
+    const counts = emptyMergeCounts();
+    const maps: MergeMaps = {};
+    const countOnly = (key: keyof MergeCounts, table: string): void => {
+      counts[key] += source.count(table);
+    };
+    if (dryRun) {
+      countOnly("targetProfiles", "target_profiles");
+      countOnly("sources", "sources");
+      countOnly("surfaces", "surfaces");
+      countOnly("hypotheses", "hypotheses");
+      countOnly("evidence", "evidence");
+      countOnly("rounds", "rounds");
+      countOnly("campaigns", "campaigns");
+      countOnly("decisions", "decisions");
+      countOnly("validationGates", "validation_gates");
+      countOnly("labs", "labs");
+      countOnly("agentOutputs", "agent_outputs");
+      countOnly("hypothesisBranches", "hypothesis_branches");
+      countOnly("campaignCheckpoints", "campaign_checkpoints");
+      countOnly("entityLinks", "entity_links");
+      countOnly("campaignEvents", "campaign_events");
+      return { counts };
+    }
+
+    for (const row of source.rows("target_profiles")) {
+      const newId = this.insertRow(
+        `INSERT INTO target_profiles (target_id, profile_json, created_at)
+         VALUES (?, ?, ?)`,
+        [destinationTargetId, row.profile_json, row.created_at]
+      );
+      mapId(maps, "target_profile", Number(row.id), newId);
+      counts.targetProfiles += 1;
+    }
+
+    for (const row of source.rows("sources")) {
+      const existing = this.db
+        .prepare("SELECT id FROM sources WHERE target_id = ? AND content_hash = ?")
+        .get(destinationTargetId, String(row.content_hash)) as Row | undefined;
+      if (existing) {
+        mapId(maps, "source", Number(row.id), Number(existing.id));
+        counts.duplicateSources += 1;
+        continue;
+      }
+      const newId = this.insertRow(
+        `INSERT INTO sources
+          (target_id, kind, path_or_url, title, content_hash, summary, body, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [destinationTargetId, row.kind, row.path_or_url, row.title, row.content_hash, row.summary, row.body, row.created_at]
+      );
+      mapId(maps, "source", Number(row.id), newId);
+      this.copyFtsRows(source, "source", Number(row.id), newId);
+      counts.sources += 1;
+    }
+
+    for (const row of source.rows("surfaces")) {
+      const newId = this.insertRow(
+        `INSERT INTO surfaces
+          (target_id, name, family, description, files_json, symbols_json,
+           entrypoints_json, trust_boundaries_json, runtime_modes_json, status,
+           roi_json, roi_score, exhaustion_level, revisit_condition, last_reviewed_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          row.name,
+          row.family,
+          row.description,
+          row.files_json,
+          row.symbols_json,
+          row.entrypoints_json,
+          row.trust_boundaries_json,
+          row.runtime_modes_json,
+          row.status,
+          row.roi_json,
+          row.roi_score,
+          row.exhaustion_level,
+          row.revisit_condition,
+          row.last_reviewed_at,
+          row.created_at,
+          row.updated_at
+        ]
+      );
+      mapId(maps, "surface", Number(row.id), newId);
+      this.copyFtsRows(source, "surface", Number(row.id), newId);
+      counts.surfaces += 1;
+    }
+
+    for (const row of source.rows("hypotheses")) {
+      const newId = this.insertRow(
+        `INSERT INTO hypotheses
+          (target_id, surface_id, title, primitive, attacker_boundary, impact_claim,
+           heuristic_family, status, score, duplicate_risk, expected_behavior_risk,
+           validation_cost, kill_criteria, revisit_condition, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          remapNullableId(maps, "surface", row.surface_id),
+          row.title,
+          row.primitive,
+          row.attacker_boundary,
+          row.impact_claim,
+          row.heuristic_family,
+          row.status,
+          row.score,
+          row.duplicate_risk,
+          row.expected_behavior_risk,
+          row.validation_cost,
+          row.kill_criteria,
+          row.revisit_condition,
+          row.created_at,
+          row.updated_at
+        ]
+      );
+      mapId(maps, "hypothesis", Number(row.id), newId);
+      this.copyFtsRows(source, "hypothesis", Number(row.id), newId);
+      counts.hypotheses += 1;
+    }
+
+    for (const row of source.rows("evidence")) {
+      const newId = this.insertRow(
+        `INSERT INTO evidence (target_id, kind, title, body, path_or_url, command, hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [destinationTargetId, row.kind, row.title, row.body, row.path_or_url, row.command, row.hash, row.created_at]
+      );
+      mapId(maps, "evidence", Number(row.id), newId);
+      this.copyFtsRows(source, "evidence", Number(row.id), newId);
+      counts.evidence += 1;
+    }
+
+    for (const row of source.rows("rounds")) {
+      const newId = this.insertRow(
+        `INSERT INTO rounds
+          (target_id, objective, current_understanding, selected_surfaces_json,
+           skipped_surfaces_json, agent_fronts_json, validation_gates_json,
+           stop_conditions_json, outcome, created_at, completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          row.objective,
+          row.current_understanding,
+          row.selected_surfaces_json,
+          row.skipped_surfaces_json,
+          row.agent_fronts_json,
+          row.validation_gates_json,
+          row.stop_conditions_json,
+          row.outcome,
+          row.created_at,
+          row.completed_at
+        ]
+      );
+      mapId(maps, "round", Number(row.id), newId);
+      this.copyFtsRows(source, "round", Number(row.id), newId);
+      counts.rounds += 1;
+    }
+
+    for (const row of source.rows("campaigns")) {
+      const newId = this.insertRow(
+        `INSERT INTO campaigns
+          (target_id, title, objective, status, current_state_summary,
+           recent_learning_summary, created_at, updated_at, closed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          row.title,
+          row.objective,
+          row.status,
+          row.current_state_summary,
+          row.recent_learning_summary,
+          row.created_at,
+          row.updated_at,
+          row.closed_at
+        ]
+      );
+      mapId(maps, "campaign", Number(row.id), newId);
+      this.copyFtsRows(source, "campaign", Number(row.id), newId);
+      counts.campaigns += 1;
+    }
+
+    for (const row of source.rows("decisions")) {
+      const ref = remapReference(maps, String(row.entity_type), Number(row.entity_id));
+      const newId = this.insertRow(
+        `INSERT INTO decisions
+          (target_id, entity_type, entity_id, decision, reason, evidence_ids_json, actor, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          ref.entityType,
+          ref.entityId,
+          row.decision,
+          row.reason,
+          remapEvidenceIdsJson(maps, row.evidence_ids_json),
+          row.actor,
+          row.created_at
+        ]
+      );
+      mapId(maps, "decision", Number(row.id), newId);
+      this.copyFtsRows(source, "decision", Number(row.id), newId);
+      counts.decisions += 1;
+    }
+
+    for (const row of source.rows("validation_gates")) {
+      const ref = remapReference(maps, String(row.entity_type), Number(row.entity_id));
+      const newId = this.insertRow(
+        `INSERT INTO validation_gates
+          (target_id, entity_type, entity_id, gate, status, summary, evidence_ids_json, actor, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          ref.entityType,
+          ref.entityId,
+          row.gate,
+          row.status,
+          row.summary,
+          remapEvidenceIdsJson(maps, row.evidence_ids_json),
+          row.actor,
+          row.created_at,
+          row.updated_at
+        ]
+      );
+      mapId(maps, "gate", Number(row.id), newId);
+      this.copyFtsRows(source, "gate", Number(row.id), newId);
+      counts.validationGates += 1;
+    }
+
+    for (const row of source.rows("labs")) {
+      const newId = this.insertRow(
+        `INSERT INTO labs
+          (target_id, candidate_id, path, config_legitimacy, status, limitations, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          remapNullableId(maps, "hypothesis", row.candidate_id) ?? remapNullableId(maps, "hypothesis_branch", row.candidate_id) ?? row.candidate_id,
+          row.path,
+          row.config_legitimacy,
+          row.status,
+          row.limitations,
+          row.created_at,
+          row.updated_at
+        ]
+      );
+      mapId(maps, "lab", Number(row.id), newId);
+      counts.labs += 1;
+    }
+
+    for (const row of source.rows("agent_outputs")) {
+      const roundId = remapNullableId(maps, "round", row.round_id);
+      if (roundId === null) {
+        counts.skippedAgentOutputs += 1;
+        continue;
+      }
+      const newId = this.insertRow(
+        `INSERT INTO agent_outputs
+          (target_id, round_id, agent_codename, agent_role_family, assigned_surface,
+           output_path, covered_surface_json, live_candidates_json, killed_hypotheses_json,
+           probes_json, uncovered_areas_json, validation_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          roundId,
+          row.agent_codename,
+          row.agent_role_family,
+          row.assigned_surface,
+          row.output_path,
+          row.covered_surface_json,
+          row.live_candidates_json,
+          row.killed_hypotheses_json,
+          row.probes_json,
+          row.uncovered_areas_json,
+          row.validation_status,
+          row.created_at
+        ]
+      );
+      mapId(maps, "agent_output", Number(row.id), newId);
+      this.copyFtsRows(source, "agent_output", Number(row.id), newId);
+      counts.agentOutputs += 1;
+    }
+
+    for (const row of source.rows("hypothesis_branches")) {
+      const newId = this.insertRow(
+        `INSERT INTO hypothesis_branches
+          (target_id, campaign_id, round_id, surface_id, title, hypothesis,
+           attack_primitive, why_non_obvious, preconditions_json, steps_json,
+           success_criteria_json, negative_controls_json, kill_conditions_json,
+           roi_json, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          destinationTargetId,
+          remapNullableId(maps, "campaign", row.campaign_id),
+          remapNullableId(maps, "round", row.round_id),
+          remapNullableId(maps, "surface", row.surface_id),
+          row.title,
+          row.hypothesis,
+          row.attack_primitive,
+          row.why_non_obvious,
+          row.preconditions_json,
+          row.steps_json,
+          row.success_criteria_json,
+          row.negative_controls_json,
+          row.kill_conditions_json,
+          row.roi_json,
+          row.status,
+          row.created_at,
+          row.updated_at
+        ]
+      );
+      mapId(maps, "hypothesis_branch", Number(row.id), newId);
+      this.copyFtsRows(source, "hypothesis_branch", Number(row.id), newId);
+      counts.hypothesisBranches += 1;
+    }
+
+    for (const row of source.rows("campaign_checkpoints")) {
+      const campaignId = remapNullableId(maps, "campaign", row.campaign_id);
+      if (campaignId === null) {
+        counts.skippedCampaignCheckpoints += 1;
+        continue;
+      }
+      const newId = this.insertRow(
+        `INSERT INTO campaign_checkpoints
+          (campaign_id, confirmed_json, killed_json, open_json, pivots_json,
+           score_changes_json, context_to_persist_json, next_high_roi_move,
+           contract_signature_json, summary, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          campaignId,
+          row.confirmed_json,
+          row.killed_json,
+          row.open_json,
+          row.pivots_json,
+          row.score_changes_json,
+          row.context_to_persist_json,
+          row.next_high_roi_move,
+          row.contract_signature_json,
+          row.summary,
+          row.created_at
+        ]
+      );
+      mapId(maps, "campaign_checkpoint", Number(row.id), newId);
+      this.copyFtsRows(source, "campaign_checkpoint", Number(row.id), newId);
+      counts.campaignCheckpoints += 1;
+    }
+
+    for (const row of source.rows("entity_links")) {
+      const from = remapReference(maps, String(row.from_type), Number(row.from_id));
+      const to = remapReference(maps, String(row.to_type), Number(row.to_id));
+      if (!from.mapped || !to.mapped) {
+        counts.skippedEntityLinks += 1;
+        continue;
+      }
+      const newId = this.addEntityLink({
+        fromType: from.entityType,
+        fromId: from.entityId,
+        toType: to.entityType,
+        toId: to.entityId,
+        relation: String(row.relation),
+        confidence: Number(row.confidence ?? 1),
+        note: String(row.note ?? "")
+      });
+      mapId(maps, "entity_link", Number(row.id), newId);
+      this.copyFtsRows(source, "entity_link", Number(row.id), newId);
+      counts.entityLinks += 1;
+    }
+
+    for (const row of source.rows("campaign_events")) {
+      const campaignId = remapNullableId(maps, "campaign", row.campaign_id);
+      if (campaignId === null) {
+        counts.skippedCampaignEvents += 1;
+        continue;
+      }
+      const ref = row.entity_type === null || row.entity_id === null
+        ? { entityType: null, entityId: null }
+        : remapReference(maps, String(row.entity_type), Number(row.entity_id));
+      const newId = this.insertRow(
+        `INSERT INTO campaign_events
+          (campaign_id, event_type, entity_type, entity_id, summary, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          campaignId,
+          row.event_type,
+          ref.entityType,
+          ref.entityId,
+          row.summary,
+          row.created_at
+        ]
+      );
+      mapId(maps, "campaign_event", Number(row.id), newId);
+      this.copyFtsRows(source, "campaign_event", Number(row.id), newId);
+      counts.campaignEvents += 1;
+    }
+
+    return { counts };
+  }
+
+  private rows(table: string): Row[] {
+    return this.db.prepare(`SELECT * FROM ${table} ORDER BY id ASC`).all() as Row[];
+  }
+
+  private insertRow(sql: string, values: unknown[]): number {
+    const result = this.db.prepare(sql).run(...values.map(toSqlValue));
+    return Number(result.lastInsertRowid);
+  }
+
+  private copyFtsRows(source: ProteusDb, entityType: string, oldId: number, newId: number): void {
+    const rows = source.db
+      .prepare("SELECT content FROM proteus_fts WHERE entity_type = ? AND entity_id = ?")
+      .all(entityType, oldId) as Row[];
+    for (const row of rows) {
+      this.indexFts(entityType, newId, String(row.content ?? ""));
+    }
   }
 
   private coverageCandidates(): CoverageCandidate[] {
@@ -1308,6 +1771,48 @@ const CAMPAIGN_CHECKPOINT_SCHEMA_SQL = `
       );
 `;
 
+export interface MergeMemoryResult {
+  ok: true;
+  dryRun: boolean;
+  destinationRoot: string;
+  destinationDbPath: string;
+  sources: MergeMemorySourceResult[];
+  totals: MergeCounts;
+}
+
+export interface MergeMemorySourceResult {
+  input: string;
+  root: string;
+  dbPath: string;
+  skipped: boolean;
+  reason?: string;
+  sourceTarget?: string | null;
+  counts: MergeCounts;
+}
+
+export interface MergeCounts {
+  targetProfiles: number;
+  sources: number;
+  duplicateSources: number;
+  surfaces: number;
+  hypotheses: number;
+  evidence: number;
+  decisions: number;
+  validationGates: number;
+  rounds: number;
+  campaigns: number;
+  labs: number;
+  agentOutputs: number;
+  skippedAgentOutputs: number;
+  hypothesisBranches: number;
+  campaignCheckpoints: number;
+  skippedCampaignCheckpoints: number;
+  entityLinks: number;
+  skippedEntityLinks: number;
+  campaignEvents: number;
+  skippedCampaignEvents: number;
+}
+
 export interface SurfaceRow {
   id: number;
   name: string;
@@ -1549,6 +2054,111 @@ type ScoredCoverageCandidate = CoverageCandidate & {
 };
 
 type Row = Record<string, unknown>;
+type MergeMaps = Partial<Record<string, Map<number, number>>>;
+
+function emptyMergeCounts(): MergeCounts {
+  return {
+    targetProfiles: 0,
+    sources: 0,
+    duplicateSources: 0,
+    surfaces: 0,
+    hypotheses: 0,
+    evidence: 0,
+    decisions: 0,
+    validationGates: 0,
+    rounds: 0,
+    campaigns: 0,
+    labs: 0,
+    agentOutputs: 0,
+    skippedAgentOutputs: 0,
+    hypothesisBranches: 0,
+    campaignCheckpoints: 0,
+    skippedCampaignCheckpoints: 0,
+    entityLinks: 0,
+    skippedEntityLinks: 0,
+    campaignEvents: 0,
+    skippedCampaignEvents: 0
+  };
+}
+
+function addMergeCounts(target: MergeCounts, source: MergeCounts): void {
+  for (const key of Object.keys(target) as Array<keyof MergeCounts>) {
+    target[key] += source[key];
+  }
+}
+
+function resolveProteusSourceRoot(input: string, baseRoot: string): string {
+  const resolved = path.resolve(baseRoot, input);
+  const base = path.basename(resolved).toLowerCase();
+  const parent = path.basename(path.dirname(resolved)).toLowerCase();
+  if (base === "memory.sqlite" && parent === ".vros") {
+    return path.dirname(path.dirname(resolved));
+  }
+  if (base === ".vros") {
+    return path.dirname(resolved);
+  }
+  if (fs.existsSync(resolved)) {
+    const stat = fs.statSync(resolved);
+    if (stat.isFile()) {
+      throw new Error(`Source file must be a .vros/memory.sqlite database: ${resolved}`);
+    }
+  }
+  return resolved;
+}
+
+function mapId(maps: MergeMaps, entityType: string, oldId: number, newId: number): void {
+  const key = mergeMapKey(entityType);
+  maps[key] ??= new Map<number, number>();
+  maps[key]?.set(oldId, newId);
+}
+
+function remapNullableId(maps: MergeMaps, entityType: string, value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const oldId = Number(value);
+  if (!Number.isFinite(oldId)) return null;
+  return maps[mergeMapKey(entityType)]?.get(oldId) ?? null;
+}
+
+function remapReference(maps: MergeMaps, entityType: string, entityId: number): { entityType: string; entityId: number; mapped: boolean } {
+  const key = mergeMapKey(entityType);
+  const mapped = maps[key]?.get(entityId);
+  return {
+    entityType: key,
+    entityId: mapped ?? entityId,
+    mapped: mapped !== undefined
+  };
+}
+
+function remapEvidenceIdsJson(maps: MergeMaps, value: unknown): string {
+  try {
+    const ids = JSON.parse(String(value)) as unknown;
+    if (!Array.isArray(ids)) return String(value ?? "[]");
+    return json(ids.map((id) => remapNullableId(maps, "evidence", id)).filter((id): id is number => id !== null));
+  } catch {
+    return String(value ?? "[]");
+  }
+}
+
+function toSqlValue(value: unknown): string | number | bigint | Uint8Array | null {
+  if (value === undefined) return null;
+  if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "bigint" || value instanceof Uint8Array) {
+    return value;
+  }
+  if (typeof value === "boolean") return value ? 1 : 0;
+  return String(value);
+}
+
+function mergeMapKey(entityType: string): string {
+  const normalized = entityType.trim().toLowerCase();
+  const aliases: Record<string, string> = {
+    validation_gate: "gate",
+    gates: "gate",
+    branch: "hypothesis_branch",
+    checkpoint: "campaign_checkpoint",
+    profile: "target_profile"
+  };
+  return aliases[normalized] ?? normalized;
+}
 
 const duplicateSourceKinds = new Set(["finding", "report"]);
 
