@@ -61,6 +61,20 @@ This creates:
 <target>/.vros/exports/
 ```
 
+## Memory Root And Base Merge
+
+Prefer the actual workspace/repository root as the target `--root` unless you
+intentionally want a separate memory base. If a `.vros` base was accidentally
+created in a nested folder, merge it into the canonical root before continuing:
+
+```powershell
+node dist/cli.js merge --root C:\path\to\target --source C:\path\to\target\packages\foo\.vros\memory.sqlite --dry-run
+node dist/cli.js merge --root C:\path\to\target --sources .\old\.vros\memory.sqlite,.\nested\.vros
+```
+
+Sources may be workspace roots, `.vros` directories, or direct
+`.vros/memory.sqlite` paths. The destination is always the Proteus `--root`.
+
 ## Ingest Prior Work
 
 ```powershell
@@ -293,6 +307,8 @@ integrations:
 ```text
 proteus_init
 proteus_status
+proteus_migrate
+proteus_merge_memory
 proteus_ingest
 proteus_observe
 proteus_plan_round

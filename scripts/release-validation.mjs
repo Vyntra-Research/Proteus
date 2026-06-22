@@ -14,7 +14,7 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-validate-
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-global-"));
 
 try {
-  const version = run("node", [newCli, "--version"]);
+  const version = run(process.execPath, [newCli, "--version"]);
   assertIncludes(version, `@rafabd1/proteus ${expectedVersion}`, "new CLI version");
 
   const oldVersion = runOptional("proteus", ["--version"]);
@@ -25,22 +25,22 @@ try {
     createRecordsWithNewProteus(tmpRoot);
   }
 
-  const migrations = run("node", [newCli, "migrate", "--root", tmpRoot]);
+  const migrations = run(process.execPath, [newCli, "migrate", "--root", tmpRoot]);
   assertIncludes(migrations, "2026-06-17-campaigns-links-branches", "campaign migration");
   assertIncludes(migrations, "2026-06-17-campaign-checkpoints", "checkpoint migration");
   assertIncludes(migrations, `Proteus DB version: ${expectedVersion}`, "stored Proteus database version");
 
-  const status = run("node", [newCli, "status", "--root", tmpRoot]);
+  const status = run(process.execPath, [newCli, "status", "--root", tmpRoot]);
   assertIncludes(status, "release-legacy-target", "migrated target status");
   assertIncludes(status, `Proteus DB version: ${expectedVersion}`, "status Proteus database version");
   const metadataUpdatedAt = readProteusMetadataUpdatedAt(tmpRoot);
-  run("node", [newCli, "status", "--root", tmpRoot]);
+  run(process.execPath, [newCli, "status", "--root", tmpRoot]);
   if (readProteusMetadataUpdatedAt(tmpRoot) !== metadataUpdatedAt) {
     throw new Error("status changed proteus_version metadata even though the stored version already matched");
   }
 
-  run("node", [newCli, "campaign", "create", "--root", tmpRoot, "--title", "Release validation campaign", "--objective", "Validate migration and active state"]);
-  run("node", [
+  run(process.execPath, [newCli, "campaign", "create", "--root", tmpRoot, "--title", "Release validation campaign", "--objective", "Validate migration and active state"]);
+  run(process.execPath, [
     newCli,
     "branch",
     "add",
@@ -57,7 +57,7 @@ try {
     "--kill-conditions",
     "control fails"
   ]);
-  run("node", [
+  run(process.execPath, [
     newCli,
     "campaign",
     "checkpoint",
@@ -74,9 +74,9 @@ try {
     "--contract-signature",
     "status=compliant,agent=release-validation"
   ]);
-  run("node", [newCli, "record", "hypothesis", "--root", tmpRoot, "--title", "Release validation hypothesis", "--primitive", "state transition"]);
-  run("node", [newCli, "record", "evidence", "--root", tmpRoot, "--title", "Release validation evidence", "--body", "release validation evidence body"]);
-  run("node", [
+  run(process.execPath, [newCli, "record", "hypothesis", "--root", tmpRoot, "--title", "Release validation hypothesis", "--primitive", "state transition"]);
+  run(process.execPath, [newCli, "record", "evidence", "--root", tmpRoot, "--title", "Release validation evidence", "--body", "release validation evidence body"]);
+  run(process.execPath, [
     newCli,
     "record",
     "decision",
@@ -92,28 +92,28 @@ try {
     "release validation decision"
   ]);
 
-  const digest = run("node", [newCli, "campaign", "resume", "--root", tmpRoot]);
+  const digest = run(process.execPath, [newCli, "campaign", "resume", "--root", tmpRoot]);
   assertIncludes(digest, "recentCheckpoints", "campaign digest checkpoints");
   assertIncludes(digest, "verify active-state links", "campaign digest next move");
 
-  const links = run("node", [newCli, "list", "links", "--root", tmpRoot, "--entity-type", "campaign", "--entity-id", "1"]);
+  const links = run(process.execPath, [newCli, "list", "links", "--root", tmpRoot, "--entity-type", "campaign", "--entity-id", "1"]);
   for (const expected of ["has_branch", "tracks_hypothesis", "has_evidence", "has_decision"]) {
     assertIncludes(links, expected, `campaign link ${expected}`);
   }
 
   const changelogPath = path.join(tmpRoot, "CHANGELOG.generated.md");
-  const changelogOutput = run("node", [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", `v${expectedVersion}`, "--out", changelogPath]);
+  const changelogOutput = run(process.execPath, [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", `v${expectedVersion}`, "--out", changelogPath]);
   assertIncludes(changelogOutput, changelogPath, "changelog output path");
   const generatedChangelog = fs.readFileSync(changelogPath, "utf8");
-  assertIncludes(generatedChangelog, "## 1.0.0 - 2026-06-17", "generated changelog version section");
+  assertIncludes(generatedChangelog, `## ${expectedVersion} - 2026-06-22`, "generated changelog version section");
   assertIncludes(generatedChangelog, "### Added", "generated changelog body");
   if (generatedChangelog.includes("## Verification")) {
     throw new Error("generated changelog used commit fallback instead of CHANGELOG.md version notes");
   }
   const fallbackChangelogPath = path.join(tmpRoot, "CHANGELOG.fallback.md");
-  run("node", [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", "v9.9.9", "--out", fallbackChangelogPath]);
+  run(process.execPath, [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", "v9.9.9", "--out", fallbackChangelogPath]);
   const fallbackChangelog = fs.readFileSync(fallbackChangelogPath, "utf8");
-  assertIncludes(fallbackChangelog, "## 1.0.0 - 2026-06-17", "fallback changelog latest version section");
+  assertIncludes(fallbackChangelog, `## ${expectedVersion} - 2026-06-22`, "fallback changelog latest version section");
   assertIncludes(fallbackChangelog, "### Added", "fallback changelog body");
   if (fallbackChangelog.includes("## Verification")) {
     throw new Error("generated changelog used commit fallback instead of latest CHANGELOG.md version notes");
@@ -161,13 +161,14 @@ function createRecordsWithOldProteus(root) {
 }
 
 function createRecordsWithNewProteus(root) {
-  run("node", [newCli, "init", "--root", root, "--name", "release-legacy-target"]);
-  run("node", [newCli, "record", "surface", "--root", root, "--name", "Legacy release surface"]);
-  run("node", [newCli, "record", "hypothesis", "--root", root, "--title", "Legacy release hypothesis"]);
+  run(process.execPath, [newCli, "init", "--root", root, "--name", "release-legacy-target"]);
+  run(process.execPath, [newCli, "record", "surface", "--root", root, "--name", "Legacy release surface"]);
+  run(process.execPath, [newCli, "record", "hypothesis", "--root", root, "--title", "Legacy release hypothesis"]);
 }
 
 function run(command, args) {
-  if (process.platform === "win32" && command !== "node") {
+  const commandName = path.basename(command).toLowerCase();
+  if (process.platform === "win32" && command !== "node" && commandName !== "node.exe") {
     return execFileSync(
       "powershell",
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `& ${psQuote(command)} ${args.map(psQuote).join(" ")}`],

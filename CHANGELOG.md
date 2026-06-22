@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.2 - 2026-06-22
+
+### Added
+
+- Added `proteus merge` and MCP `proteus_merge_memory` to merge one or more Proteus `.vros/memory.sqlite` bases into a destination workspace root.
+- Merge accepts source workspace roots, `.vros` directories, or direct `.vros/memory.sqlite` paths, with `--dry-run` support for safe previews.
+- Merge remaps copied campaign, round, surface, hypothesis, evidence, branch, checkpoint, link, gate, decision, and FTS references into the destination database.
+
+### Changed
+
+- Strengthened the base research contract and coordinator skill to prefer the actual workspace root for Proteus memory unless explicitly instructed otherwise.
+- Documented recovery examples for merging accidental subfolder `.vros` bases back into the correct workspace root.
+
 ## 1.0.0 - 2026-06-17
 
 ### Added

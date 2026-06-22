@@ -88,6 +88,12 @@ validation, or anti-slop gates.
 Treat `.vros/memory.sqlite` as the source of truth. Markdown exports are human
 views, not canonical state.
 
+Prefer the actual workspace/repository root as the Proteus root unless the user
+explicitly instructs otherwise. Always be deliberate with `--root`: do not let a
+nested shell location create a stray `.vros` under a package, fixture, generated
+lab, or subdirectory. If a stray base appears, merge it back into the canonical
+workspace base with `proteus merge --root <workspace-root> --source <nested/.vros/memory.sqlite>` or MCP `proteus_merge_memory` before continuing important recording.
+
 Use the runtime for state, not for inventing reasoning:
 
 - `proteus status` to confirm initialization, current DB version, and memory

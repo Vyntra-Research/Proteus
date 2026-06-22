@@ -14,9 +14,10 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-global-smoke-"));
 const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"));
 const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
+const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
 
 function run(args, cwd = tmpRoot) {
-  return execFileSync("node", [cli, ...args], {
+  return execFileSync(process.execPath, [cli, ...args], {
     cwd,
     env: {
       ...process.env,
@@ -127,6 +128,43 @@ try {
   const status = run(["status"]);
   if (!status.includes("smoke-target") || !status.includes(`Proteus DB version: ${expectedVersion}`)) {
     throw new Error("status did not return initialized target");
+  }
+  run(["init", "--root", mergeRoot, "--name", "stray-merge-target"], mergeRoot);
+  run([
+    "record",
+    "evidence",
+    "--root",
+    mergeRoot,
+    "--title",
+    "Stray merge evidence",
+    "--kind",
+    "note",
+    "--body",
+    "Stray merge evidence body"
+  ], mergeRoot);
+  run([
+    "record",
+    "surface",
+    "--root",
+    mergeRoot,
+    "--name",
+    "Stray merge surface",
+    "--family",
+    "state-recovery",
+    "--description",
+    "Surface created in the wrong Proteus base"
+  ], mergeRoot);
+  const mergeDryRun = run(["merge", "--source", path.join(mergeRoot, ".vros", "memory.sqlite"), "--dry-run"]);
+  if (!mergeDryRun.includes('"dryRun": true') || !mergeDryRun.includes('"evidence": 1')) {
+    throw new Error("merge dry-run did not preview source evidence");
+  }
+  const mergeResult = run(["merge", "--source", path.join(mergeRoot, ".vros")]);
+  if (!mergeResult.includes('"dryRun": false') || !mergeResult.includes('"surfaces": 1')) {
+    throw new Error("merge did not copy source records into destination memory");
+  }
+  const mergedMemory = run(["query", "memory", "Stray merge evidence body"]);
+  if (!mergedMemory.includes("evidence#")) {
+    throw new Error("merged evidence was not searchable in destination memory");
   }
   run(["ingest", "docs"]);
   run(["observe"]);
@@ -319,7 +357,7 @@ try {
     "--score",
     "10"
   ]);
-  run([
+  const smokeEvidenceOutput = run([
     "record",
     "evidence",
     "--title",
@@ -329,6 +367,10 @@ try {
     "--body",
     "Smoke evidence body"
   ]);
+  const smokeEvidenceId = smokeEvidenceOutput.match(/E(\d+)/)?.[1];
+  if (!smokeEvidenceId) {
+    throw new Error("record evidence did not return an evidence id");
+  }
   run([
     "record",
     "decision",
@@ -341,7 +383,7 @@ try {
     "--reason",
     "Smoke candidate decision",
     "--evidence-ids",
-    "2"
+    smokeEvidenceId
   ]);
   run([
     "record",
@@ -357,7 +399,7 @@ try {
     "--summary",
     "Smoke gate passed",
     "--evidence-ids",
-    "2"
+    smokeEvidenceId
   ]);
   const gates = run(["list", "gates", "--entity-type", "hypothesis", "--entity-id", "1"]);
   if (!gates.includes("G2 realistic external attacker input") || !gates.includes("[pass]")) {
@@ -366,7 +408,7 @@ try {
   const campaignAutoLinks = run(["list", "links", "--entity-type", "campaign", "--entity-id", "1"]);
   for (const expectedLink of [
     "campaign#1 -[tracks_hypothesis]-> hypothesis#1",
-    "campaign#1 -[has_evidence]-> evidence#2",
+    `campaign#1 -[has_evidence]-> evidence#${smokeEvidenceId}`,
     "campaign#1 -[has_decision]-> decision#1",
     "campaign#1 -[has_validation_gate]-> gate#1",
     "campaign#1 -[has_agent_output]-> agent_output#1"
@@ -498,4 +540,5 @@ try {
   fs.rmSync(globalRoot, { recursive: true, force: true });
   fs.rmSync(legacyRoot, { recursive: true, force: true });
   fs.rmSync(helpRoot, { recursive: true, force: true });
+  fs.rmSync(mergeRoot, { recursive: true, force: true });
 }

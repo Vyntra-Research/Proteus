@@ -44,6 +44,9 @@ function main() {
             case "migrate":
                 cmdMigrate(db);
                 break;
+            case "merge":
+                cmdMerge(db, parsed);
+                break;
             case "ingest":
                 cmdIngest(db, parsed.command.slice(1));
                 break;
@@ -157,6 +160,16 @@ function cmdMigrate(db) {
     for (const migration of migrations) {
         console.log(`- ${migration.version} @ ${migration.appliedAt}`);
     }
+}
+function cmdMerge(db, parsed) {
+    requireInitialized(db);
+    const sources = [
+        ...splitList(getString(parsed, "sources") ?? ""),
+        ...splitList(getString(parsed, "source") ?? ""),
+        ...parsed.command.slice(1)
+    ];
+    const result = db.mergeMemoryBases(sources, { dryRun: getBoolean(parsed, "dry-run"), sourceBaseRoot: process.cwd() });
+    console.log(JSON.stringify(result, null, 2));
 }
 function cmdIngest(db, inputs) {
     requireInitialized(db);
@@ -1040,6 +1053,7 @@ Usage:
   proteus init [--root <path>] [--name <target>]
   proteus status [--root <path>]
   proteus migrate [--root <path>]
+  proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
   proteus ingest [--root <path>] [paths...]
   proteus observe [--root <path>]
   proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]

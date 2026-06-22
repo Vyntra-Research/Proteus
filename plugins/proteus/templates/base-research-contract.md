@@ -11,6 +11,23 @@ Every Proteus role and skill must continuously follow this contract.
   frame.
 - Prefer non-obvious paths that can plausibly become realistic exploit chains.
 
+## Proteus Memory Root
+
+- Prefer the actual workspace/repository root for Proteus state unless the user
+  explicitly instructs a different root.
+- Before initializing or recording state, confirm that `--root` points at the
+  intended workspace root, not a package, fixture, generated lab, or nested
+  subdirectory.
+- Do not create a second `.vros` base in a subfolder just because the current
+  shell is there. Use `--root <workspace-root>` instead.
+- If state was accidentally created in the wrong place, merge it into the
+  canonical workspace base before continuing. Examples:
+  - `proteus merge --root <workspace-root> --source ./packages/foo/.vros/memory.sqlite`
+  - `proteus merge --root <workspace-root> --sources ./old/.vros/memory.sqlite,./nested/.vros`
+- Treat root/base drift as research-state corruption risk: pause recording,
+  inspect `proteus status --root <expected-root>`, then merge or discard the
+  stray base deliberately.
+
 ## Validation
 
 - Maintain a realistic attacker model.
