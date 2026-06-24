@@ -105,16 +105,16 @@ try {
   const changelogOutput = run(process.execPath, [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", `v${expectedVersion}`, "--out", changelogPath]);
   assertIncludes(changelogOutput, changelogPath, "changelog output path");
   const generatedChangelog = fs.readFileSync(changelogPath, "utf8");
-  assertIncludes(generatedChangelog, `## ${expectedVersion} - 2026-06-22`, "generated changelog version section");
-  assertIncludes(generatedChangelog, "### Added", "generated changelog body");
+  assertIncludes(generatedChangelog, `## ${expectedVersion} - 2026-06-23`, "generated changelog version section");
+  assertIncludes(generatedChangelog, "### Fixed", "generated changelog body");
   if (generatedChangelog.includes("## Verification")) {
     throw new Error("generated changelog used commit fallback instead of CHANGELOG.md version notes");
   }
   const fallbackChangelogPath = path.join(tmpRoot, "CHANGELOG.fallback.md");
   run(process.execPath, [path.join(repoRoot, "scripts", "generate-changelog.mjs"), "--version", "v9.9.9", "--out", fallbackChangelogPath]);
   const fallbackChangelog = fs.readFileSync(fallbackChangelogPath, "utf8");
-  assertIncludes(fallbackChangelog, `## ${expectedVersion} - 2026-06-22`, "fallback changelog latest version section");
-  assertIncludes(fallbackChangelog, "### Added", "fallback changelog body");
+  assertIncludes(fallbackChangelog, `## ${expectedVersion} - 2026-06-23`, "fallback changelog latest version section");
+  assertIncludes(fallbackChangelog, "### Fixed", "fallback changelog body");
   if (fallbackChangelog.includes("## Verification")) {
     throw new Error("generated changelog used commit fallback instead of latest CHANGELOG.md version notes");
   }

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.3 - 2026-06-23
+
+### Fixed
+
+- Fixed MCP `evidenceIds` parsing for decisions and validation gates when agents send numeric IDs as strings, such as `["434"]`, or comma-separated strings.
+- Updated MCP schemas to advertise numeric evidence ID arrays while keeping compatibility with numeric-string inputs.
+- Added MCP smoke coverage so high-impact decisions with numeric-string evidence IDs do not trigger false `decision_without_evidence` advisories.
 ## 1.0.2 - 2026-06-22
 
 ### Added
