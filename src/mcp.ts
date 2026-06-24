@@ -696,7 +696,7 @@ const tools: ToolDefinition[] = [
         entityId: numberProp(),
         decision: stringProp(),
         reason: stringProp(),
-        evidenceIds: arrayProp(),
+        evidenceIds: numberArrayProp("Evidence record ids. Numeric strings are accepted for compatibility."),
         actor: stringProp()
       },
       ["root", "entityType", "entityId", "decision", "reason"]
@@ -745,7 +745,7 @@ const tools: ToolDefinition[] = [
         gate: stringProp(),
         status: stringProp(),
         summary: stringProp(),
-        evidenceIds: arrayProp(),
+        evidenceIds: numberArrayProp("Evidence record ids. Numeric strings are accepted for compatibility."),
         actor: stringProp()
       },
       ["root", "entityType", "entityId", "gate"]
@@ -1296,6 +1296,10 @@ function arrayProp(description?: string): JsonObject {
   return { type: "array", items: { type: "string" }, ...(description ? { description } : {}) };
 }
 
+function numberArrayProp(description?: string): JsonObject {
+  return { type: "array", items: { type: "number" }, ...(description ? { description } : {}) };
+}
+
 function objectArrayProp(description?: string): JsonObject {
   return { type: "array", items: { type: "object", additionalProperties: true }, ...(description ? { description } : {}) };
 }
@@ -1375,7 +1379,14 @@ function stringArray(value: unknown): string[] {
 }
 
 function numberArray(value: unknown): number[] {
-  return Array.isArray(value) ? value.filter((item): item is number => typeof item === "number" && Number.isFinite(item)) : [];
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  return values
+    .map((item) => {
+      if (typeof item === "number") return item;
+      if (typeof item === "string" && item.trim().length > 0) return Number(item.trim());
+      return NaN;
+    })
+    .filter((item) => Number.isFinite(item) && item > 0);
 }
 
 function objectArray(value: unknown): Record<string, unknown>[] | undefined {
