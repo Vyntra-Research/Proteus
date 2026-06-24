@@ -376,12 +376,22 @@ try {
       entityId: 1,
       decision: "candidate",
       reason: "MCP smoke candidate decision",
-      evidenceIds: [1]
+      evidenceIds: ["1"]
     }
   });
   const decisionText = String(decision.content?.[0]?.text ?? "");
   if (!decisionText.includes("active_campaign_linked") || !decisionText.includes("has_decision")) {
     throw new Error("proteus_record_decision did not auto-link to the active campaign");
+  }
+  if (decisionText.includes("decision_without_evidence")) {
+    throw new Error("proteus_record_decision dropped numeric-string evidenceIds");
+  }
+  const decisionRecord = await request("tools/call", {
+    name: "proteus_get_record",
+    arguments: { root: tmpRoot, entityType: "decision", entityId: 1 }
+  });
+  if (!String(decisionRecord.content?.[0]?.text ?? "").includes('"evidenceIds": [\n    1\n  ]')) {
+    throw new Error("proteus_get_record did not preserve numeric-string decision evidenceIds");
   }
   const agentOutput = await request("tools/call", {
     name: "proteus_record_agent_output",
@@ -449,7 +459,8 @@ try {
       entityId: 1,
       gate: "G1 root cause in target",
       status: "pending",
-      summary: "MCP gate smoke"
+      summary: "MCP gate smoke",
+      evidenceIds: ["1"]
     }
   });
   const gateText = String(gate.content?.[0]?.text ?? "");

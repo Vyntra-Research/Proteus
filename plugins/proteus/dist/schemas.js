@@ -172,7 +172,16 @@ function stringArray(input) {
     return Array.isArray(input) ? input.filter((item) => typeof item === "string") : [];
 }
 function numberArray(input) {
-    return Array.isArray(input) ? input.filter((item) => typeof item === "number" && Number.isFinite(item)) : [];
+    const values = Array.isArray(input) ? input : typeof input === "string" ? input.split(",") : [];
+    return values
+        .map((item) => {
+        if (typeof item === "number")
+            return item;
+        if (typeof item === "string" && item.trim().length > 0)
+            return Number(item.trim());
+        return NaN;
+    })
+        .filter((item) => Number.isFinite(item) && item > 0);
 }
 function enumValue(input, allowed, fallback) {
     return typeof input === "string" && allowed.includes(input) ? input : fallback;

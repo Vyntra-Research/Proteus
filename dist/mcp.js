@@ -584,7 +584,7 @@ const tools = [
             entityId: numberProp(),
             decision: stringProp(),
             reason: stringProp(),
-            evidenceIds: arrayProp(),
+            evidenceIds: numberArrayProp("Evidence record ids. Numeric strings are accepted for compatibility."),
             actor: stringProp()
         }, ["root", "entityType", "entityId", "decision", "reason"]),
         handler: (input) => withDb(str(input.root), (db) => {
@@ -624,7 +624,7 @@ const tools = [
             gate: stringProp(),
             status: stringProp(),
             summary: stringProp(),
-            evidenceIds: arrayProp(),
+            evidenceIds: numberArrayProp("Evidence record ids. Numeric strings are accepted for compatibility."),
             actor: stringProp()
         }, ["root", "entityType", "entityId", "gate"]),
         handler: (input) => withDb(str(input.root), (db) => {
@@ -1115,6 +1115,9 @@ function booleanProp(description) {
 function arrayProp(description) {
     return { type: "array", items: { type: "string" }, ...(description ? { description } : {}) };
 }
+function numberArrayProp(description) {
+    return { type: "array", items: { type: "number" }, ...(description ? { description } : {}) };
+}
 function objectArrayProp(description) {
     return { type: "array", items: { type: "object", additionalProperties: true }, ...(description ? { description } : {}) };
 }
@@ -1181,7 +1184,16 @@ function stringArray(value) {
     return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
 function numberArray(value) {
-    return Array.isArray(value) ? value.filter((item) => typeof item === "number" && Number.isFinite(item)) : [];
+    const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+    return values
+        .map((item) => {
+        if (typeof item === "number")
+            return item;
+        if (typeof item === "string" && item.trim().length > 0)
+            return Number(item.trim());
+        return NaN;
+    })
+        .filter((item) => Number.isFinite(item) && item > 0);
 }
 function objectArray(value) {
     return Array.isArray(value) ? value.filter((item) => typeof item === "object" && item !== null && !Array.isArray(item)) : undefined;
