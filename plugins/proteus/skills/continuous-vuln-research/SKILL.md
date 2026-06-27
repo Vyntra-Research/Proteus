@@ -152,6 +152,11 @@ Coordinator duties:
   `opencodeSessionId` with OpenCode's own export/session APIs, for example
   `opencode export <ses_id>`, and keep any imported conclusions summarized back
   into Proteus messages or snapshots;
+- when you only need to inspect the co-agent's recent workflow without being
+  flooded by context, use `proteus chimera workflow-snapshot --id CH-...`.
+  It returns only the latest agent text messages from the OpenCode session,
+  excluding tool calls and tool outputs, with bounded message count and bounded
+  size per message;
 - kill looping or low-ROI sessions with `proteus chimera kill`;
 - close sessions with a verdict and summary;
 - independently validate any agent claim before recording it as a finding.

@@ -510,6 +510,7 @@ proteus chimera council start|accept|open-round|turn|status|close
 proteus chimera send
 proteus chimera post
 proteus chimera snapshot
+proteus chimera workflow-snapshot
 proteus chimera heartbeat
 proteus chimera poll
 proteus chimera list
@@ -596,6 +597,25 @@ proteus chimera snapshot --id CH-0001 --body "State summary..."
 ```
 
 Updates `snapshot.md` and records a snapshot message.
+
+### workflow-snapshot
+
+Used by the coordinator:
+
+```text
+proteus chimera workflow-snapshot --id CH-0001 --limit 8 --max-message-chars 1200
+```
+
+Exports the attached OpenCode session and returns only the latest agent text
+messages. It intentionally excludes tool calls, tool outputs, command output,
+patches, diffs, file payloads, and user messages so the coordinator can inspect
+the co-agent's current workflow without being flooded by context.
+
+Outputs are compact and bounded per message, then saved under:
+
+```text
+.vros/chimera/sessions/<id>/opencode/workflow-snapshots/
+```
 
 ### heartbeat
 
@@ -706,6 +726,7 @@ proteus_chimera_council
 proteus_chimera_send
 proteus_chimera_post
 proteus_chimera_snapshot
+proteus_chimera_workflow_snapshot
 proteus_chimera_heartbeat
 proteus_chimera_run
 proteus_chimera_attach_opencode
@@ -775,6 +796,8 @@ History semantics:
 - OpenCode's own full chat history remains in the OpenCode session store and is
   addressable through the persisted `opencodeSessionId`; a future sync/export
   command can import it when deeper forensic history is needed.
+- `proteus chimera workflow-snapshot` is not full history import. It is a
+  bounded coordinator view of recent agent text messages only.
 
 ## Permissions And Safety
 

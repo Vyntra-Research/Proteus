@@ -254,6 +254,19 @@ try {
   if (!chimeraRunExisting.includes('"ok": true') || !chimeraRunExisting.includes('"ses_mock_CH-0002"')) {
     throw new Error("chimera run did not reuse existing OpenCode session/lab");
   }
+  const chimeraWorkflowSnapshot = JSON.parse(run(["chimera", "workflow-snapshot", "--id", "CH-0002", "--limit", "3", "--max-message-chars", "80"]));
+  const workflowSnapshotText = JSON.stringify(chimeraWorkflowSnapshot);
+  if (chimeraWorkflowSnapshot.messages.length !== 3 || !workflowSnapshotText.includes("First compact agent workflow message")) {
+    throw new Error("chimera workflow-snapshot did not return compact agent messages");
+  }
+  for (const forbidden of ["User prompt that must not appear", "TOOL CALL THAT MUST NOT APPEAR", "TOOL RESULT THAT MUST NOT APPEAR", "COMMAND OUTPUT THAT MUST NOT APPEAR"]) {
+    if (workflowSnapshotText.includes(forbidden)) {
+      throw new Error(`chimera workflow-snapshot leaked non-agent/tool content: ${forbidden}`);
+    }
+  }
+  if (!fs.existsSync(chimeraWorkflowSnapshot.files.jsonPath) || !fs.existsSync(chimeraWorkflowSnapshot.files.markdownPath)) {
+    throw new Error("chimera workflow-snapshot did not write compact snapshot files");
+  }
   const chimeraDirectSend = JSON.parse(run(["chimera", "send", "--id", "CH-0002", "--message", "Smoke direct steer", "--priority"]));
   if (chimeraDirectSend.directDelivery?.mode !== "steer" || chimeraDirectSend.directDelivery?.ok !== true) {
     throw new Error(`chimera priority send did not steer active OpenCode session: ${JSON.stringify(chimeraDirectSend.directDelivery)}`);

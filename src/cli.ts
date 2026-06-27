@@ -26,6 +26,7 @@ import {
   saveChimeraConfig,
   sendChimeraMessage,
   snapshotChimeraSession,
+  snapshotChimeraWorkflow,
   startChimeraSession,
   startChimeraCouncil,
   startChimeraSwarm,
@@ -276,6 +277,16 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
         message: snapshotChimeraSession(db, requiredString(parsed, "id"), requiredString(parsed, "body"))
       }, null, 2));
       return;
+    case "workflow-snapshot":
+      console.log(JSON.stringify({
+        ok: true,
+        ...snapshotChimeraWorkflow(db, requiredString(parsed, "id"), {
+          limit: getNumber(parsed, "limit"),
+          maxMessageChars: getNumber(parsed, "max-message-chars"),
+          sanitize: !getBoolean(parsed, "no-sanitize")
+        })
+      }, null, 2));
+      return;
     case "heartbeat":
       console.log(JSON.stringify(heartbeatChimeraSession(db, requiredString(parsed, "id")), null, 2));
       return;
@@ -331,7 +342,7 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
       ), null, 2));
       return;
     default:
-      throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|council|send|broadcast|post|snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
+      throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|council|send|broadcast|post|snapshot|workflow-snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
   }
 }
 

@@ -228,6 +228,16 @@ function cmdChimera(db, subcommand, parsed) {
                 message: (0, chimera_1.snapshotChimeraSession)(db, requiredString(parsed, "id"), requiredString(parsed, "body"))
             }, null, 2));
             return;
+        case "workflow-snapshot":
+            console.log(JSON.stringify({
+                ok: true,
+                ...(0, chimera_1.snapshotChimeraWorkflow)(db, requiredString(parsed, "id"), {
+                    limit: getNumber(parsed, "limit"),
+                    maxMessageChars: getNumber(parsed, "max-message-chars"),
+                    sanitize: !getBoolean(parsed, "no-sanitize")
+                })
+            }, null, 2));
+            return;
         case "heartbeat":
             console.log(JSON.stringify((0, chimera_1.heartbeatChimeraSession)(db, requiredString(parsed, "id")), null, 2));
             return;
@@ -278,7 +288,7 @@ function cmdChimera(db, subcommand, parsed) {
             console.log(JSON.stringify((0, chimera_1.closeChimeraSession)(db, requiredString(parsed, "id"), getString(parsed, "verdict") ?? "useful", requiredString(parsed, "summary")), null, 2));
             return;
         default:
-            throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|council|send|broadcast|post|snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
+            throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|council|send|broadcast|post|snapshot|workflow-snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
     }
 }
 function cmdChimeraCouncil(db, subcommand, parsed) {

@@ -45,6 +45,46 @@ if (args[0] === "serve") {
   await new Promise(() => {});
 }
 
+if (args[0] === "export") {
+  const sessionID = args[1] ?? "ses_mock_unknown";
+  console.log(JSON.stringify({
+    id: sessionID,
+    messages: [
+      {
+        id: "msg_user_1",
+        role: "user",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        content: "User prompt that must not appear."
+      },
+      {
+        id: "msg_assistant_1",
+        role: "assistant",
+        createdAt: "2026-01-01T00:00:01.000Z",
+        parts: [
+          { type: "text", text: "First compact agent workflow message." },
+          { type: "tool_call", text: "TOOL CALL THAT MUST NOT APPEAR" },
+          { type: "tool_result", text: "TOOL RESULT THAT MUST NOT APPEAR" }
+        ]
+      },
+      {
+        id: "msg_assistant_2",
+        role: "assistant",
+        createdAt: "2026-01-01T00:00:02.000Z",
+        content: [
+          { type: "text", text: "Second agent workflow message with enough length to truncate in smoke testing." },
+          { type: "command", text: "COMMAND OUTPUT THAT MUST NOT APPEAR" }
+        ]
+      },
+      {
+        type: "text",
+        timestamp: 1760000000000,
+        part: { type: "text", text: "Third event-style assistant text." }
+      }
+    ]
+  }));
+  process.exit(0);
+}
+
 if (args[0] !== "run") {
   console.error(`mock-opencode expected run or serve, got ${args[0] ?? "none"}`);
   process.exit(2);

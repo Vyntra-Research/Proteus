@@ -786,6 +786,82 @@ export function attachOpenCodeSession(db: ProteusDb, publicId: string, input: { 
   return updated;
 }
 
+export function snapshotChimeraWorkflow(db: ProteusDb, publicId: string, input: {
+  limit?: number;
+  maxMessageChars?: number;
+  sanitize?: boolean;
+} = {}): ChimeraWorkflowSnapshotResult {
+  const session = requireChimeraSession(db, publicId);
+  if (!session.opencodeSessionId) {
+    throw new Error(`Chimera session ${publicId} has no attached OpenCode session id. Run or attach OpenCode first.`);
+  }
+  const limit = Math.max(1, Math.min(50, positiveInteger(input.limit, 8)));
+  const maxMessageChars = Math.max(80, Math.min(8000, positiveInteger(input.maxMessageChars, 1200)));
+  const sanitize = input.sanitize !== false;
+  const command = commandParts(session.opencodeCommand || getChimeraConfig(db).opencodeCommand);
+  const args = ["export", session.opencodeSessionId];
+  if (sanitize) args.push("--sanitize");
+  const result = spawnExternalSync(command, args, {
+    cwd: session.sessionDir,
+    encoding: "utf8",
+    timeout: 30000
+  });
+  const stdout = String(result.stdout ?? "");
+  const stderr = String(result.stderr ?? "");
+  if (result.status !== 0) {
+    throw new Error(`OpenCode export failed for ${session.opencodeSessionId}: ${truncate(stderr || result.error?.message || `exit ${result.status}`, 1000)}`);
+  }
+  let exported: unknown;
+  try {
+    exported = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(`OpenCode export did not return JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const generatedAt = new Date().toISOString();
+  const messages = extractWorkflowMessages(exported)
+    .slice(-limit)
+    .map((message, index) => {
+      const text = compactWhitespace(message.text);
+      const truncated = text.length > maxMessageChars;
+      return {
+        ordinal: index + 1,
+        createdAt: message.createdAt,
+        text: truncated ? `${text.slice(0, maxMessageChars - 3)}...` : text,
+        truncated
+      };
+    });
+  const outDir = path.join(session.sessionDir, "opencode", "workflow-snapshots");
+  ensureDir(outDir);
+  const stamp = generatedAt.replace(/\D/g, "").slice(0, 14);
+  const jsonPath = path.join(outDir, `${stamp}.json`);
+  const markdownPath = path.join(outDir, `${stamp}.md`);
+  const snapshot: ChimeraWorkflowSnapshotResult = {
+    publicId,
+    opencodeSessionId: session.opencodeSessionId,
+    generatedAt,
+    limit,
+    maxMessageChars,
+    sanitize,
+    messages,
+    files: { jsonPath, markdownPath },
+    export: {
+      exitCode: result.status,
+      stderrPreview: truncate(stderr.trim(), 1000)
+    }
+  };
+  fs.writeFileSync(jsonPath, JSON.stringify(snapshot, null, 2) + "\n");
+  fs.writeFileSync(markdownPath, renderWorkflowSnapshotMarkdown(snapshot));
+  appendJsonl(path.join(session.sessionDir, "transcript.jsonl"), {
+    type: "workflow_snapshot",
+    generatedAt,
+    opencodeSessionId: session.opencodeSessionId,
+    messageCount: messages.length,
+    jsonPath: toRelative(db.targetRoot, jsonPath),
+    markdownPath: toRelative(db.targetRoot, markdownPath)
+  });
+  return snapshot;
+}
+
 interface ChimeraPaths {
   sessionDir: string;
   labDir: string;
@@ -803,6 +879,29 @@ export interface ChimeraRunResult {
   runPath: string;
   stdoutPreview: string;
   stderrPreview: string;
+}
+
+export interface ChimeraWorkflowSnapshotResult {
+  publicId: string;
+  opencodeSessionId: string;
+  generatedAt: string;
+  limit: number;
+  maxMessageChars: number;
+  sanitize: boolean;
+  messages: Array<{
+    ordinal: number;
+    createdAt: string | null;
+    text: string;
+    truncated: boolean;
+  }>;
+  files: {
+    jsonPath: string;
+    markdownPath: string;
+  };
+  export: {
+    exitCode: number | null;
+    stderrPreview: string;
+  };
 }
 
 interface OpenCodeServerState {
@@ -1179,6 +1278,119 @@ function renderCouncilTranscript(council: ChimeraCouncilStatus): string {
     .filter((line): line is string => line !== null);
   if (lines.length === 0) return "- no accepts or turns recorded yet";
   return lines.slice(-40).join("\n");
+}
+
+function extractWorkflowMessages(value: unknown): Array<{ text: string; createdAt: string | null }> {
+  const messages: Array<{ text: string; createdAt: string | null }> = [];
+  const seen = new Set<string>();
+  collectWorkflowMessages(value, messages, seen);
+  return messages.filter((message) => message.text.trim().length > 0);
+}
+
+function collectWorkflowMessages(value: unknown, messages: Array<{ text: string; createdAt: string | null }>, seen: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectWorkflowMessages(item, messages, seen);
+    return;
+  }
+  const object = metadataObject(value);
+  if (!object || isToolLikeObject(object)) return;
+  if (isAgentMessageObject(object)) {
+    const text = extractWorkflowText(object);
+    if (text) {
+      const key = `${workflowTimestamp(object) ?? ""}\n${text}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        messages.push({ text, createdAt: workflowTimestamp(object) });
+      }
+    }
+    return;
+  }
+  for (const [key, child] of Object.entries(object)) {
+    if (isToolLikeKey(key)) continue;
+    collectWorkflowMessages(child, messages, seen);
+  }
+}
+
+function isAgentMessageObject(object: Record<string, JsonValue>): boolean {
+  const role = lowerString(object.role) ?? lowerString(metadataObject(object.author)?.role) ?? lowerString(metadataObject(object.message)?.role);
+  if (role === "assistant" || role === "agent") return true;
+  const type = lowerString(object.type);
+  const part = metadataObject(object.part);
+  return type === "text" && lowerString(part?.type) === "text" && typeof part?.text === "string";
+}
+
+function extractWorkflowText(object: Record<string, JsonValue>): string | null {
+  const parts: string[] = [];
+  collectWorkflowTextParts(object, parts);
+  const text = parts.join("\n").trim();
+  return text || null;
+}
+
+function collectWorkflowTextParts(value: unknown, parts: string[]): void {
+  if (typeof value === "string") return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectWorkflowTextParts(item, parts);
+    return;
+  }
+  const object = metadataObject(value);
+  if (!object || isToolLikeObject(object)) return;
+  if (typeof object.text === "string") parts.push(object.text);
+  if (typeof object.content === "string") parts.push(object.content);
+  if (typeof object.body === "string") parts.push(object.body);
+  const part = metadataObject(object.part);
+  if (part && !isToolLikeObject(part) && lowerString(part.type) === "text" && typeof part.text === "string") {
+    parts.push(part.text);
+  }
+  for (const key of ["parts", "content", "messages", "children"]) {
+    const child = object[key];
+    if (Array.isArray(child)) {
+      for (const item of child) collectWorkflowTextParts(item, parts);
+    }
+  }
+}
+
+function isToolLikeObject(object: Record<string, JsonValue>): boolean {
+  const values = [object.type, object.kind, object.name, object.role]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+  return values.some((value) => /tool|command|bash|shell|patch|diff|file|diagnostic|result/.test(value)) ||
+    "toolCallId" in object ||
+    "tool_call_id" in object ||
+    "tool" in object;
+}
+
+function isToolLikeKey(key: string): boolean {
+  return /tool|command|bash|shell|patch|diff|file|diagnostic|result/.test(key.toLowerCase());
+}
+
+function workflowTimestamp(object: Record<string, JsonValue>): string | null {
+  for (const key of ["createdAt", "created_at", "timestamp", "time", "date"]) {
+    const value = object[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number" && Number.isFinite(value)) return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString();
+  }
+  return null;
+}
+
+function renderWorkflowSnapshotMarkdown(snapshot: ChimeraWorkflowSnapshotResult): string {
+  const lines = [
+    `# Chimera Workflow Snapshot ${snapshot.publicId}`,
+    "",
+    `Generated: ${snapshot.generatedAt}`,
+    `OpenCode session: ${snapshot.opencodeSessionId}`,
+    `Messages: ${snapshot.messages.length}`,
+    `Limit: ${snapshot.limit}`,
+    `Max message chars: ${snapshot.maxMessageChars}`,
+    ""
+  ];
+  for (const message of snapshot.messages) {
+    lines.push(`## Message ${message.ordinal}${message.createdAt ? ` (${message.createdAt})` : ""}`);
+    lines.push("");
+    lines.push(message.text);
+    if (message.truncated) lines.push("\n[truncated]");
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd() + "\n";
 }
 
 function councilRoundOpened(council: ChimeraCouncilStatus, round: number): boolean {
@@ -1612,6 +1824,14 @@ function nullableNumber(value: unknown, fallback: number | null): number | null 
 function positiveInteger(value: unknown, fallback: number): number {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
+}
+
+function lowerString(value: unknown): string | null {
+  return typeof value === "string" ? value.toLowerCase() : null;
+}
+
+function compactWhitespace(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function truncate(value: string, limit: number): string {

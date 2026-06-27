@@ -32,6 +32,7 @@ import {
   saveChimeraConfig,
   sendChimeraMessage,
   snapshotChimeraSession,
+  snapshotChimeraWorkflow,
   startChimeraSession,
   startChimeraCouncil,
   startChimeraSwarm,
@@ -397,6 +398,26 @@ const tools: ToolDefinition[] = [
     description: "Write the latest Chimera snapshot and notify the coordinator.",
     inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id."), body: stringProp("Snapshot body.") }, ["root", "id", "body"]),
     handler: (input) => withDb(str(input.root), (db) => toolEnvelope(snapshotChimeraSession(db, str(input.id), str(input.body))))
+  },
+  {
+    name: "proteus_chimera_workflow_snapshot",
+    title: "Read Compact Chimera Workflow Snapshot",
+    description: "Export the attached OpenCode session and return only the latest agent text messages, excluding tool calls and tool outputs.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        id: stringProp("Chimera session id."),
+        limit: numberProp("Maximum number of latest agent messages. Defaults to 8."),
+        maxMessageChars: numberProp("Maximum characters per returned message. Defaults to 1200."),
+        sanitize: booleanProp("Pass --sanitize to OpenCode export. Defaults to true.")
+      },
+      ["root", "id"]
+    ),
+    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(snapshotChimeraWorkflow(db, str(input.id), {
+      limit: maybeNum(input.limit),
+      maxMessageChars: maybeNum(input.maxMessageChars),
+      sanitize: input.sanitize !== false
+    })))
   },
   {
     name: "proteus_chimera_heartbeat",

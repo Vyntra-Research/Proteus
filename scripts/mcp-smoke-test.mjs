@@ -85,6 +85,7 @@ try {
     "proteus_chimera_send",
     "proteus_chimera_post",
     "proteus_chimera_snapshot",
+    "proteus_chimera_workflow_snapshot",
     "proteus_chimera_heartbeat",
     "proteus_chimera_run",
     "proteus_chimera_attach_opencode",
@@ -236,6 +237,18 @@ try {
   const chimeraStartText = String(chimeraStart.content?.[0]?.text ?? "");
   if (!chimeraStartText.includes('"publicId": "CH-0001"') || !chimeraStartText.includes('"accessMode": "inherit"')) {
     throw new Error("proteus_chimera_start did not create inherited CH-0001");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_attach_opencode",
+    arguments: { root: tmpRoot, id: "CH-0001", opencodeSessionId: "ses_mock_CH-0001" }
+  });
+  const chimeraWorkflowSnapshot = await request("tools/call", {
+    name: "proteus_chimera_workflow_snapshot",
+    arguments: { root: tmpRoot, id: "CH-0001", limit: 3, maxMessageChars: 80 }
+  });
+  const workflowSnapshotText = String(chimeraWorkflowSnapshot.content?.[0]?.text ?? "");
+  if (!workflowSnapshotText.includes("First compact agent workflow message") || workflowSnapshotText.includes("TOOL RESULT THAT MUST NOT APPEAR")) {
+    throw new Error("proteus_chimera_workflow_snapshot did not return filtered compact agent messages");
   }
   await request("tools/call", {
     name: "proteus_chimera_post",

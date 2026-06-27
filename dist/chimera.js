@@ -28,6 +28,7 @@ exports.closeChimeraSession = closeChimeraSession;
 exports.startChimeraSwarm = startChimeraSwarm;
 exports.runChimeraSession = runChimeraSession;
 exports.attachOpenCodeSession = attachOpenCodeSession;
+exports.snapshotChimeraWorkflow = snapshotChimeraWorkflow;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_child_process_1 = require("node:child_process");
@@ -659,6 +660,79 @@ function attachOpenCodeSession(db, publicId, input) {
     writeStatusFile(db, updated, { opencodeAttached: true });
     return updated;
 }
+function snapshotChimeraWorkflow(db, publicId, input = {}) {
+    const session = requireChimeraSession(db, publicId);
+    if (!session.opencodeSessionId) {
+        throw new Error(`Chimera session ${publicId} has no attached OpenCode session id. Run or attach OpenCode first.`);
+    }
+    const limit = Math.max(1, Math.min(50, positiveInteger(input.limit, 8)));
+    const maxMessageChars = Math.max(80, Math.min(8000, positiveInteger(input.maxMessageChars, 1200)));
+    const sanitize = input.sanitize !== false;
+    const command = commandParts(session.opencodeCommand || getChimeraConfig(db).opencodeCommand);
+    const args = ["export", session.opencodeSessionId];
+    if (sanitize)
+        args.push("--sanitize");
+    const result = spawnExternalSync(command, args, {
+        cwd: session.sessionDir,
+        encoding: "utf8",
+        timeout: 30000
+    });
+    const stdout = String(result.stdout ?? "");
+    const stderr = String(result.stderr ?? "");
+    if (result.status !== 0) {
+        throw new Error(`OpenCode export failed for ${session.opencodeSessionId}: ${truncate(stderr || result.error?.message || `exit ${result.status}`, 1000)}`);
+    }
+    let exported;
+    try {
+        exported = JSON.parse(stdout);
+    }
+    catch (error) {
+        throw new Error(`OpenCode export did not return JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const generatedAt = new Date().toISOString();
+    const messages = extractWorkflowMessages(exported)
+        .slice(-limit)
+        .map((message, index) => {
+        const text = compactWhitespace(message.text);
+        const truncated = text.length > maxMessageChars;
+        return {
+            ordinal: index + 1,
+            createdAt: message.createdAt,
+            text: truncated ? `${text.slice(0, maxMessageChars - 3)}...` : text,
+            truncated
+        };
+    });
+    const outDir = node_path_1.default.join(session.sessionDir, "opencode", "workflow-snapshots");
+    (0, paths_1.ensureDir)(outDir);
+    const stamp = generatedAt.replace(/\D/g, "").slice(0, 14);
+    const jsonPath = node_path_1.default.join(outDir, `${stamp}.json`);
+    const markdownPath = node_path_1.default.join(outDir, `${stamp}.md`);
+    const snapshot = {
+        publicId,
+        opencodeSessionId: session.opencodeSessionId,
+        generatedAt,
+        limit,
+        maxMessageChars,
+        sanitize,
+        messages,
+        files: { jsonPath, markdownPath },
+        export: {
+            exitCode: result.status,
+            stderrPreview: truncate(stderr.trim(), 1000)
+        }
+    };
+    node_fs_1.default.writeFileSync(jsonPath, JSON.stringify(snapshot, null, 2) + "\n");
+    node_fs_1.default.writeFileSync(markdownPath, renderWorkflowSnapshotMarkdown(snapshot));
+    appendJsonl(node_path_1.default.join(session.sessionDir, "transcript.jsonl"), {
+        type: "workflow_snapshot",
+        generatedAt,
+        opencodeSessionId: session.opencodeSessionId,
+        messageCount: messages.length,
+        jsonPath: (0, paths_1.toRelative)(db.targetRoot, jsonPath),
+        markdownPath: (0, paths_1.toRelative)(db.targetRoot, markdownPath)
+    });
+    return snapshot;
+}
 function createSessionFiles(db, session, config) {
     (0, paths_1.ensureDir)((0, paths_1.chimeraSessionsDir)(db.targetRoot));
     (0, paths_1.ensureDir)(session.sessionDir);
@@ -1025,6 +1099,124 @@ function renderCouncilTranscript(council) {
     if (lines.length === 0)
         return "- no accepts or turns recorded yet";
     return lines.slice(-40).join("\n");
+}
+function extractWorkflowMessages(value) {
+    const messages = [];
+    const seen = new Set();
+    collectWorkflowMessages(value, messages, seen);
+    return messages.filter((message) => message.text.trim().length > 0);
+}
+function collectWorkflowMessages(value, messages, seen) {
+    if (Array.isArray(value)) {
+        for (const item of value)
+            collectWorkflowMessages(item, messages, seen);
+        return;
+    }
+    const object = metadataObject(value);
+    if (!object || isToolLikeObject(object))
+        return;
+    if (isAgentMessageObject(object)) {
+        const text = extractWorkflowText(object);
+        if (text) {
+            const key = `${workflowTimestamp(object) ?? ""}\n${text}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                messages.push({ text, createdAt: workflowTimestamp(object) });
+            }
+        }
+        return;
+    }
+    for (const [key, child] of Object.entries(object)) {
+        if (isToolLikeKey(key))
+            continue;
+        collectWorkflowMessages(child, messages, seen);
+    }
+}
+function isAgentMessageObject(object) {
+    const role = lowerString(object.role) ?? lowerString(metadataObject(object.author)?.role) ?? lowerString(metadataObject(object.message)?.role);
+    if (role === "assistant" || role === "agent")
+        return true;
+    const type = lowerString(object.type);
+    const part = metadataObject(object.part);
+    return type === "text" && lowerString(part?.type) === "text" && typeof part?.text === "string";
+}
+function extractWorkflowText(object) {
+    const parts = [];
+    collectWorkflowTextParts(object, parts);
+    const text = parts.join("\n").trim();
+    return text || null;
+}
+function collectWorkflowTextParts(value, parts) {
+    if (typeof value === "string")
+        return;
+    if (Array.isArray(value)) {
+        for (const item of value)
+            collectWorkflowTextParts(item, parts);
+        return;
+    }
+    const object = metadataObject(value);
+    if (!object || isToolLikeObject(object))
+        return;
+    if (typeof object.text === "string")
+        parts.push(object.text);
+    if (typeof object.content === "string")
+        parts.push(object.content);
+    if (typeof object.body === "string")
+        parts.push(object.body);
+    const part = metadataObject(object.part);
+    if (part && !isToolLikeObject(part) && lowerString(part.type) === "text" && typeof part.text === "string") {
+        parts.push(part.text);
+    }
+    for (const key of ["parts", "content", "messages", "children"]) {
+        const child = object[key];
+        if (Array.isArray(child)) {
+            for (const item of child)
+                collectWorkflowTextParts(item, parts);
+        }
+    }
+}
+function isToolLikeObject(object) {
+    const values = [object.type, object.kind, object.name, object.role]
+        .filter((value) => typeof value === "string")
+        .map((value) => value.toLowerCase());
+    return values.some((value) => /tool|command|bash|shell|patch|diff|file|diagnostic|result/.test(value)) ||
+        "toolCallId" in object ||
+        "tool_call_id" in object ||
+        "tool" in object;
+}
+function isToolLikeKey(key) {
+    return /tool|command|bash|shell|patch|diff|file|diagnostic|result/.test(key.toLowerCase());
+}
+function workflowTimestamp(object) {
+    for (const key of ["createdAt", "created_at", "timestamp", "time", "date"]) {
+        const value = object[key];
+        if (typeof value === "string" && value.trim())
+            return value;
+        if (typeof value === "number" && Number.isFinite(value))
+            return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString();
+    }
+    return null;
+}
+function renderWorkflowSnapshotMarkdown(snapshot) {
+    const lines = [
+        `# Chimera Workflow Snapshot ${snapshot.publicId}`,
+        "",
+        `Generated: ${snapshot.generatedAt}`,
+        `OpenCode session: ${snapshot.opencodeSessionId}`,
+        `Messages: ${snapshot.messages.length}`,
+        `Limit: ${snapshot.limit}`,
+        `Max message chars: ${snapshot.maxMessageChars}`,
+        ""
+    ];
+    for (const message of snapshot.messages) {
+        lines.push(`## Message ${message.ordinal}${message.createdAt ? ` (${message.createdAt})` : ""}`);
+        lines.push("");
+        lines.push(message.text);
+        if (message.truncated)
+            lines.push("\n[truncated]");
+        lines.push("");
+    }
+    return lines.join("\n").trimEnd() + "\n";
 }
 function councilRoundOpened(council, round) {
     return council.messages.some((message) => {
@@ -1426,6 +1618,12 @@ function nullableNumber(value, fallback) {
 function positiveInteger(value, fallback) {
     const number = Number(value);
     return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
+}
+function lowerString(value) {
+    return typeof value === "string" ? value.toLowerCase() : null;
+}
+function compactWhitespace(value) {
+    return value.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 function truncate(value, limit) {
     return value.length <= limit ? value : `${value.slice(0, limit - 3)}...`;
