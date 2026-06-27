@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -16,18 +16,56 @@ const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-global-smoke-"
 const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"));
 const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
 const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
+const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
 
 function run(args, cwd = tmpRoot) {
   return execFileSync(process.execPath, [cli, ...args], {
     cwd,
-    env: {
-      ...process.env,
-      PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
-      PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
-      PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
-    },
+    env: smokeEnv(),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
+  });
+}
+
+function smokeEnv(extra = {}) {
+  return {
+    ...process.env,
+    ...extra,
+    PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
+    PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
+    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
+  };
+}
+
+function waitForFile(filePath, timeoutMs = 5000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (fs.existsSync(filePath)) return;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  throw new Error(`timed out waiting for file: ${filePath}`);
+}
+
+function waitForChild(child, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`child did not exit in time\nstdout=${stdout}\nstderr=${stderr}`));
+    }, timeoutMs);
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
   });
 }
 
@@ -188,6 +226,36 @@ try {
   if (!chimeraDoctor.includes('"ok": true') || !chimeraDoctor.includes("mock-opencode")) {
     throw new Error("chimera doctor did not validate mock OpenCode runtime");
   }
+  run(["init", "--root", killRoot, "--name", "kill-smoke-target"], killRoot);
+  const liveRun = spawn(process.execPath, [
+    cli,
+    "chimera",
+    "start",
+    "--root",
+    killRoot,
+    "--role",
+    "explorer",
+    "--goal",
+    "Long-running mock OpenCode kill validation",
+    "--run",
+    "--timeout",
+    "30"
+  ], {
+    cwd: killRoot,
+    env: smokeEnv({ MOCK_OPENCODE_SLEEP_MS: "30000" }),
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  waitForFile(path.join(killRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"));
+  run(["chimera", "kill", "--root", killRoot, "--id", "CH-0001", "--reason", "Live kill smoke"], killRoot);
+  const liveRunResult = await waitForChild(liveRun);
+  if (liveRunResult.code !== 0 || !liveRunResult.stdout.includes('"killed": true')) {
+    throw new Error(`live Chimera kill did not terminate the running OpenCode process cleanly\nstdout=${liveRunResult.stdout}\nstderr=${liveRunResult.stderr}`);
+  }
+  const killedSession = run(["chimera", "list", "--root", killRoot], killRoot);
+  if (!killedSession.includes('"status": "killed"') || fs.existsSync(path.join(killRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"))) {
+    throw new Error("live Chimera kill did not persist killed status and clear opencode.pid");
+  }
+  run(["chimera", "stop-server", "--root", killRoot], killRoot);
   if (!fs.existsSync(path.join(globalRoot, "chimera", "config.json"))) {
     throw new Error("chimera config init did not write global config");
   }
@@ -282,7 +350,7 @@ try {
   if (!chimeraHeartbeat.includes('"alive": true')) {
     throw new Error("chimera heartbeat did not report alive session");
   }
-  const chimeraRun = run([
+  const chimeraRun = JSON.parse(run([
     "chimera",
     "start",
     "--role",
@@ -292,9 +360,18 @@ try {
     "--run",
     "--timeout",
     "10"
-  ]);
-  if (!chimeraRun.includes('"publicId": "CH-0002"') || !chimeraRun.includes("mock-opencode") || !chimeraRun.includes('"provider": "high"') || !chimeraRun.includes('"opencodeSessionId": "ses_mock_CH-0002"')) {
-    throw new Error("chimera --run did not capture mock OpenCode output");
+  ]));
+  if (
+    chimeraRun.session?.publicId !== "CH-0002" ||
+    chimeraRun.session?.provider !== "high" ||
+    chimeraRun.run?.exitCode !== 0 ||
+    !chimeraRun.run?.stdoutPreview?.includes("mock-opencode")
+  ) {
+    throw new Error(`chimera --run did not capture mock OpenCode output: ${JSON.stringify({ session: chimeraRun.session, run: chimeraRun.run })}`);
+  }
+  const chimeraRunList = run(["chimera", "list"]);
+  if (!chimeraRunList.includes('"opencodeSessionId": "ses_mock_CH-0002"')) {
+    throw new Error(`chimera --run did not persist discovered OpenCode session id: ${chimeraRunList}`);
   }
   const explorerAgentFile = fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0002/.opencode/agents/proteus-chimera.md"), "utf8");
   if (!explorerAgentFile.includes("edit: deny") || !explorerAgentFile.includes("webfetch: deny") || !explorerAgentFile.includes("websearch: deny")) {
@@ -899,4 +976,5 @@ try {
   fs.rmSync(legacyRoot, { recursive: true, force: true });
   fs.rmSync(helpRoot, { recursive: true, force: true });
   fs.rmSync(mergeRoot, { recursive: true, force: true });
+  fs.rmSync(killRoot, { recursive: true, force: true });
 }

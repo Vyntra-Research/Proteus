@@ -48,18 +48,29 @@ if (args[0] === "serve") {
 if (args[0] === "export") {
   const sessionID = args[1] ?? "ses_mock_unknown";
   console.log(JSON.stringify({
-    id: sessionID,
+    info: {
+      id: sessionID,
+      title: `proteus-${sessionID}`,
+      model: { id: "mock-model", providerID: "mock", variant: "high" },
+      time: { created: 1760000000000, updated: 1760000003000 }
+    },
     messages: [
       {
-        id: "msg_user_1",
-        role: "user",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        content: "User prompt that must not appear."
+        info: {
+          id: "msg_user_1",
+          role: "user",
+          time: { created: 1760000000000 }
+        },
+        parts: [
+          { type: "text", text: "User prompt that must not appear." }
+        ]
       },
       {
-        id: "msg_assistant_1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:01.000Z",
+        info: {
+          id: "msg_assistant_1",
+          role: "assistant",
+          time: { created: 1760000001000 }
+        },
         parts: [
           { type: "text", text: "First compact agent workflow message." },
           { type: "tool_call", text: "TOOL CALL THAT MUST NOT APPEAR" },
@@ -67,19 +78,26 @@ if (args[0] === "export") {
         ]
       },
       {
-        id: "msg_assistant_2",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:02.000Z",
+        info: {
+          id: "msg_assistant_2",
+          role: "assistant",
+          time: { created: 1760000002000 }
+        },
         content: [
           { type: "text", text: "Second agent workflow message with enough length to truncate in smoke testing." },
           { type: "command", text: "COMMAND OUTPUT THAT MUST NOT APPEAR" }
         ]
       },
       {
-        role: "assistant",
-        type: "text",
-        timestamp: 1760000000000,
-        part: { type: "text", text: "Third event-style assistant text." }
+        info: {
+          id: "msg_assistant_3",
+          role: "assistant",
+          time: { created: 1760000003000 }
+        },
+        parts: [
+          { type: "text", synthetic: true, text: "Synthetic assistant text that must not appear." },
+          { type: "text", text: "Third event-style assistant text." }
+        ]
       }
     ]
   }));
@@ -103,6 +121,10 @@ const agentIndex = args.indexOf("--agent");
 
 const sessionID = `ses_mock_${process.env.PROTEUS_CHIMERA_SESSION_ID ?? "unknown"}`;
 recordSession(sessionID, args);
+const sleepMs = Number(process.env.MOCK_OPENCODE_SLEEP_MS || "0");
+if (Number.isFinite(sleepMs) && sleepMs > 0) {
+  await new Promise((resolve) => setTimeout(resolve, sleepMs));
+}
 const text = JSON.stringify({
   ok: true,
   runtime: "mock-opencode",

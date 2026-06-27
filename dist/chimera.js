@@ -173,7 +173,8 @@ function startChimeraSession(db, input) {
         run = runChimeraSession(db, updated.publicId, input.timeoutSec ?? config.defaultTimeoutSec);
         updated = db.updateChimeraSession({
             publicId: session.publicId,
-            status: run.exitCode === 0 ? "waiting" : run.timedOut ? "timeout" : "failed"
+            status: run.exitCode === 0 ? "waiting" : run.killed ? "killed" : run.timedOut ? "timeout" : "failed",
+            opencodePid: null
         });
         writeStatusFile(db, updated, { linked, lastRun: run });
     }
@@ -592,14 +593,9 @@ function killChimeraSession(db, publicId, reason) {
     });
     appendJsonl(inboxPath(db, publicId), message);
     writeNotificationFile(db, publicId, message);
-    if (session.opencodePid) {
-        try {
-            process.kill(session.opencodePid);
-        }
-        catch {
-            // The process may have already exited. The kill flag remains authoritative.
-        }
-    }
+    const pid = session.opencodePid ?? readPidFile(node_path_1.default.join(session.sessionDir, "opencode", "opencode.pid"));
+    if (pid)
+        terminateProcess(pid);
     const updated = db.updateChimeraSession({ publicId, status: "killed", closeVerdict: "kill", closeSummary: reason });
     writeStatusFile(db, updated, { killReason: reason });
     return updated;
@@ -667,7 +663,8 @@ function runChimeraSession(db, publicId, timeoutSec) {
     const run = runOpenCodeOnce(db, running, promptPath, config, timeoutSec ?? config.defaultTimeoutSec);
     const updated = db.updateChimeraSession({
         publicId,
-        status: run.exitCode === 0 ? "waiting" : run.timedOut ? "timeout" : "failed"
+        status: run.exitCode === 0 ? "waiting" : run.killed ? "killed" : run.timedOut ? "timeout" : "failed",
+        opencodePid: null
     });
     writeStatusFile(db, updated, { lastRun: run });
     return run;
@@ -718,7 +715,7 @@ function snapshotChimeraWorkflow(db, publicId, input = {}) {
     }
     let exported;
     try {
-        exported = JSON.parse(stdout);
+        exported = JSON.parse(extractJsonObject(stdout));
     }
     catch (error) {
         throw new Error(`OpenCode export did not return JSON: ${error instanceof Error ? error.message : String(error)}`);
@@ -847,23 +844,27 @@ function runOpenCodeOnce(db, session, promptPath, config, timeoutSec) {
     args.push(`Run the attached Proteus Chimera dossier for ${session.publicId}. Start by loading available Proteus skills if the skill tool is available, then execute only the assigned goal. Poll Proteus messages before long work and post a concise final snapshot.`);
     const startedAt = new Date().toISOString();
     const command = commandParts(config.opencodeCommand);
-    const result = spawnExternalSync(command, args, {
+    const killPath = node_path_1.default.join(session.sessionDir, "kill.flag");
+    const pidPath = node_path_1.default.join(opencodeDir, "opencode.pid");
+    const runEnv = {
+        ...process.env,
+        PROTEUS_CHIMERA_SESSION_ID: session.publicId,
+        PROTEUS_CHIMERA_SESSION_DIR: session.sessionDir,
+        PROTEUS_CHIMERA_LAB_DIR: session.labDir,
+        PROTEUS_CHIMERA_ACCESS_MODE: session.accessMode,
+        PROTEUS_TARGET_ROOT: db.targetRoot
+    };
+    const result = runExternalControlled(command, args, {
         cwd: session.sessionDir,
-        encoding: "utf8",
-        timeout: timeoutSec * 1000,
-        env: {
-            ...process.env,
-            PROTEUS_CHIMERA_SESSION_ID: session.publicId,
-            PROTEUS_CHIMERA_SESSION_DIR: session.sessionDir,
-            PROTEUS_CHIMERA_LAB_DIR: session.labDir,
-            PROTEUS_CHIMERA_ACCESS_MODE: session.accessMode,
-            PROTEUS_TARGET_ROOT: db.targetRoot
-        }
+        env: runEnv,
+        timeoutMs: timeoutSec * 1000,
+        killPath,
+        pidPath,
+        stdoutPath,
+        stderrPath
     });
-    const stdout = String(result.stdout ?? "");
-    const stderr = String(result.stderr ?? "");
-    node_fs_1.default.writeFileSync(stdoutPath, stdout);
-    node_fs_1.default.writeFileSync(stderrPath, stderr);
+    const stdout = node_fs_1.default.existsSync(stdoutPath) ? node_fs_1.default.readFileSync(stdoutPath, "utf8") : "";
+    const stderr = node_fs_1.default.existsSync(stderrPath) ? node_fs_1.default.readFileSync(stderrPath, "utf8") : "";
     const run = {
         startedAt,
         completedAt: new Date().toISOString(),
@@ -871,8 +872,10 @@ function runOpenCodeOnce(db, session, promptPath, config, timeoutSec) {
         args: [...command.args, ...args],
         exitCode: result.status,
         signal: result.signal,
-        timedOut: result.error?.name === "ETIMEDOUT",
-        error: result.error ? String(result.error.message) : null
+        timedOut: result.timedOut,
+        killed: result.killed,
+        pid: result.pid,
+        error: result.error ?? null
     };
     node_fs_1.default.writeFileSync(runPath, JSON.stringify(run, null, 2) + "\n");
     appendJsonl(node_path_1.default.join(session.sessionDir, "transcript.jsonl"), { type: "opencode_run", ...run });
@@ -907,6 +910,7 @@ function runOpenCodeOnce(db, session, promptPath, config, timeoutSec) {
     return {
         exitCode: result.status,
         timedOut: run.timedOut,
+        killed: run.killed,
         stdoutPath,
         stderrPath,
         runPath,
@@ -1177,7 +1181,10 @@ function collectWorkflowMessages(value, messages, seen) {
     }
 }
 function isAgentMessageObject(object) {
-    const role = lowerString(object.role) ?? lowerString(metadataObject(object.author)?.role) ?? lowerString(metadataObject(object.message)?.role);
+    const role = lowerString(object.role)
+        ?? lowerString(metadataObject(object.info)?.role)
+        ?? lowerString(metadataObject(object.author)?.role)
+        ?? lowerString(metadataObject(object.message)?.role);
     if (role === "assistant" || role === "agent")
         return true;
     return false;
@@ -1199,14 +1206,17 @@ function collectWorkflowTextParts(value, parts) {
     const object = metadataObject(value);
     if (!object || isToolLikeObject(object))
         return;
-    if (typeof object.text === "string")
+    if (object.synthetic === true)
+        return;
+    const type = lowerString(object.type);
+    if (typeof object.text === "string" && (!type || type === "text"))
         parts.push(object.text);
-    if (typeof object.content === "string")
+    if (typeof object.content === "string" && (!type || type === "text"))
         parts.push(object.content);
-    if (typeof object.body === "string")
+    if (typeof object.body === "string" && (!type || type === "text"))
         parts.push(object.body);
     const part = metadataObject(object.part);
-    if (part && !isToolLikeObject(part) && lowerString(part.type) === "text" && typeof part.text === "string") {
+    if (part && part.synthetic !== true && !isToolLikeObject(part) && lowerString(part.type) === "text" && typeof part.text === "string") {
         parts.push(part.text);
     }
     for (const key of ["parts", "content", "messages", "children"]) {
@@ -1237,7 +1247,23 @@ function workflowTimestamp(object) {
         if (typeof value === "number" && Number.isFinite(value))
             return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString();
     }
+    const info = metadataObject(object.info);
+    const time = metadataObject(info?.time);
+    for (const key of ["created", "updated", "completed"]) {
+        const value = time?.[key];
+        if (typeof value === "string" && value.trim())
+            return value;
+        if (typeof value === "number" && Number.isFinite(value))
+            return new Date(value > 10_000_000_000 ? value : value * 1000).toISOString();
+    }
     return null;
+}
+function extractJsonObject(value) {
+    const trimmed = value.trim();
+    const start = trimmed.indexOf("{");
+    if (start <= 0)
+        return trimmed;
+    return trimmed.slice(start);
 }
 function renderWorkflowSnapshotMarkdown(snapshot) {
     const lines = [
@@ -1570,6 +1596,146 @@ function spawnExternalSync(command, args, options) {
         shell: needsWindowsShell(command.file)
     });
 }
+function runExternalControlled(command, args, options) {
+    (0, paths_1.ensureDir)(node_path_1.default.dirname(options.stdoutPath));
+    (0, paths_1.ensureDir)(node_path_1.default.dirname(options.stderrPath));
+    const input = {
+        file: command.file,
+        commandArgs: command.args,
+        args,
+        cwd: options.cwd,
+        timeoutMs: options.timeoutMs,
+        killPath: options.killPath,
+        pidPath: options.pidPath,
+        stdoutPath: options.stdoutPath,
+        stderrPath: options.stderrPath,
+        shell: needsWindowsShell(command.file)
+    };
+    const script = `
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawn, spawnSync } = require("node:child_process");
+const input = JSON.parse(process.argv[1]);
+fs.mkdirSync(path.dirname(input.stdoutPath), { recursive: true });
+fs.mkdirSync(path.dirname(input.stderrPath), { recursive: true });
+const stdout = fs.createWriteStream(input.stdoutPath, { flags: "w" });
+const stderr = fs.createWriteStream(input.stderrPath, { flags: "w" });
+let finished = false;
+let timedOut = false;
+let killed = false;
+let status = null;
+let signal = null;
+let error = null;
+let child = null;
+function terminateChild() {
+  if (!child || !child.pid) return;
+  try {
+    if (process.platform === "win32") {
+      spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+    } else {
+      child.kill("SIGTERM");
+      setTimeout(() => {
+        try { child.kill("SIGKILL"); } catch {}
+      }, 1500).unref();
+    }
+  } catch {}
+}
+function finish() {
+  if (finished) return;
+  finished = true;
+  try {
+    if (fs.existsSync(input.killPath)) killed = true;
+  } catch {}
+  clearTimeout(timeoutTimer);
+  clearInterval(killPoll);
+  try { fs.rmSync(input.pidPath, { force: true }); } catch {}
+  stdout.end();
+  stderr.end();
+  process.stdout.write(JSON.stringify({
+    status,
+    signal,
+    timedOut,
+    killed,
+    pid: child && child.pid ? child.pid : null,
+    error
+  }));
+}
+child = spawn(input.file, [...input.commandArgs, ...input.args], {
+  cwd: input.cwd,
+  env: process.env,
+  shell: input.shell,
+  windowsHide: true
+});
+if (child.pid) fs.writeFileSync(input.pidPath, String(child.pid) + "\\n");
+child.stdout && child.stdout.pipe(stdout);
+child.stderr && child.stderr.pipe(stderr);
+child.on("error", (err) => {
+  error = err && err.message ? err.message : String(err);
+});
+child.on("close", (code, sig) => {
+  status = code;
+  signal = sig || null;
+  finish();
+});
+const timeoutTimer = setTimeout(() => {
+  timedOut = true;
+  terminateChild();
+}, Math.max(1, Number(input.timeoutMs) || 1));
+const killPoll = setInterval(() => {
+  try {
+    if (fs.existsSync(input.killPath)) {
+      killed = true;
+      terminateChild();
+    }
+  } catch {}
+}, 250);
+`;
+    const result = (0, node_child_process_1.spawnSync)(process.execPath, ["-e", script, JSON.stringify(input)], {
+        cwd: options.cwd,
+        env: options.env,
+        encoding: "utf8",
+        timeout: Math.max(1000, options.timeoutMs + 5000)
+    });
+    const stdout = String(result.stdout ?? "").trim();
+    if (stdout) {
+        try {
+            return JSON.parse(stdout);
+        }
+        catch {
+            // Fall through to the generic failure result below.
+        }
+    }
+    return {
+        status: result.status,
+        signal: result.signal,
+        timedOut: result.error?.name === "ETIMEDOUT",
+        killed: node_fs_1.default.existsSync(options.killPath),
+        pid: readPidFile(options.pidPath),
+        error: String(result.stderr || result.error?.message || `controlled runner exit ${result.status}`)
+    };
+}
+function readPidFile(filePath) {
+    try {
+        const pid = Number(node_fs_1.default.readFileSync(filePath, "utf8").trim());
+        return Number.isFinite(pid) && pid > 0 ? Math.floor(pid) : null;
+    }
+    catch {
+        return null;
+    }
+}
+function terminateProcess(pid) {
+    try {
+        if (process.platform === "win32") {
+            (0, node_child_process_1.spawnSync)("taskkill.exe", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+        }
+        else {
+            process.kill(pid);
+        }
+    }
+    catch {
+        // The controlled runner also watches kill.flag; a missing process is fine.
+    }
+}
 function resolveWindowsCommand(file) {
     if (process.platform !== "win32" || /[\\/]/.test(file) || node_path_1.default.extname(file))
         return file;
@@ -1635,7 +1801,8 @@ function resolveProteusCliPath() {
     return candidates.find((candidate) => node_fs_1.default.existsSync(candidate)) ?? (process.argv[1] ?? "");
 }
 function proteusCliCommand() {
-    return `${quoteArg(process.execPath)} ${quoteArg(resolveProteusCliPath())}`;
+    const command = `${quoteArg(process.execPath)} ${quoteArg(resolveProteusCliPath())}`;
+    return process.platform === "win32" ? `& ${command}` : command;
 }
 function quoteArg(value) {
     return `"${value.replace(/"/g, '\\"')}"`;
