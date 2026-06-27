@@ -105,13 +105,15 @@ export type ChimeraMessageKind =
 
 export interface ChimeraConfig {
   enabled: boolean;
-  runtime: "goose";
-  gooseCommand: string;
+  runtime: "opencode";
+  opencodeCommand: string;
   defaultModel: string | null;
-  defaultProvider: string | null;
+  defaultVariant: string | null;
+  defaultAgent: string | null;
   maxAgents: number;
   defaultTimeoutSec: number;
   defaultNetwork: boolean;
+  skipPermissions: boolean;
 }
 
 export interface TargetContract {

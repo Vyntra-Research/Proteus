@@ -10,6 +10,7 @@ exports.getChimeraConfig = getChimeraConfig;
 exports.chimeraDoctor = chimeraDoctor;
 exports.startChimeraSession = startChimeraSession;
 exports.sendChimeraMessage = sendChimeraMessage;
+exports.broadcastChimeraMessage = broadcastChimeraMessage;
 exports.postChimeraMessage = postChimeraMessage;
 exports.snapshotChimeraSession = snapshotChimeraSession;
 exports.heartbeatChimeraSession = heartbeatChimeraSession;
@@ -23,25 +24,29 @@ const node_child_process_1 = require("node:child_process");
 const paths_1 = require("./paths");
 exports.DEFAULT_CHIMERA_CONFIG = {
     enabled: false,
-    runtime: "goose",
-    gooseCommand: "goose",
+    runtime: "opencode",
+    opencodeCommand: "opencode",
     defaultModel: null,
-    defaultProvider: null,
+    defaultVariant: null,
+    defaultAgent: "proteus-chimera",
     maxAgents: 4,
     defaultTimeoutSec: 900,
-    defaultNetwork: false
+    defaultNetwork: false,
+    skipPermissions: true
 };
 function initChimeraConfig(db, input = {}) {
     const current = db.getChimeraConfig() ?? exports.DEFAULT_CHIMERA_CONFIG;
     const next = {
         enabled: input.enabled ?? true,
-        runtime: "goose",
-        gooseCommand: stringOr(input.gooseCommand, current.gooseCommand),
+        runtime: "opencode",
+        opencodeCommand: stringOr(input.opencodeCommand, current.opencodeCommand),
         defaultModel: nullableString(input.defaultModel, current.defaultModel),
-        defaultProvider: nullableString(input.defaultProvider, current.defaultProvider),
+        defaultVariant: nullableString(input.defaultVariant, current.defaultVariant),
+        defaultAgent: nullableString(input.defaultAgent, current.defaultAgent),
         maxAgents: positiveInteger(input.maxAgents, current.maxAgents),
         defaultTimeoutSec: positiveInteger(input.defaultTimeoutSec, current.defaultTimeoutSec),
-        defaultNetwork: input.defaultNetwork ?? current.defaultNetwork
+        defaultNetwork: input.defaultNetwork ?? current.defaultNetwork,
+        skipPermissions: input.skipPermissions ?? current.skipPermissions
     };
     saveChimeraConfig(db, next);
     return next;
@@ -73,7 +78,7 @@ function chimeraDoctor(db) {
             ok: resolveSkillsDir() !== null,
             detail: resolveSkillsDir() ?? "Could not resolve plugins/proteus/skills."
         },
-        commandCheck("goose", config.gooseCommand, ["--version"]),
+        commandCheck("opencode", config.opencodeCommand, ["--version"]),
         commandCheck("proteus_cli", process.execPath, [resolveProteusCliPath(), "--version"])
     ];
     return { ok: checks.every((check) => check.ok), config, checks };
@@ -99,10 +104,10 @@ function startChimeraSession(db, input) {
         accessMode: input.accessMode ?? "lab",
         accessNotes: input.accessNotes ?? null,
         model: input.model ?? config.defaultModel,
-        provider: input.provider ?? config.defaultProvider,
+        provider: normalizeOpenCodeVariant(input.variant, input.provider, config.defaultVariant),
         sessionDir,
         labDir,
-        gooseCommand: config.gooseCommand
+        opencodeCommand: config.opencodeCommand
     });
     const paths = createSessionFiles(db, session, config);
     db.addChimeraMessage({
@@ -119,7 +124,7 @@ function startChimeraSession(db, input) {
     writeStatusFile(db, updated, { linked });
     let run;
     if (input.run) {
-        run = runGooseOnce(db, updated, paths.promptPath, config, input.timeoutSec ?? config.defaultTimeoutSec);
+        run = runOpenCodeOnce(db, updated, paths.promptPath, config, input.timeoutSec ?? config.defaultTimeoutSec);
         updated = db.updateChimeraSession({
             publicId: session.publicId,
             status: run.exitCode === 0 ? "waiting" : run.timedOut ? "timeout" : "failed"
@@ -148,6 +153,41 @@ function sendChimeraMessage(db, publicId, body, kind = "message") {
     });
     appendJsonl(inboxPath(db, publicId), message);
     return message;
+}
+function broadcastChimeraMessage(db, input) {
+    const fromId = input.fromId?.trim();
+    const sessions = db.listChimeraSessions({ limit: 500 });
+    const delivered = [];
+    const skipped = [];
+    for (const session of sessions.reverse()) {
+        if (fromId && session.publicId === fromId) {
+            skipped.push({ publicId: session.publicId, reason: "source session" });
+            continue;
+        }
+        if (!input.includeClosed && ["closed", "failed", "killed", "timeout"].includes(session.status)) {
+            skipped.push({ publicId: session.publicId, reason: `status ${session.status}` });
+            continue;
+        }
+        const message = db.addChimeraMessage({
+            publicId: session.publicId,
+            direction: "coordinator_to_agent",
+            kind: input.kind ?? "message",
+            body: input.body,
+            metadata: { broadcast: true, fromId: fromId ?? "coordinator" },
+            readByCoordinator: true,
+            readByAgent: false
+        });
+        appendJsonl(inboxPath(db, session.publicId), message);
+        delivered.push(message);
+    }
+    if (fromId) {
+        postChimeraMessage(db, fromId, "message", `Broadcast delivered to ${delivered.length} Chimera session(s).`, {
+            broadcast: true,
+            deliveredTo: delivered.map((message) => message.publicId),
+            skipped
+        });
+    }
+    return { delivered, skipped };
 }
 function postChimeraMessage(db, publicId, kind, body, metadata) {
     const message = db.addChimeraMessage({
@@ -220,9 +260,9 @@ function killChimeraSession(db, publicId, reason) {
         body: reason,
         readByCoordinator: true
     });
-    if (session.goosePid) {
+    if (session.opencodePid) {
         try {
-            process.kill(session.goosePid);
+            process.kill(session.opencodePid);
         }
         catch {
             // The process may have already exited. The kill flag remains authoritative.
@@ -279,6 +319,7 @@ function startChimeraSwarm(db, plan) {
         roundId: plan.roundId,
         model: agent.model,
         provider: agent.provider,
+        variant: agent.variant,
         run: plan.run
     }));
     return { sessions, maxAgents: config.maxAgents };
@@ -289,9 +330,11 @@ function createSessionFiles(db, session, config) {
     (0, paths_1.ensureDir)(session.labDir);
     for (const dir of ["poc", "scripts", "evidence"])
         (0, paths_1.ensureDir)(node_path_1.default.join(session.labDir, dir));
-    const gooseDir = node_path_1.default.join(session.sessionDir, "goose");
-    (0, paths_1.ensureDir)(gooseDir);
+    const opencodeDir = node_path_1.default.join(session.sessionDir, "opencode");
+    (0, paths_1.ensureDir)(opencodeDir);
     (0, paths_1.ensureDir)(node_path_1.default.join(session.sessionDir, "skills"));
+    (0, paths_1.ensureDir)(node_path_1.default.join(session.sessionDir, ".opencode", "agents"));
+    (0, paths_1.ensureDir)(node_path_1.default.join(session.sessionDir, ".opencode", "skills"));
     const target = db.getTarget();
     const contract = renderContract(db, session, config);
     const instructions = renderAgentInstructions(db, session);
@@ -301,7 +344,7 @@ function createSessionFiles(db, session, config) {
         sessionDir: session.sessionDir,
         labDir: session.labDir,
         dossierPath: node_path_1.default.join(session.sessionDir, "dossier.md"),
-        promptPath: node_path_1.default.join(gooseDir, "prompt.md"),
+        promptPath: node_path_1.default.join(opencodeDir, "prompt.md"),
         contractPath: node_path_1.default.join(session.sessionDir, "contract.md"),
         instructionsPath: node_path_1.default.join(session.sessionDir, "agent-instructions.md")
     };
@@ -314,34 +357,39 @@ function createSessionFiles(db, session, config) {
     for (const jsonl of ["inbox.jsonl", "outbox.jsonl", "transcript.jsonl"])
         node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, jsonl), "");
     copySkillFiles(session);
+    writeOpenCodeAgentFile(session, config);
     return paths;
 }
-function runGooseOnce(db, session, promptPath, config, timeoutSec) {
-    const gooseDir = node_path_1.default.join(session.sessionDir, "goose");
-    const stdoutPath = node_path_1.default.join(gooseDir, "stdout.log");
-    const stderrPath = node_path_1.default.join(gooseDir, "stderr.log");
-    const runPath = node_path_1.default.join(gooseDir, "run.json");
+function runOpenCodeOnce(db, session, promptPath, config, timeoutSec) {
+    const opencodeDir = node_path_1.default.join(session.sessionDir, "opencode");
+    const stdoutPath = node_path_1.default.join(opencodeDir, "stdout.log");
+    const stderrPath = node_path_1.default.join(opencodeDir, "stderr.log");
+    const runPath = node_path_1.default.join(opencodeDir, "run.json");
     const args = [
         "run",
-        "--instructions",
-        promptPath,
-        "--no-profile",
-        "--no-session",
-        "--with-builtin",
-        "developer",
-        "--output-format",
+        "--format",
         "json",
-        "--max-turns",
-        "8"
+        "--thinking",
+        "--dir",
+        session.sessionDir,
+        "--file",
+        promptPath,
+        "--title",
+        `proteus-${session.publicId}`,
+        "--agent",
+        config.defaultAgent ?? "proteus-chimera"
     ];
     if (session.model)
         args.push("--model", session.model);
     if (session.provider)
-        args.push("--provider", session.provider);
+        args.push("--variant", session.provider);
+    if (config.skipPermissions)
+        args.push("--dangerously-skip-permissions");
+    args.push(`Run the attached Proteus Chimera dossier for ${session.publicId}. Start by loading available Proteus skills if the skill tool is available, then execute only the assigned goal. Poll Proteus messages before long work and post a concise final snapshot.`);
     const startedAt = new Date().toISOString();
-    const command = commandParts(config.gooseCommand);
-    const result = (0, node_child_process_1.spawnSync)(command.file, [...command.args, ...args], {
-        cwd: db.targetRoot,
+    const command = commandParts(config.opencodeCommand);
+    const result = spawnExternalSync(command, args, {
+        cwd: session.sessionDir,
         encoding: "utf8",
         timeout: timeoutSec * 1000,
         env: {
@@ -368,15 +416,15 @@ function runGooseOnce(db, session, promptPath, config, timeoutSec) {
         error: result.error ? String(result.error.message) : null
     };
     node_fs_1.default.writeFileSync(runPath, JSON.stringify(run, null, 2) + "\n");
-    appendJsonl(node_path_1.default.join(session.sessionDir, "transcript.jsonl"), { type: "goose_run", ...run });
+    appendJsonl(node_path_1.default.join(session.sessionDir, "transcript.jsonl"), { type: "opencode_run", ...run });
     if (stdout.trim()) {
-        const agentText = extractGooseAssistantText(stdout.trim());
+        const agentText = extractOpenCodeAssistantText(stdout.trim());
         db.addChimeraMessage({
             publicId: session.publicId,
             direction: "agent_to_coordinator",
             kind: "message",
             body: agentText,
-            metadata: { source: "goose_stdout", stdoutPath: (0, paths_1.toRelative)(db.targetRoot, stdoutPath) },
+            metadata: { source: "opencode_stdout", stdoutPath: (0, paths_1.toRelative)(db.targetRoot, stdoutPath) },
             readByAgent: true
         });
     }
@@ -386,7 +434,7 @@ function runGooseOnce(db, session, promptPath, config, timeoutSec) {
             direction: "system",
             kind: "error",
             body: truncate(stderr.trim(), 4000),
-            metadata: { source: "goose_stderr", stderrPath: (0, paths_1.toRelative)(db.targetRoot, stderrPath) },
+            metadata: { source: "opencode_stderr", stderrPath: (0, paths_1.toRelative)(db.targetRoot, stderrPath) },
             readByAgent: true
         });
     }
@@ -442,12 +490,17 @@ Required behavior:
 - Prefer the workspace root as the Proteus base. Do not create stray .vros directories in subfolders.
 - If you accidentally find or create a stray base, report it. The coordinator can merge it with proteus merge.
 - Use concise snapshots and message the coordinator through Proteus.
+- Poll your inbox before long work, after completing a branch, and before finalizing.
 - Heartbeat before long work and after meaningful pivots.
 - Do not invent evidence, ignore duplicate checks, or turn brainstorms into findings.
+- Shared Chimera chat is advisory context. You do not need to answer every broadcast. Respond only when it changes your branch, asks you a direct question, or can help another active agent.
+- Coordinator questions should be answered unless doing so would exceed scope or interrupt a higher-priority safety stop.
 - Network is ${config.defaultNetwork ? "allowed only within the target authorization" : "disabled by default unless the coordinator explicitly authorizes it"}.
 
 Communication commands:
+- ${proteusCommand} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent
 - ${proteusCommand} --root "${db.targetRoot}" chimera post --id ${session.publicId} --kind message --body "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --from-id ${session.publicId} --message "..."
 - ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "..."
 - ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
 `;
@@ -496,7 +549,32 @@ function copySkillFiles(session) {
         if (!node_fs_1.default.existsSync(source))
             continue;
         node_fs_1.default.copyFileSync(source, node_path_1.default.join(session.sessionDir, "skills", `${name}.md`));
+        const opencodeSkillDir = node_path_1.default.join(session.sessionDir, ".opencode", "skills", name);
+        (0, paths_1.ensureDir)(opencodeSkillDir);
+        node_fs_1.default.copyFileSync(source, node_path_1.default.join(opencodeSkillDir, "SKILL.md"));
     }
+}
+function writeOpenCodeAgentFile(session, config) {
+    const agentName = config.defaultAgent ?? "proteus-chimera";
+    const permissions = session.accessMode === "inherit"
+        ? ["bash", "read", "edit", "glob", "grep", "webfetch", "websearch", "skill", "lsp"]
+        : ["bash", "read", "glob", "grep", "webfetch", "websearch", "skill", "lsp"];
+    const agent = `---
+description: Proteus Chimera secondary agent for ${session.role} work.
+mode: primary
+${session.model ? `model: ${session.model}\n` : ""}permissions:
+  ${permissions.map((permission) => `${permission}: allow`).join("\n  ")}
+---
+
+# Proteus Chimera Runtime Agent
+
+Read the attached dossier and the local Proteus skills before acting. Your session id is ${session.publicId}.
+
+Operate through Proteus for coordination and memory. Use your Chimera lab for artifacts. Respect access mode ${session.accessMode}.
+
+Do not wait for interactive permission approval. If an action is outside your granted access or unclear, post a blocker through Proteus instead of asking OpenCode to prompt a human.
+`;
+    node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, ".opencode", "agents", `${agentName}.md`), agent);
 }
 function linkChimeraSession(db, session) {
     const linked = [];
@@ -559,7 +637,7 @@ function commandCheck(name, command, args) {
     if (!command.trim())
         return { name, ok: false, detail: "empty command" };
     const parsed = commandParts(command);
-    const result = (0, node_child_process_1.spawnSync)(parsed.file, [...parsed.args, ...args], { encoding: "utf8", timeout: 10000 });
+    const result = spawnExternalSync(parsed, args, { encoding: "utf8", timeout: 10000 });
     const output = `${result.stdout ?? ""}${result.stderr ?? ""}`.trim();
     return {
         name,
@@ -571,7 +649,51 @@ function commandParts(command) {
     const parts = command.match(/"([^"]+)"|'([^']+)'|[^\s]+/g)?.map((part) => part.replace(/^["']|["']$/g, "")) ?? [];
     if (parts.length === 0)
         return { file: command, args: [] };
-    return { file: parts[0], args: parts.slice(1) };
+    return { file: resolveWindowsCommand(parts[0]), args: parts.slice(1) };
+}
+function spawnExternalSync(command, args, options) {
+    return (0, node_child_process_1.spawnSync)(command.file, [...command.args, ...args], {
+        ...options,
+        shell: needsWindowsShell(command.file)
+    });
+}
+function resolveWindowsCommand(file) {
+    if (process.platform !== "win32" || /[\\/]/.test(file) || node_path_1.default.extname(file))
+        return file;
+    const result = (0, node_child_process_1.spawnSync)("where.exe", [file], { encoding: "utf8" });
+    if (result.status !== 0)
+        return file;
+    const candidates = String(result.stdout ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+    const exe = candidates.find((candidate) => node_path_1.default.extname(candidate).toLowerCase() === ".exe");
+    if (exe)
+        return exe;
+    const cmd = candidates.find((candidate) => node_path_1.default.extname(candidate).toLowerCase() === ".cmd");
+    const cmdTarget = cmd ? resolveNpmShimTarget(cmd) : null;
+    if (cmdTarget)
+        return cmdTarget;
+    return cmd ?? candidates.find((candidate) => node_path_1.default.extname(candidate).toLowerCase() === ".bat") ?? candidates[0] ?? file;
+}
+function needsWindowsShell(file) {
+    if (process.platform !== "win32")
+        return false;
+    const ext = node_path_1.default.extname(file).toLowerCase();
+    return ext === ".cmd" || ext === ".bat";
+}
+function resolveNpmShimTarget(cmdPath) {
+    try {
+        const body = node_fs_1.default.readFileSync(cmdPath, "utf8");
+        const match = body.match(/node_modules[\\/][^"\r\n]+?\.exe/i);
+        if (!match)
+            return null;
+        const target = node_path_1.default.join(node_path_1.default.dirname(cmdPath), match[0]);
+        return node_fs_1.default.existsSync(target) ? target : null;
+    }
+    catch {
+        return null;
+    }
 }
 function canWriteDir(dir) {
     try {
@@ -605,20 +727,27 @@ function proteusCliCommand() {
 function quoteArg(value) {
     return `"${value.replace(/"/g, '\\"')}"`;
 }
-function extractGooseAssistantText(stdout) {
-    try {
-        const parsed = JSON.parse(stdout);
-        const assistantMessages = (parsed.messages ?? []).filter((message) => message.role === "assistant");
-        for (const message of assistantMessages.reverse()) {
-            const text = message.content?.find((part) => part.type === "text" && typeof part.text === "string")?.text;
-            if (text?.trim())
-                return truncate(text.trim(), 4000);
+function extractOpenCodeAssistantText(stdout) {
+    const texts = [];
+    for (const line of stdout.split(/\r?\n/)) {
+        if (!line.trim().startsWith("{"))
+            continue;
+        try {
+            const event = JSON.parse(line);
+            if (event.type === "text" && event.part?.type === "text" && event.part.text?.trim()) {
+                texts.push(event.part.text.trim());
+            }
+        }
+        catch {
+            continue;
         }
     }
-    catch {
-        // Goose can prepend non-JSON banner text in some modes; keep a compact pointer instead of transcript spam.
-    }
-    return "Goose run completed. See stdout log for the full transcript.";
+    if (texts.length > 0)
+        return truncate(texts.join("\n").trim(), 4000);
+    return "OpenCode run completed. See stdout log for the full transcript.";
+}
+function normalizeOpenCodeVariant(variant, provider, fallback) {
+    return variant?.trim() || provider?.trim() || fallback;
 }
 function stringOr(value, fallback) {
     return typeof value === "string" && value.trim() ? value.trim() : fallback;

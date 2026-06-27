@@ -33,7 +33,7 @@ negative controls, and PoC validation without artificial lab help.
   lab-created bugs.
 - CLI and MCP interfaces, so the same memory and planning operations work from
   the terminal, Codex, Claude Code, or other MCP-capable assistants.
-- Optional Chimera mode for Goose-backed secondary agents with Proteus-managed
+- Optional Chimera mode for OpenCode-backed secondary agents with Proteus-managed
   sessions, messages, snapshots, labs, kill/close control, and coordinator-set
   access mode.
 - Realistic PoC lab scaffolding with attacker model, documented/default config,
@@ -105,28 +105,30 @@ Then register the MCP server from the CLI install:
 claude mcp add -s user proteus -- proteus-mcp
 ```
 
-### 4. Install Goose For Chimera Mode
+### 4. Install OpenCode For Chimera Mode
 
-Chimera mode is optional and requires [Goose](https://github.com/aaif-goose/goose)
+Chimera mode is optional and requires [OpenCode](https://github.com/sst/opencode)
 as the secondary-agent runtime. Normal Proteus CLI, MCP, memory, skills, and
-exports work without Goose.
+exports work without OpenCode.
 
-Install Goose from the official docs or repository:
+Install OpenCode from the official docs or repository:
 
-- Goose repository: <https://github.com/aaif-goose/goose>
-- Goose docs: <https://goose-docs.ai/docs/>
+- OpenCode repository: <https://github.com/sst/opencode>
+- OpenCode docs: <https://opencode.ai/docs/>
 
-Then enable Chimera for a target:
+Configure your OpenCode provider/model first. For example, if you use Z.AI GLM,
+configure OpenCode with the provider credentials and confirm the model name
+works. Then enable Chimera for a target:
 
 ```powershell
-proteus chimera config init --root C:\path\to\target --goose-command goose --model glm-5.2
+proteus chimera config init --root C:\path\to\target --opencode-command opencode --model zai/glm-5.2 --variant high
 proteus chimera doctor --root C:\path\to\target
 ```
 
-If Goose is installed outside `PATH`, pass the executable path:
+If OpenCode is installed outside `PATH`, pass the executable path:
 
 ```powershell
-proteus chimera config init --root C:\path\to\target --goose-command C:\Users\you\goose\goose.exe --model glm-5.2
+proteus chimera config init --root C:\path\to\target --opencode-command C:\path\to\opencode.exe --model zai/glm-5.2 --variant high
 ```
 
 ## Quick Start
@@ -225,7 +227,7 @@ proteus merge --root C:\path\to\workspace --source C:\path\to\workspace\packages
 proteus merge --root C:\path\to\workspace --sources .\old\.vros\memory.sqlite,.\nested\.vros --dry-run
 ```
 
-Launch optional Chimera agents after Goose is configured:
+Launch optional Chimera agents after OpenCode is configured:
 
 ```powershell
 proteus chimera config show --root C:\path\to\target
@@ -233,6 +235,7 @@ proteus chimera doctor --root C:\path\to\target
 proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7"
 proteus chimera poll --root C:\path\to\target --unread
 proteus chimera send --root C:\path\to\target --id CH-0001 --message "Drop parser diffing and focus on policy side effects."
+proteus chimera broadcast --root C:\path\to\target --message "Shared pivot: B7 only matters if it crosses the policy cache boundary."
 proteus chimera kill --root C:\path\to\target --id CH-0001 --reason "Looping without new testable signal"
 proteus chimera close --root C:\path\to\target --id CH-0001 --verdict watchlist --summary "Useful ideas, no validated PoC yet"
 ```
@@ -421,11 +424,11 @@ proteus init [--root <path>] [--name <target>]
 proteus status [--root <path>]
 proteus migrate [--root <path>]
 proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
-proteus chimera config init|show|disable [--goose-command <cmd>] [--model <model>]
+proteus chimera config init|show|disable [--opencode-command <cmd>] [--model <provider/model>] [--variant <variant>]
 proteus chimera doctor [--root <path>]
 proteus chimera start --role <role> --goal <text> [--access lab|inherit] [--access-notes <text>] [--run]
 proteus chimera swarm --plan <json>
-proteus chimera send|post|snapshot|heartbeat|poll|list|kill|close
+proteus chimera send|broadcast|post|snapshot|heartbeat|poll|list|kill|close
 proteus ingest [--root <path>] [paths...]
 proteus observe [--root <path>]
 proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
@@ -490,6 +493,7 @@ proteus_chimera_config
 proteus_chimera_doctor
 proteus_chimera_start
 proteus_chimera_swarm
+proteus_chimera_broadcast
 proteus_chimera_send
 proteus_chimera_post
 proteus_chimera_snapshot

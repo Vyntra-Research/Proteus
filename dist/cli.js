@@ -193,6 +193,7 @@ function cmdChimera(db, subcommand, parsed) {
                 roundId: getNumber(parsed, "round-id"),
                 model: getString(parsed, "model"),
                 provider: getString(parsed, "provider"),
+                variant: getString(parsed, "variant"),
                 timeoutSec: getNumber(parsed, "timeout"),
                 run: getBoolean(parsed, "run")
             }), null, 2));
@@ -233,6 +234,17 @@ function cmdChimera(db, subcommand, parsed) {
                 limit: getNumber(parsed, "limit")
             }), null, 2));
             return;
+        case "broadcast":
+            console.log(JSON.stringify({
+                ok: true,
+                ...(0, chimera_1.broadcastChimeraMessage)(db, {
+                    body: requiredString(parsed, "message"),
+                    kind: chimeraMessageKind(parsed, "kind", "message"),
+                    fromId: getString(parsed, "from-id"),
+                    includeClosed: getBoolean(parsed, "include-closed")
+                })
+            }, null, 2));
+            return;
         case "list":
             console.log(JSON.stringify(db.listChimeraSessions({ limit: getNumber(parsed, "limit") }), null, 2));
             return;
@@ -243,7 +255,7 @@ function cmdChimera(db, subcommand, parsed) {
             console.log(JSON.stringify((0, chimera_1.closeChimeraSession)(db, requiredString(parsed, "id"), getString(parsed, "verdict") ?? "useful", requiredString(parsed, "summary")), null, 2));
             return;
         default:
-            throw new Error("Usage: proteus chimera <config|doctor|start|swarm|send|post|snapshot|heartbeat|poll|list|kill|close>");
+            throw new Error("Usage: proteus chimera <config|doctor|start|swarm|send|broadcast|post|snapshot|heartbeat|poll|list|kill|close>");
     }
 }
 function cmdChimeraConfig(db, subcommand, parsed) {
@@ -251,13 +263,15 @@ function cmdChimeraConfig(db, subcommand, parsed) {
         case "init": {
             const config = (0, chimera_1.initChimeraConfig)(db, {
                 enabled: !getBoolean(parsed, "disabled"),
-                runtime: "goose",
-                gooseCommand: getString(parsed, "goose-command") ?? chimera_1.DEFAULT_CHIMERA_CONFIG.gooseCommand,
+                runtime: "opencode",
+                opencodeCommand: getString(parsed, "opencode-command") ?? chimera_1.DEFAULT_CHIMERA_CONFIG.opencodeCommand,
                 defaultModel: getString(parsed, "model") ?? undefined,
-                defaultProvider: getString(parsed, "provider") ?? undefined,
+                defaultVariant: getString(parsed, "variant") ?? getString(parsed, "provider") ?? undefined,
+                defaultAgent: getString(parsed, "agent") ?? undefined,
                 maxAgents: getNumber(parsed, "max-agents"),
                 defaultTimeoutSec: getNumber(parsed, "timeout"),
-                defaultNetwork: getBoolean(parsed, "network")
+                defaultNetwork: getBoolean(parsed, "network"),
+                skipPermissions: !getBoolean(parsed, "no-skip-permissions")
             });
             console.log(JSON.stringify({ ok: true, config }, null, 2));
             return;

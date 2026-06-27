@@ -10,7 +10,7 @@ const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
 const cli = path.join(repoRoot, "dist", "cli.js");
-const mockGoose = path.join(repoRoot, "scripts", "mock-goose.mjs");
+const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-global-smoke-"));
 const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"));
@@ -143,24 +143,26 @@ try {
   if (!disabledChimeraStart.includes("Chimera is disabled")) {
     throw new Error("chimera start should fail clearly before config init");
   }
-  const gooseCommand = `"${process.execPath}" "${mockGoose}"`;
+  const opencodeCommand = `"${process.execPath}" "${mockOpenCode}"`;
   const chimeraConfig = run([
     "chimera",
     "config",
     "init",
-    "--goose-command",
-    gooseCommand,
+    "--opencode-command",
+    opencodeCommand,
     "--model",
-    "mock-model",
+    "mock/mock-model",
+    "--variant",
+    "high",
     "--max-agents",
     "3"
   ]);
-  if (!chimeraConfig.includes('"enabled": true') || !chimeraConfig.includes("mock-model")) {
+  if (!chimeraConfig.includes('"enabled": true') || !chimeraConfig.includes("mock/mock-model") || !chimeraConfig.includes('"defaultVariant": "high"')) {
     throw new Error("chimera config init did not persist enabled mock config");
   }
   const chimeraDoctor = run(["chimera", "doctor"]);
-  if (!chimeraDoctor.includes('"ok": true') || !chimeraDoctor.includes("mock-goose")) {
-    throw new Error("chimera doctor did not validate mock Goose runtime");
+  if (!chimeraDoctor.includes('"ok": true') || !chimeraDoctor.includes("mock-opencode")) {
+    throw new Error("chimera doctor did not validate mock OpenCode runtime");
   }
   const chimeraStart = run([
     "chimera",
@@ -183,6 +185,8 @@ try {
     ".vros/chimera/sessions/CH-0001/contract.md",
     ".vros/chimera/sessions/CH-0001/agent-instructions.md",
     ".vros/chimera/sessions/CH-0001/skills/chimera-agent.md",
+    ".vros/chimera/sessions/CH-0001/.opencode/agents/proteus-chimera.md",
+    ".vros/chimera/sessions/CH-0001/.opencode/skills/chimera-agent/SKILL.md",
     ".vros/chimera/sessions/CH-0001/lab/README.md"
   ]) {
     if (!fs.existsSync(path.join(tmpRoot, required))) {
@@ -203,6 +207,14 @@ try {
   if (!chimeraAgentUnread.includes("Smoke coordinator redirect")) {
     throw new Error("chimera agent poll did not return coordinator message");
   }
+  const chimeraBroadcast = run(["chimera", "broadcast", "--message", "Smoke shared chat message"]);
+  if (!chimeraBroadcast.includes('"delivered"') || !chimeraBroadcast.includes("Smoke shared chat message")) {
+    throw new Error("chimera broadcast did not deliver shared chat message");
+  }
+  const chimeraBroadcastUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread", "--agent"]);
+  if (!chimeraBroadcastUnread.includes("Smoke shared chat message")) {
+    throw new Error("chimera broadcast was not visible to the destination agent");
+  }
   run(["chimera", "snapshot", "--id", "CH-0001", "--body", "Confirmed smoke snapshot"]);
   if (!fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/snapshot.md"), "utf8").includes("Confirmed smoke snapshot")) {
     throw new Error("chimera snapshot did not write snapshot.md");
@@ -217,13 +229,13 @@ try {
     "--role",
     "explorer",
     "--goal",
-    "Run mock Goose once",
+    "Run mock OpenCode once",
     "--run",
     "--timeout",
     "10"
   ]);
-  if (!chimeraRun.includes('"publicId": "CH-0002"') || !chimeraRun.includes("mock-goose")) {
-    throw new Error("chimera --run did not capture mock Goose output");
+  if (!chimeraRun.includes('"publicId": "CH-0002"') || !chimeraRun.includes("mock-opencode") || !chimeraRun.includes('"provider": "high"')) {
+    throw new Error("chimera --run did not capture mock OpenCode output");
   }
   const swarmPlan = path.join(tmpRoot, "chimera-swarm.json");
   fs.writeFileSync(swarmPlan, JSON.stringify({

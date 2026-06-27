@@ -636,10 +636,10 @@ class ProteusDb {
         const result = this.db
             .prepare(`INSERT INTO chimera_sessions
           (public_id, target_id, campaign_id, round_id, role, goal, status,
-           access_mode, access_notes, model, provider, session_dir, lab_dir, goose_command, goose_pid,
+           access_mode, access_notes, model, provider, session_dir, lab_dir, opencode_command, opencode_pid,
            created_at, updated_at, closed_at, close_verdict, close_summary)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(publicId, target.id, input.campaignId ?? null, input.roundId ?? null, input.role, input.goal, "starting", input.accessMode ?? "lab", input.accessNotes ?? null, input.model ?? null, input.provider ?? null, input.sessionDir, input.labDir, input.gooseCommand ?? null, null, now, now, null, null, null);
+            .run(publicId, target.id, input.campaignId ?? null, input.roundId ?? null, input.role, input.goal, "starting", input.accessMode ?? "lab", input.accessNotes ?? null, input.model ?? null, input.provider ?? null, input.sessionDir, input.labDir, input.opencodeCommand ?? null, null, now, now, null, null, null);
         const id = Number(result.lastInsertRowid);
         this.indexFts("chimera_session", id, `${publicId}\n${input.role}\n${input.goal}\n${input.model ?? ""}`);
         return this.getChimeraSession(publicId);
@@ -667,10 +667,10 @@ class ProteusDb {
             : current.closedAt || null;
         this.db
             .prepare(`UPDATE chimera_sessions
-         SET status = ?, goose_pid = ?, updated_at = ?, closed_at = ?,
+         SET status = ?, opencode_pid = ?, updated_at = ?, closed_at = ?,
              close_verdict = ?, close_summary = ?
          WHERE public_id = ?`)
-            .run(status, input.goosePid === undefined ? current.goosePid : input.goosePid, now, closedAt, input.closeVerdict === undefined ? current.closeVerdict : input.closeVerdict, input.closeSummary === undefined ? current.closeSummary : input.closeSummary, input.publicId);
+            .run(status, input.opencodePid === undefined ? current.opencodePid : input.opencodePid, now, closedAt, input.closeVerdict === undefined ? current.closeVerdict : input.closeVerdict, input.closeSummary === undefined ? current.closeSummary : input.closeSummary, input.publicId);
         this.indexFts("chimera_session", current.id, `${current.publicId}\n${status}\n${current.role}\n${current.goal}\n${input.closeVerdict ?? ""}\n${input.closeSummary ?? ""}`);
         return this.getChimeraSession(input.publicId);
     }
@@ -1487,8 +1487,8 @@ const CHIMERA_SCHEMA_SQL = `
         provider TEXT,
         session_dir TEXT NOT NULL,
         lab_dir TEXT NOT NULL,
-        goose_command TEXT,
-        goose_pid INTEGER,
+        opencode_command TEXT,
+        opencode_pid INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         closed_at TEXT,
@@ -1645,8 +1645,8 @@ function toChimeraSessionRow(row) {
         provider: row.provider === null || row.provider === undefined ? null : String(row.provider),
         sessionDir: String(row.session_dir),
         labDir: String(row.lab_dir),
-        gooseCommand: row.goose_command === null || row.goose_command === undefined ? null : String(row.goose_command),
-        goosePid: row.goose_pid === null || row.goose_pid === undefined ? null : Number(row.goose_pid),
+        opencodeCommand: row.opencode_command === null || row.opencode_command === undefined ? null : String(row.opencode_command),
+        opencodePid: row.opencode_pid === null || row.opencode_pid === undefined ? null : Number(row.opencode_pid),
         createdAt: String(row.created_at),
         updatedAt: String(row.updated_at),
         closedAt: row.closed_at === null || row.closed_at === undefined ? null : String(row.closed_at),
@@ -1859,15 +1859,19 @@ function normalizeBranchStatus(value) {
 function normalizeChimeraConfig(input) {
     return {
         enabled: input.enabled === true,
-        runtime: "goose",
-        gooseCommand: typeof input.gooseCommand === "string" && input.gooseCommand.trim() ? input.gooseCommand.trim() : "goose",
+        runtime: "opencode",
+        opencodeCommand: typeof input.opencodeCommand === "string" && input.opencodeCommand.trim()
+            ? input.opencodeCommand.trim()
+            : "opencode",
         defaultModel: typeof input.defaultModel === "string" && input.defaultModel.trim() ? input.defaultModel.trim() : null,
-        defaultProvider: typeof input.defaultProvider === "string" && input.defaultProvider.trim() ? input.defaultProvider.trim() : null,
+        defaultVariant: typeof input.defaultVariant === "string" && input.defaultVariant.trim() ? input.defaultVariant.trim() : null,
+        defaultAgent: typeof input.defaultAgent === "string" && input.defaultAgent.trim() ? input.defaultAgent.trim() : null,
         maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : 4,
         defaultTimeoutSec: Number.isFinite(input.defaultTimeoutSec) && Number(input.defaultTimeoutSec) > 0
             ? Math.floor(Number(input.defaultTimeoutSec))
             : 900,
-        defaultNetwork: input.defaultNetwork === true
+        defaultNetwork: input.defaultNetwork === true,
+        skipPermissions: input.skipPermissions !== false
     };
 }
 function normalizeChimeraStatus(value) {

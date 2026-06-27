@@ -1,6 +1,6 @@
 ---
 name: chimera-agent
-description: Operate as a secondary Goose-backed Proteus Chimera agent with coordinator-controlled scope, communication, snapshots, labs, and permissions.
+description: Operate as a secondary OpenCode-backed Proteus Chimera agent with coordinator-controlled scope, communication, snapshots, labs, and permissions.
 ---
 
 # Proteus Chimera Agent
@@ -47,6 +47,13 @@ If the access mode is unclear, act as `lab` and ask the coordinator.
 Use Proteus for coordination. Do not rely on ad-hoc files as the primary
 message channel.
 
+Poll your inbox before long work, after a meaningful branch completes, before
+finalizing, and after a heartbeat if the coordinator may have redirected you:
+
+```text
+proteus chimera poll --id <CH-ID> --unread --agent
+```
+
 Post progress:
 
 ```text
@@ -73,6 +80,22 @@ proteus chimera heartbeat --id <CH-ID>
 ```
 
 If heartbeat reports killed, stop and preserve current notes.
+
+Broadcast to other Chimera agents only when the message may change their
+research direction or save duplicate work:
+
+```text
+proteus chimera broadcast --from-id <CH-ID> --message "..."
+```
+
+Treat shared chat as normal collaborative context, not a queue that must be
+answered item by item. You do not need to respond to every broadcast. If the
+coordinator asks you a direct question, answer unless doing so would exceed
+scope or interrupt a safety stop.
+
+Do not create chat loops. If another agent's message is interesting but not
+immediately actionable, record it in your notes and continue your assigned
+goal.
 
 ## Research Discipline
 

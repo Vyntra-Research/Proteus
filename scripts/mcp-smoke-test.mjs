@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
 const serverPath = path.join(repoRoot, "plugins", "proteus", "scripts", "proteus-mcp.cjs");
-const mockGoose = path.join(repoRoot, "scripts", "mock-goose.mjs");
+const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
 const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
@@ -79,6 +79,7 @@ try {
     "proteus_chimera_doctor",
     "proteus_chimera_start",
     "proteus_chimera_swarm",
+    "proteus_chimera_broadcast",
     "proteus_chimera_send",
     "proteus_chimera_post",
     "proteus_chimera_snapshot",
@@ -202,13 +203,13 @@ try {
     throw new Error("proteus_status did not return Proteus database version state");
   }
 
-  const gooseCommand = `"${process.execPath}" "${mockGoose}"`;
+  const opencodeCommand = `"${process.execPath}" "${mockOpenCode}"`;
   const chimeraConfig = await request("tools/call", {
     name: "proteus_chimera_config",
-    arguments: { root: tmpRoot, action: "init", gooseCommand, model: "mock-model", maxAgents: 3 }
+    arguments: { root: tmpRoot, action: "init", opencodeCommand, model: "mock/mock-model", variant: "high", maxAgents: 3 }
   });
   const chimeraConfigText = String(chimeraConfig.content?.[0]?.text ?? "");
-  if (!chimeraConfigText.includes('"enabled": true') || !chimeraConfigText.includes("mock-model")) {
+  if (!chimeraConfigText.includes('"enabled": true') || !chimeraConfigText.includes("mock/mock-model") || !chimeraConfigText.includes('"defaultVariant": "high"')) {
     throw new Error("proteus_chimera_config did not enable mock Chimera config");
   }
   const chimeraDoctor = await request("tools/call", {
@@ -216,7 +217,7 @@ try {
     arguments: { root: tmpRoot }
   });
   if (!String(chimeraDoctor.content?.[0]?.text ?? "").includes('"ok": true')) {
-    throw new Error("proteus_chimera_doctor did not pass with mock Goose");
+    throw new Error("proteus_chimera_doctor did not pass with mock OpenCode");
   }
   const chimeraStart = await request("tools/call", {
     name: "proteus_chimera_start",
@@ -253,6 +254,17 @@ try {
   });
   if (!String(chimeraAgentPoll.content?.[0]?.text ?? "").includes("MCP coordinator redirect")) {
     throw new Error("proteus_chimera_poll did not return coordinator-to-agent message");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_broadcast",
+    arguments: { root: tmpRoot, message: "MCP shared chat" }
+  });
+  const chimeraBroadcastPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0001", unreadOnly: true, forAgent: true }
+  });
+  if (!String(chimeraBroadcastPoll.content?.[0]?.text ?? "").includes("MCP shared chat")) {
+    throw new Error("proteus_chimera_broadcast did not deliver shared chat to agent");
   }
   await request("tools/call", {
     name: "proteus_chimera_snapshot",

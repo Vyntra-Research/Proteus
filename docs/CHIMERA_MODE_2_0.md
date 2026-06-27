@@ -1,8 +1,8 @@
-# Proteus 2.0.0 Chimera Mode Architecture
+﻿# Proteus 2.0.0 Chimera Mode Architecture
 
 ## Summary
 
-Proteus 2.0.0 should introduce Chimera mode: an optional Goose-backed
+Proteus 2.0.0 should introduce Chimera mode: an optional OpenCode-backed
 multi-agent research mode where Proteus remains the coordinator, state owner,
 message broker, and validation authority.
 
@@ -11,17 +11,17 @@ launching one or more complete secondary agents against bounded research goals,
 while keeping all communication, memory, session state, labs, and final
 decisions under Proteus control.
 
-The first implementation should use Goose directly. Do not add multiple provider
-adapters in 2.0.0. Goose is enough for the initial design because it already
-provides an agent CLI, sessions, provider/model configuration, MCP extensions,
-permission modes, `.gooseignore`, task execution, and machine-readable output
-paths. Proteus should provide the missing Chimera layer: dossiers, skills,
-message flow, unread message recovery, snapshots, kill/close control, swarm
-orchestration, and durable `.vros` state.
+The first implementation uses OpenCode directly. Do not add multiple provider
+adapters in 2.0.0. OpenCode is enough for the initial design because it already
+provides an agent CLI, provider/model configuration, model variants, agents,
+skills, MCP configuration, permissions, task execution, machine-readable JSON
+events, session APIs, and compaction support. Proteus provides the Chimera
+layer: dossiers, skills, message flow, unread message recovery, snapshots,
+kill/close control, swarm orchestration, and durable `.vros` state.
 
 ## Goals
 
-- Launch complete Goose agents from Proteus with a bounded goal and Proteus
+- Launch complete OpenCode agents from Proteus with a bounded goal and Proteus
   context.
 - Support specialized agents such as `chaining`, `fuzzing`,
   `codebase-research`, `web-intel`, `web-research`, `poc-exploit`, and
@@ -49,7 +49,7 @@ orchestration, and durable `.vros` state.
 ## Non-Goals
 
 - Do not build a generic multi-provider abstraction in 2.0.0.
-- Do not add OpenCode, Claude Code, Qwen Code, or other adapters in the first
+- Do not add Goose, Claude Code, Qwen Code, or other adapters in the first
   Chimera release.
 - Do not allow agents to edit the main repository by default.
 - Do not add file locks, leases, or complex path-edit permissions in 2.0.0.
@@ -70,39 +70,40 @@ should use Proteus commands/tools to interact with them:
 Coordinator -> proteus chimera send/poll/kill/close
 Agent       -> proteus chimera post/snapshot/heartbeat
 Proteus     -> JSONL/state files + SQLite records + exports
-Goose       -> execution runtime only
+OpenCode   -> execution runtime only
 ```
 
 This keeps the workflow practical, auditable, and standardized.
 
 ## Runtime Choice
 
-Use Goose as the only runtime for Proteus 2.0.0 Chimera.
+Use OpenCode as the only runtime for Proteus 2.0.0 Chimera.
 
 Reasons:
 
-- Goose has a CLI-oriented agent runtime.
-- Goose supports configurable providers/models, making GLM-style usage feasible
-  through the user's configured Goose provider.
-- Goose supports MCP extensions, so agents can use Proteus through MCP if the
+- OpenCode has a CLI-oriented agent runtime.
+- OpenCode supports configurable providers/models, making GLM-style usage feasible
+  through the user's configured OpenCode provider.
+- OpenCode supports MCP extensions, so agents can use Proteus through MCP if the
   configuration enables it.
-- Goose supports task execution through CLI commands such as `goose run`.
-- Goose has session management and resume concepts.
-- Goose supports permission modes and `.gooseignore`, which fit the read-only
-  repo plus private lab model.
-- Goose can be driven from Proteus as an external process with timeout/kill
+- OpenCode supports task execution through CLI commands such as `opencode run`.
+- OpenCode has session management and resume concepts.
+- OpenCode supports agent-level tools/permissions, which fit the private lab
+  model and coordinator-selected inherited access.
+- OpenCode can be driven from Proteus as an external process with timeout/kill
   control.
 
-Implementation should initially use the Goose CLI path because it is simpler and
-easier to validate. ACP can remain a future improvement if the CLI path proves
-insufficient for persistent interactive sessions.
+Implementation should use the OpenCode CLI path first because it is simple,
+portable, and easy to validate. Proteus keeps communication in its own
+pull-based broker, so coordinator messages can be delivered while agents are
+running as long as agents follow the contract and poll their inbox.
 
 Reference docs:
 
-- Goose CLI commands: https://goose-docs.ai/docs/guides/goose-cli-commands/
-- Goose running tasks: https://goose-docs.ai/docs/guides/running-tasks/
-- Goose sessions: https://goose-docs.ai/docs/guides/sessions/session-management/
-- Goose ACP clients: https://goose-docs.ai/docs/guides/acp-clients/
+- OpenCode docs: https://opencode.ai/docs/
+- OpenCode agents: https://opencode.ai/docs/agents/
+- OpenCode skills: https://opencode.ai/docs/skills/
+- OpenCode permissions: https://opencode.ai/docs/permissions/
 
 ## Configuration
 
@@ -120,13 +121,15 @@ Minimal config:
 ```json
 {
   "enabled": true,
-  "runtime": "goose",
-  "gooseCommand": "goose",
-  "defaultModel": "glm-5.2",
-  "defaultProvider": null,
+  "runtime": "opencode",
+  "opencodeCommand": "opencode",
+  "defaultModel": "zai/glm-5.2",
+  "defaultVariant": "high",
+  "defaultAgent": "proteus-chimera",
   "maxAgents": 4,
   "defaultTimeoutSec": 900,
-  "defaultNetwork": false
+  "defaultNetwork": false,
+  "skipPermissions": true
 }
 ```
 
@@ -137,15 +140,15 @@ Useful commands:
 
 ```text
 proteus chimera config show --root <workspace>
-proteus chimera config init --root <workspace> --model glm-5.2
+proteus chimera config init --root <workspace> --model zai/glm-5.2 --variant high
 proteus chimera doctor --root <workspace>
 ```
 
 `doctor` should verify:
 
 - Chimera is enabled.
-- Goose command exists.
-- Goose can print version/help.
+- OpenCode command exists.
+- OpenCode can print version/help.
 - Proteus CLI path can be invoked by agents.
 - `.vros/chimera` is writable.
 - Required skills/templates can be resolved.
@@ -168,11 +171,17 @@ Use one directory per Chimera session:
       transcript.jsonl
       snapshot.md
       kill.flag
-      goose/
+      opencode/
         prompt.md
         stdout.log
         stderr.log
         run.json
+      .opencode/
+        agents/
+          proteus-chimera.md
+        skills/
+          chimera-agent/
+            SKILL.md
       skills/
         continuous-vuln-research.md
         chimera-agent.md
@@ -324,7 +333,7 @@ Add a new skill:
 plugins/proteus/skills/chimera-agent/SKILL.md
 ```
 
-Purpose: teach Goose-backed agents how to operate inside Chimera.
+Purpose: teach OpenCode-backed agents how to operate inside Chimera.
 
 It should include:
 
@@ -433,7 +442,7 @@ Default behavior:
 - write dossier and skills;
 - create private lab;
 - record coordinator start message;
-- launch Goose if `--background` or configured start mode asks for execution;
+- launch OpenCode if `--background` or configured start mode asks for execution;
 - return `sessionId`, paths, and next coordinator action.
 
 ### send
@@ -502,7 +511,7 @@ Behavior:
 - write `kill.flag`;
 - send a kill message;
 - update status;
-- attempt to terminate the Goose process if Proteus owns the PID;
+- attempt to terminate the OpenCode process if Proteus owns the PID;
 - preserve transcript and lab.
 
 ### close
@@ -596,29 +605,31 @@ MCP responses should use the existing Proteus envelope style:
 Poll should return unread messages in a compact form and include
 `nextSuggestedReads` where useful.
 
-## Goose Invocation
+## OpenCode Invocation
 
 Initial simple path:
 
 ```text
-goose run --name proteus-CH-0001 --no-session --text-file .vros/chimera/sessions/CH-0001/goose/prompt.md
+opencode run --format json --thinking --dir .vros/chimera/sessions/CH-0001 --file .vros/chimera/sessions/CH-0001/opencode/prompt.md --title proteus-CH-0001 --agent proteus-chimera --model zai/glm-5.2 --variant high --dangerously-skip-permissions
 ```
 
-Exact flags should be verified against the installed Goose CLI during
-implementation. The plan should not depend on a brittle command shape until the
-runtime is validated.
+The coordinator can omit `--dangerously-skip-permissions` only if the generated
+OpenCode agent permissions are sufficient for the task and will not ask for
+interactive approval. Chimera defaults to non-interactive runs because the
+coordinator cannot approve prompts inside a secondary agent.
 
 Proteus should capture:
 
 ```text
-goose/stdout.log
-goose/stderr.log
-goose/run.json
+opencode/stdout.log
+opencode/stderr.log
+opencode/run.json
 ```
 
-If Goose supports stream JSON in the validated version, use it. Otherwise,
-Chimera can still be robust because the agent is instructed to communicate via
-`proteus chimera post/snapshot/heartbeat`.
+OpenCode JSON events are parsed for a compact final assistant message, but
+Proteus does not depend on the transcript as the primary communication channel.
+Agents are instructed to communicate via `proteus chimera
+post/broadcast/snapshot/heartbeat/poll`.
 
 ## Permissions And Safety
 
@@ -637,8 +648,8 @@ No locks or leases in 2.0.0. If the coordinator grants inherited access, the
 agent is expected to avoid colliding with other work and preserve artifacts in
 its own lab unless the task explicitly requires workspace edits.
 
-Use `.gooseignore` or Goose configuration to reinforce the contract when
-possible, but do not rely on it as the only enforcement layer. The prompt,
+Use generated OpenCode agent permissions to reinforce the contract when
+possible, but do not rely on them as the only enforcement layer. The prompt,
 session directory layout, Proteus commands, and final validation are the primary
 controls.
 
@@ -685,14 +696,14 @@ Do not automatically promote agent ideas into findings.
 - Add `chimera-agent` skill.
 - Add tests for message unread/read flow, snapshot updates, kill flag, and close.
 
-### Phase 2: Goose Launch
+### Phase 2: OpenCode Launch
 
-- Add Goose doctor checks.
-- Generate Goose prompt from dossier/skills.
-- Launch Goose with timeout and process tracking.
+- Add OpenCode doctor checks.
+- Generate OpenCode prompt from dossier/skills.
+- Launch OpenCode with timeout and process tracking.
 - Capture stdout/stderr/run metadata.
 - Verify agent can use `proteus chimera post`.
-- Add tests using a mock Goose command before requiring real Goose in CI.
+- Add tests using a mock OpenCode command before requiring real OpenCode in CI.
 
 ### Phase 3: MCP Tools
 
@@ -712,7 +723,7 @@ Do not automatically promote agent ideas into findings.
 - Update README, runtime usage, architecture, and skills docs.
 - Add migration notes for 2.0.0.
 - Add release validation for Chimera disabled-by-default behavior.
-- Validate normal Proteus usage without Goose installed.
+- Validate normal Proteus usage without OpenCode installed.
 - Validate Chimera doctor and mock runtime path.
 
 ## Test Plan
@@ -731,13 +742,13 @@ Required tests:
 - Kill writes kill flag and updates status.
 - Close writes final verdict and optional agent-output.
 - Swarm creates N independent sessions and enforces maxAgents.
-- Normal `npm test` passes without Goose installed.
-- Mock Goose command verifies prompt generation, process capture, timeout, and
+- Normal `npm test` passes without OpenCode installed.
+- Mock OpenCode command verifies prompt generation, process capture, timeout, and
   transcript preservation.
 
 Manual validation:
 
-- Configure Goose with the user's intended GLM model.
+- Configure OpenCode with the user's intended GLM model.
 - Run one Cicada session on a harmless local target.
 - Run one three-agent swarm with read-only repo and separate labs.
 - Confirm coordinator can recover unread messages without reading files.
@@ -745,9 +756,9 @@ Manual validation:
 
 ## Acceptance Criteria
 
-- Chimera is disabled by default and normal Proteus works without Goose.
+- Chimera is disabled by default and normal Proteus works without OpenCode.
 - `proteus chimera doctor` gives actionable setup status.
-- Coordinator can start, message, poll, kill, and close a Goose-backed agent
+- Coordinator can start, message, poll, kill, and close a OpenCode-backed agent
   through Proteus only.
 - Agent can communicate back through Proteus only.
 - Unread message recovery is reliable and practical.
@@ -760,9 +771,9 @@ Manual validation:
 
 ## Open Questions
 
-- Which exact Goose CLI flags are stable across the version the user wants to
+- Which exact OpenCode CLI flags are stable across the version the user wants to
   support?
-- Should Goose run once per turn or as a longer background process in 2.0.0?
+- Should OpenCode run once per turn or as a longer background process in 2.0.0?
 - Should `post` support structured JSON bodies or only Markdown plus metadata?
 - Should close automatically checkpoint an active campaign, or only suggest it?
 - Should network be globally disabled in Chimera v1 or controlled by config?
@@ -771,7 +782,7 @@ Manual validation:
 
 Ship the smallest complete system:
 
-- Goose-only runtime.
+- OpenCode-only runtime.
 - Optional config.
 - Local session/lab directories.
 - Proteus-managed messages.
@@ -780,7 +791,7 @@ Ship the smallest complete system:
 - Coordinator-selected access mode with `lab` as default.
 - Base and role-specific skill injection.
 - Agent-output recording on close.
-- Robust tests with mock Goose.
+- Robust tests with mock OpenCode.
 
 Defer edit-capable agents, locks, leases, multiple runtime adapters, ACP, and
 fine-grained permission matrices until the core Chimera loop is proven useful.
