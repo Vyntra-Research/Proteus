@@ -89,13 +89,23 @@ Chimera is optional. Use it only when the target benefits from one or more
 bounded secondary agents working under Proteus coordination. Normal Proteus
 research must still work without Chimera or OpenCode.
 
+Chimera agents are co-agents, not ordinary lightweight subagents. Use them as
+parallel research fronts when the work benefits from a different model,
+independent reasoning, broader angle coverage, deeper prototyping, or a
+complete specialist investigation. For small, mechanical, or narrow helper
+tasks, prefer ordinary subagents when they are available.
+
 Before launching Chimera agents:
 
 - run `proteus chimera config show` or MCP `proteus_chimera_config` with
   `action=show`;
 - run `proteus chimera doctor` or MCP `proteus_chimera_doctor`;
 - confirm the active campaign/round state;
-- define a narrow role, goal, expected artifact, and stop conditions;
+- define the role, goal, expected artifact, and stop conditions;
+- include enough workspace/research context in the goal or dossier material for
+  the co-agent to understand the target, current campaign state, active
+  hypothesis, relevant prior findings, killed paths, constraints, intended
+  strategy, and applicable Proteus heuristics/gates;
 - make the goal and stop conditions explicit enough that the agent can keep
   working until completion or a real blocker without guessing when to stop;
 - check `proteus chimera list` before creating new agents; inspect role, goal,
@@ -123,6 +133,9 @@ proteus chimera swarm --plan chimera-swarm.json
 
 Coordinator duties:
 
+- lead the research strategy while allowing Chimera co-agents to operate as
+  independent, rational research fronts that choose their own concrete next
+  probes, labs, PoCs, payloads, and validation steps inside the assigned scope;
 - poll unread messages with `proteus chimera poll --unread`;
 - send redirects with `proteus chimera send`; use `--priority` when the message
   should steer an active OpenCode session immediately;
@@ -145,6 +158,11 @@ Coordinator duties:
 
 Agents use Proteus to post messages, snapshots, and heartbeats. Do not manually
 mine `.vros/chimera` files unless the tool path is unavailable.
+
+Treat active Chimera sessions as a coordinated research team: strategic,
+pragmatic, low-noise, and focused on efficient progress toward precise
+objectives. Do not over-control every step. Redirect only when strategy,
+scope, duplicated work, or new evidence requires it.
 
 ## Proteus State
 
