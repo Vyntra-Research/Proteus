@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
 const serverPath = path.join(repoRoot, "plugins", "proteus", "scripts", "proteus-mcp.cjs");
+const mockGoose = path.join(repoRoot, "scripts", "mock-goose.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
 const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
@@ -74,6 +75,18 @@ try {
     "proteus_status",
     "proteus_migrate",
     "proteus_merge_memory",
+    "proteus_chimera_config",
+    "proteus_chimera_doctor",
+    "proteus_chimera_start",
+    "proteus_chimera_swarm",
+    "proteus_chimera_send",
+    "proteus_chimera_post",
+    "proteus_chimera_snapshot",
+    "proteus_chimera_heartbeat",
+    "proteus_chimera_poll",
+    "proteus_chimera_list",
+    "proteus_chimera_kill",
+    "proteus_chimera_close",
     "proteus_ingest",
     "proteus_observe",
     "proteus_plan_round",
@@ -187,6 +200,97 @@ try {
   }
   if (!text.includes('"proteusVersion"') || !text.includes(`"storedVersion": "${expectedVersion}"`)) {
     throw new Error("proteus_status did not return Proteus database version state");
+  }
+
+  const gooseCommand = `"${process.execPath}" "${mockGoose}"`;
+  const chimeraConfig = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { root: tmpRoot, action: "init", gooseCommand, model: "mock-model", maxAgents: 3 }
+  });
+  const chimeraConfigText = String(chimeraConfig.content?.[0]?.text ?? "");
+  if (!chimeraConfigText.includes('"enabled": true') || !chimeraConfigText.includes("mock-model")) {
+    throw new Error("proteus_chimera_config did not enable mock Chimera config");
+  }
+  const chimeraDoctor = await request("tools/call", {
+    name: "proteus_chimera_doctor",
+    arguments: { root: tmpRoot }
+  });
+  if (!String(chimeraDoctor.content?.[0]?.text ?? "").includes('"ok": true')) {
+    throw new Error("proteus_chimera_doctor did not pass with mock Goose");
+  }
+  const chimeraStart = await request("tools/call", {
+    name: "proteus_chimera_start",
+    arguments: {
+      root: tmpRoot,
+      role: "chaining",
+      goal: "MCP Chimera chain",
+      access: "inherit",
+      accessNotes: "MCP smoke coordinator grant"
+    }
+  });
+  const chimeraStartText = String(chimeraStart.content?.[0]?.text ?? "");
+  if (!chimeraStartText.includes('"publicId": "CH-0001"') || !chimeraStartText.includes('"accessMode": "inherit"')) {
+    throw new Error("proteus_chimera_start did not create inherited CH-0001");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_post",
+    arguments: { root: tmpRoot, id: "CH-0001", kind: "finding", body: "MCP Chimera finding" }
+  });
+  const chimeraPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0001", unreadOnly: true }
+  });
+  if (!String(chimeraPoll.content?.[0]?.text ?? "").includes("MCP Chimera finding")) {
+    throw new Error("proteus_chimera_poll did not return unread agent message");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_send",
+    arguments: { root: tmpRoot, id: "CH-0001", kind: "redirect", message: "MCP coordinator redirect" }
+  });
+  const chimeraAgentPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0001", unreadOnly: true, forAgent: true }
+  });
+  if (!String(chimeraAgentPoll.content?.[0]?.text ?? "").includes("MCP coordinator redirect")) {
+    throw new Error("proteus_chimera_poll did not return coordinator-to-agent message");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_snapshot",
+    arguments: { root: tmpRoot, id: "CH-0001", body: "MCP Chimera snapshot" }
+  });
+  const chimeraHeartbeat = await request("tools/call", {
+    name: "proteus_chimera_heartbeat",
+    arguments: { root: tmpRoot, id: "CH-0001" }
+  });
+  if (!String(chimeraHeartbeat.content?.[0]?.text ?? "").includes('"alive": true')) {
+    throw new Error("proteus_chimera_heartbeat did not report alive");
+  }
+  const chimeraSwarm = await request("tools/call", {
+    name: "proteus_chimera_swarm",
+    arguments: {
+      root: tmpRoot,
+      plan: {
+        agents: [
+          { role: "codebase-research", goal: "MCP map surface" },
+          { role: "fuzzing", goal: "MCP fuzz surface" }
+        ]
+      }
+    }
+  });
+  const chimeraSwarmText = String(chimeraSwarm.content?.[0]?.text ?? "");
+  if (!chimeraSwarmText.includes('"publicId": "CH-0002"') || !chimeraSwarmText.includes('"publicId": "CH-0003"')) {
+    throw new Error("proteus_chimera_swarm did not create independent sessions");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_kill",
+    arguments: { root: tmpRoot, id: "CH-0001", reason: "MCP smoke kill" }
+  });
+  const chimeraClose = await request("tools/call", {
+    name: "proteus_chimera_close",
+    arguments: { root: tmpRoot, id: "CH-0001", verdict: "watchlist", summary: "MCP smoke close" }
+  });
+  if (!String(chimeraClose.content?.[0]?.text ?? "").includes('"closeVerdict": "watchlist"')) {
+    throw new Error("proteus_chimera_close did not persist verdict");
   }
 
   await request("tools/call", {

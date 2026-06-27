@@ -10,6 +10,7 @@ const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
 const cli = path.join(repoRoot, "dist", "cli.js");
+const mockGoose = path.join(repoRoot, "scripts", "mock-goose.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-global-smoke-"));
 const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"));
@@ -27,6 +28,15 @@ function run(args, cwd = tmpRoot) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   });
+}
+
+function runFail(args, cwd = tmpRoot) {
+  try {
+    run(args, cwd);
+  } catch (error) {
+    return `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+  throw new Error(`command unexpectedly succeeded: ${args.join(" ")}`);
 }
 
 try {
@@ -128,6 +138,111 @@ try {
   const status = run(["status"]);
   if (!status.includes("smoke-target") || !status.includes(`Proteus DB version: ${expectedVersion}`)) {
     throw new Error("status did not return initialized target");
+  }
+  const disabledChimeraStart = runFail(["chimera", "start", "--role", "chaining", "--goal", "should fail while disabled"]);
+  if (!disabledChimeraStart.includes("Chimera is disabled")) {
+    throw new Error("chimera start should fail clearly before config init");
+  }
+  const gooseCommand = `"${process.execPath}" "${mockGoose}"`;
+  const chimeraConfig = run([
+    "chimera",
+    "config",
+    "init",
+    "--goose-command",
+    gooseCommand,
+    "--model",
+    "mock-model",
+    "--max-agents",
+    "3"
+  ]);
+  if (!chimeraConfig.includes('"enabled": true') || !chimeraConfig.includes("mock-model")) {
+    throw new Error("chimera config init did not persist enabled mock config");
+  }
+  const chimeraDoctor = run(["chimera", "doctor"]);
+  if (!chimeraDoctor.includes('"ok": true') || !chimeraDoctor.includes("mock-goose")) {
+    throw new Error("chimera doctor did not validate mock Goose runtime");
+  }
+  const chimeraStart = run([
+    "chimera",
+    "start",
+    "--role",
+    "chaining",
+    "--goal",
+    "Smoke non-obvious chain",
+    "--access",
+    "inherit",
+    "--access-notes",
+    "Smoke coordinator grant"
+  ]);
+  if (!chimeraStart.includes('"publicId": "CH-0001"') || !chimeraStart.includes('"accessMode": "inherit"')) {
+    throw new Error("chimera start did not create CH-0001 with inherited access");
+  }
+  for (const required of [
+    ".vros/chimera/config.json",
+    ".vros/chimera/sessions/CH-0001/dossier.md",
+    ".vros/chimera/sessions/CH-0001/contract.md",
+    ".vros/chimera/sessions/CH-0001/agent-instructions.md",
+    ".vros/chimera/sessions/CH-0001/skills/chimera-agent.md",
+    ".vros/chimera/sessions/CH-0001/lab/README.md"
+  ]) {
+    if (!fs.existsSync(path.join(tmpRoot, required))) {
+      throw new Error(`missing Chimera artifact: ${required}`);
+    }
+  }
+  run(["chimera", "post", "--id", "CH-0001", "--kind", "finding", "--body", "Smoke Chimera finding"]);
+  const chimeraUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread"]);
+  if (!chimeraUnread.includes("Smoke Chimera finding")) {
+    throw new Error("chimera poll unread did not return agent message");
+  }
+  const chimeraUnreadAgain = run(["chimera", "poll", "--id", "CH-0001", "--unread"]);
+  if (chimeraUnreadAgain.includes("Smoke Chimera finding")) {
+    throw new Error("chimera poll unread did not mark message read");
+  }
+  run(["chimera", "send", "--id", "CH-0001", "--kind", "redirect", "--message", "Smoke coordinator redirect"]);
+  const chimeraAgentUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread", "--agent"]);
+  if (!chimeraAgentUnread.includes("Smoke coordinator redirect")) {
+    throw new Error("chimera agent poll did not return coordinator message");
+  }
+  run(["chimera", "snapshot", "--id", "CH-0001", "--body", "Confirmed smoke snapshot"]);
+  if (!fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/snapshot.md"), "utf8").includes("Confirmed smoke snapshot")) {
+    throw new Error("chimera snapshot did not write snapshot.md");
+  }
+  const chimeraHeartbeat = run(["chimera", "heartbeat", "--id", "CH-0001"]);
+  if (!chimeraHeartbeat.includes('"alive": true')) {
+    throw new Error("chimera heartbeat did not report alive session");
+  }
+  const chimeraRun = run([
+    "chimera",
+    "start",
+    "--role",
+    "explorer",
+    "--goal",
+    "Run mock Goose once",
+    "--run",
+    "--timeout",
+    "10"
+  ]);
+  if (!chimeraRun.includes('"publicId": "CH-0002"') || !chimeraRun.includes("mock-goose")) {
+    throw new Error("chimera --run did not capture mock Goose output");
+  }
+  const swarmPlan = path.join(tmpRoot, "chimera-swarm.json");
+  fs.writeFileSync(swarmPlan, JSON.stringify({
+    agents: [
+      { role: "codebase-research", goal: "Map smoke surface" },
+      { role: "fuzzing", goal: "Probe smoke parser", accessMode: "lab" }
+    ]
+  }, null, 2));
+  const swarm = run(["chimera", "swarm", "--plan", swarmPlan]);
+  if (!swarm.includes('"publicId": "CH-0003"') || !swarm.includes('"publicId": "CH-0004"')) {
+    throw new Error("chimera swarm did not create independent sessions");
+  }
+  run(["chimera", "kill", "--id", "CH-0001", "--reason", "Smoke kill"]);
+  if (!fs.existsSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/kill.flag"))) {
+    throw new Error("chimera kill did not write kill.flag");
+  }
+  const chimeraClose = run(["chimera", "close", "--id", "CH-0001", "--verdict", "watchlist", "--summary", "Smoke close"]);
+  if (!chimeraClose.includes('"closeVerdict": "watchlist"')) {
+    throw new Error("chimera close did not persist final verdict");
   }
   run(["init", "--root", mergeRoot, "--name", "stray-merge-target"], mergeRoot);
   run([
