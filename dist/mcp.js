@@ -251,6 +251,26 @@ const tools = [
         })))
     },
     {
+        name: "proteus_chimera_relay",
+        title: "Relay Chimera Agent Message",
+        description: "Send a direct Chimera agent-to-agent message through Proteus. The sender and destination are recorded in message metadata.",
+        inputSchema: schema({
+            root: stringProp("Target root path."),
+            fromId: stringProp("Source Chimera session id."),
+            toId: stringProp("Destination Chimera session id."),
+            message: stringProp("Message body."),
+            kind: stringProp("Message kind, usually message or redirect."),
+            priority: booleanProp("Also send a direct OpenCode steer/wake notification when available.")
+        }, ["root", "fromId", "toId", "message"]),
+        handler: (input) => withDb(str(input.root), (db) => toolEnvelope((0, chimera_1.relayChimeraMessage)(db, {
+            fromId: str(input.fromId),
+            toId: str(input.toId),
+            body: str(input.message),
+            kind: chimeraKind(input.kind, "message"),
+            priority: input.priority === true
+        })))
+    },
+    {
         name: "proteus_chimera_send",
         title: "Send Chimera Message",
         description: "Send a coordinator-to-agent message or redirect.",

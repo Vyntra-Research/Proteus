@@ -293,6 +293,15 @@ evidence, decisions, validation gates, and agent outputs back to that campaign.
 If there are zero or multiple active campaigns, MCP advisories ask the agent to
 create, resume, or choose campaign state explicitly.
 
+Chimera sessions are more explicit: each co-agent is created with the
+coordinator's campaign/round context. Records written from inside that
+`CH-...` session auto-link to the assigned campaign and round, even when
+multiple campaigns are active. Co-agents must include `--root` for the shared
+workspace root on every Proteus command; Proteus rejects Chimera-session
+commands pointed at the lab or another root. Co-agents can read campaign
+context, but campaign create/checkpoint/close, round updates, and manual
+campaign links are coordinator-only.
+
 `plan-round` is a structured recorder and scaffold, not an autonomous target
 selection oracle. For serious targets, pass coordinator-supplied surfaces and
 fronts through `--plan-json` or the MCP `proteus_plan_round` structured fields.

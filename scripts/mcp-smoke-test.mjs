@@ -92,6 +92,7 @@ try {
     "proteus_chimera_swarm",
     "proteus_chimera_council",
     "proteus_chimera_broadcast",
+    "proteus_chimera_relay",
     "proteus_chimera_send",
     "proteus_chimera_post",
     "proteus_chimera_snapshot",
@@ -354,6 +355,18 @@ try {
   const chimeraSwarmText = String(chimeraSwarm.content?.[0]?.text ?? "");
   if (!chimeraSwarmText.includes('"publicId": "CH-0002"') || !chimeraSwarmText.includes('"publicId": "CH-0003"')) {
     throw new Error("proteus_chimera_swarm did not create independent sessions");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_relay",
+    arguments: { root: tmpRoot, fromId: "CH-0001", toId: "CH-0002", message: "MCP direct Chimera relay" }
+  });
+  const chimeraRelayPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0002", unreadOnly: true, forAgent: true }
+  });
+  const chimeraRelayPollText = String(chimeraRelayPoll.content?.[0]?.text ?? "");
+  if (!chimeraRelayPollText.includes("MCP direct Chimera relay") || !chimeraRelayPollText.includes('"fromId": "CH-0001"')) {
+    throw new Error("proteus_chimera_relay did not deliver direct agent-to-agent message metadata");
   }
   const chimeraCouncil = await request("tools/call", {
     name: "proteus_chimera_council",

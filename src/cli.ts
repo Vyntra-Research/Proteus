@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { ProteusDb, createDefaultContract } from "./db";
+import { ProteusDb, createDefaultContract, type ChimeraSessionRow } from "./db";
 import { exportMarkdown } from "./exporter";
 import { ingestPaths } from "./ingest";
 import { createLab } from "./lab";
@@ -73,6 +73,7 @@ function main(): void {
   const targetRoot = resolveTargetRoot(getString(parsed, "root") ?? process.cwd());
   const db = new ProteusDb(targetRoot);
   try {
+    guardChimeraProtectedCommands(db, command, subcommand, parsed);
     switch (command) {
       case "init":
         cmdInit(db, parsed);
@@ -589,12 +590,16 @@ function cmdCampaign(db: ProteusDb, subcommand: string | undefined, parsed: Pars
 function cmdBranch(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
   requireInitialized(db);
   if (subcommand === "add" || subcommand === "create") {
+    const chimeraSession = currentChimeraSession(db);
     const explicitCampaignId = getNumber(parsed, "campaign-id");
+    if (chimeraSession?.campaignId && explicitCampaignId && explicitCampaignId !== chimeraSession.campaignId) {
+      throw new Error(`Chimera session ${chimeraSession.publicId} is assigned to campaign C${chimeraSession.campaignId}; it cannot record branches under C${explicitCampaignId}.`);
+    }
     const activeCampaigns = db.listCampaigns("active");
-    const activeCampaignId = explicitCampaignId ?? (activeCampaigns.length === 1 ? activeCampaigns[0].id : undefined);
+    const activeCampaignId = chimeraSession?.campaignId ?? explicitCampaignId ?? (activeCampaigns.length === 1 ? activeCampaigns[0].id : undefined);
     const id = db.addHypothesisBranch({
       campaignId: activeCampaignId,
-      roundId: getNumber(parsed, "round-id"),
+      roundId: getNumber(parsed, "round-id") ?? chimeraSession?.roundId ?? undefined,
       surfaceId: getNumber(parsed, "surface-id"),
       title: requiredString(parsed, "title"),
       hypothesis: getString(parsed, "hypothesis") ?? requiredString(parsed, "title"),
@@ -649,10 +654,16 @@ function cmdBranch(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
 
 function cmdLink(db: ProteusDb, parsed: ParsedArgs): void {
   requireInitialized(db);
+  const fromType = requiredString(parsed, "from-type");
+  const toType = requiredString(parsed, "to-type");
+  const chimeraSession = currentChimeraSession(db);
+  if (chimeraSession && (isCampaignEntityType(fromType) || isCampaignEntityType(toType))) {
+    throw new Error(`Chimera session ${chimeraSession.publicId} cannot manually edit campaign links. Record evidence, hypotheses, branches, gates, decisions, or agent output and Proteus will link them to C${chimeraSession.campaignId ?? "none"} automatically.`);
+  }
   const id = db.addEntityLink({
-    fromType: requiredString(parsed, "from-type"),
+    fromType,
     fromId: requiredNumber(parsed, "from-id"),
-    toType: requiredString(parsed, "to-type"),
+    toType,
     toId: requiredNumber(parsed, "to-id"),
     relation: requiredString(parsed, "relation"),
     confidence: getNumber(parsed, "confidence") ?? 1,
@@ -1201,6 +1212,38 @@ function hasFlag(parsed: ParsedArgs, key: string): boolean {
 }
 
 function autoLinkActiveCampaign(db: ProteusDb, entityType: string, entityId: number, relation: string, eventSummary: string): void {
+  const chimeraSession = currentChimeraSession(db);
+  if (chimeraSession?.campaignId) {
+    const linkId = db.addEntityLink({
+      fromType: "campaign",
+      fromId: chimeraSession.campaignId,
+      toType: entityType,
+      toId: entityId,
+      relation,
+      confidence: 1,
+      note: `Auto-linked from Chimera session ${chimeraSession.publicId}.`
+    });
+    db.addCampaignEvent({
+      campaignId: chimeraSession.campaignId,
+      eventType: "chimera_record_auto_linked",
+      entityType,
+      entityId,
+      summary: `${eventSummary} Linked from Chimera session ${chimeraSession.publicId}.`
+    });
+    if (chimeraSession.roundId) {
+      db.addEntityLink({
+        fromType: "round",
+        fromId: chimeraSession.roundId,
+        toType: entityType,
+        toId: entityId,
+        relation: "has_chimera_record",
+        confidence: 1,
+        note: `Auto-linked from Chimera session ${chimeraSession.publicId}.`
+      });
+    }
+    void linkId;
+    return;
+  }
   db.linkActiveCampaignTo({
     toType: entityType,
     toId: entityId,
@@ -1208,6 +1251,45 @@ function autoLinkActiveCampaign(db: ProteusDb, entityType: string, entityId: num
     eventType: "record_auto_linked",
     eventSummary
   });
+}
+
+function guardChimeraProtectedCommands(db: ProteusDb, command: string | undefined, subcommand: string | undefined, parsed: ParsedArgs): void {
+  const chimeraSession = currentChimeraSession(db);
+  if (!chimeraSession) return;
+  const targetRoot = process.env.PROTEUS_TARGET_ROOT?.trim();
+  if (targetRoot && path.resolve(db.targetRoot) !== path.resolve(targetRoot)) {
+    throw new Error(`Chimera session ${chimeraSession.publicId} must use the shared Proteus target root ${targetRoot}. Re-run with --root "${targetRoot}" instead of ${db.targetRoot}.`);
+  }
+  if (command === "campaign" && (subcommand === "create" || subcommand === "checkpoint" || subcommand === "close")) {
+    throw new Error(`Chimera session ${chimeraSession.publicId} cannot mutate campaign state. The coordinator owns campaign create/checkpoint/close; use campaign resume/list/show for context and record scoped evidence or snapshots instead.`);
+  }
+  if (command === "plan-round") {
+    throw new Error(`Chimera session ${chimeraSession.publicId} cannot create campaign rounds. Ask the coordinator to create or update rounds.`);
+  }
+  if (command === "update" && (subcommand === "round" || subcommand === "rounds" || subcommand === "plan" || subcommand === "plans")) {
+    throw new Error(`Chimera session ${chimeraSession.publicId} cannot update campaign rounds. Post a blocker or snapshot for the coordinator.`);
+  }
+  if (command === "branch") {
+    const explicitCampaignId = getNumber(parsed, "campaign-id");
+    if (explicitCampaignId && chimeraSession.campaignId && explicitCampaignId !== chimeraSession.campaignId) {
+      throw new Error(`Chimera session ${chimeraSession.publicId} is assigned to campaign C${chimeraSession.campaignId}; it cannot use C${explicitCampaignId}.`);
+    }
+  }
+}
+
+function currentChimeraSession(db: ProteusDb): ChimeraSessionRow | null {
+  const id = inferCurrentChimeraSessionId(db);
+  if (id) return db.getChimeraSession(id);
+  const envId = process.env.PROTEUS_CHIMERA_SESSION_ID?.trim();
+  return envId ? ({
+    publicId: envId,
+    campaignId: null,
+    roundId: null
+  } as ChimeraSessionRow) : null;
+}
+
+function isCampaignEntityType(value: string): boolean {
+  return value === "campaign" || value === "campaign_event" || value === "campaign_checkpoint" || value === "checkpoint";
 }
 
 function splitList(value: string): string[] {

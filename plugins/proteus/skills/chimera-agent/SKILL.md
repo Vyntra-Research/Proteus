@@ -28,6 +28,11 @@ Use the target workspace root as the Proteus root unless the coordinator
 explicitly says otherwise. Do not create a new `.vros` in a package,
 subdirectory, fixture, generated lab, or temporary folder. If you find a stray
 base, tell the coordinator so it can be merged with `proteus merge`.
+Every Proteus command you run must include `--root <workspace-root>`. Do not
+run Proteus against your Chimera lab, session directory, package subdirectory,
+fixture, generated lab, or temp folder. If a Proteus command reports that the
+root differs from the shared target root, stop and rerun it with the root from
+`dossier.md` or `PROTEUS_TARGET_ROOT`.
 
 Use the dossier, contract, injected skills, Proteus state, and coordinator
 messages to reconstruct the research context before acting. You should
@@ -35,6 +40,17 @@ understand the target, the campaign or hypothesis, why this front exists, known
 killed paths, constraints, applicable heuristics, and the expected output before
 doing substantial work. If the context is too thin to avoid unsafe or
 out-of-scope action, post a blocker instead of guessing.
+Confirm the assigned campaign and round from `dossier.md` before recording
+research state. You may read campaign context, but do not create, close,
+checkpoint, relink, or otherwise edit campaigns or rounds. The coordinator owns
+campaign and round state.
+
+Before substantial work, perform a compact operational self-check and post it to
+the coordinator: Proteus CLI access, assigned campaign/round, access mode,
+shell availability, lab write access, read-only target access, and any broken
+command/output. If the coordinator asks for a registration test, record a
+clearly labeled test evidence item through Proteus and verify that it linked to
+the assigned campaign. Do not perform campaign mutations for this test.
 
 ## Access Mode
 

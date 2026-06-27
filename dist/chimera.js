@@ -913,6 +913,8 @@ function runOpenCodeOnce(db, session, promptPath, config, timeoutSec, finalInstr
         PROTEUS_CHIMERA_SESSION_DIR: session.sessionDir,
         PROTEUS_CHIMERA_LAB_DIR: session.labDir,
         PROTEUS_CHIMERA_ACCESS_MODE: session.accessMode,
+        PROTEUS_CHIMERA_CAMPAIGN_ID: session.campaignId ? String(session.campaignId) : "",
+        PROTEUS_CHIMERA_ROUND_ID: session.roundId ? String(session.roundId) : "",
         PROTEUS_TARGET_ROOT: db.targetRoot
     };
     const result = runExternalControlled(command, args, {
@@ -1000,7 +1002,11 @@ Lab dir: ${(0, paths_1.toRelative)(db.targetRoot, session.labDir)}
 Coordinator context:
 - Access mode: ${session.accessMode}.
 - ${accessLine(session)}
+- Assigned campaign id: ${session.campaignId ? `C${session.campaignId}` : "none"}.
+- Assigned round id: ${session.roundId ? `R${session.roundId}` : "none"}.
 - Use Proteus CLI for state and communication.
+- Use the assigned campaign and round for research memory. When you record evidence, hypotheses, gates, decisions, branches, or agent output through Proteus from this Chimera session, Proteus links them to the assigned campaign automatically.
+- Do not create, close, checkpoint, or otherwise edit campaigns or rounds. The coordinator owns campaign and round state.
 - Do not promote findings. Return hypotheses, blockers, evidence pointers, and validation needs.
 
 Active campaigns:
@@ -1023,12 +1029,17 @@ You are a secondary Proteus Chimera co-agent, not an ordinary lightweight subage
 Required behavior:
 - Read dossier.md, contract.md, agent-instructions.md, and skills/*.md before acting.
 - Reconstruct the research context before substantial work: target, campaign/hypothesis, why this front exists, known killed paths, constraints, intended strategy, applicable Proteus heuristics, and expected output.
+- Confirm the assigned campaign and round before recording research state: campaign=${session.campaignId ? `C${session.campaignId}` : "none"}, round=${session.roundId ? `R${session.roundId}` : "none"}. Use ${proteusCommand} --root "${db.targetRoot}" campaign resume${session.campaignId ? ` --id ${session.campaignId}` : ""} for context when available.
 - Respect access mode ${session.accessMode}: ${accessLine(session)}
 - Shell is available to Chimera sessions, but it is not blanket approval. Use shell only for the assigned research goal, obey the coordinator restrictions, avoid destructive commands, and keep generated artifacts in the Chimera lab.
 - By default, create and edit files only inside your own Chimera lab: ${(0, paths_1.toRelative)(db.targetRoot, session.labDir)}. Do not create, edit, move, or delete files elsewhere in the workspace unless editor-mode restrictions explicitly name the allowed path and action.
 - Use ${(0, paths_1.toRelative)(db.targetRoot, session.labDir)} for notes, scripts, PoC material, and evidence even when broader access is granted.
+- Every Proteus command must use the shared workspace root explicitly: ${proteusCommand} --root "${db.targetRoot}" ...
+- Never run Proteus against your Chimera lab, session directory, package subdirectory, fixture, generated lab, or temporary folder. Do not omit --root when invoking Proteus from inside your lab.
 - Prefer the workspace root as the Proteus base. Do not create stray .vros directories in subfolders.
 - If you accidentally find or create a stray base, report it. The coordinator can merge it with proteus merge.
+- Do not mutate campaign or round state. Do not run campaign create, campaign checkpoint, campaign close, plan-round, update round, update rounds, or manual campaign links. If campaign or round state needs a change, post a blocker or message to the coordinator.
+- On startup, perform a compact operational self-check before substantial work: confirm Proteus CLI access, assigned campaign/round context, access mode, shell availability, lab write access, and read-only target access. Post the result to the coordinator. If the coordinator explicitly asks for a registration test, record a clearly labeled test evidence item and verify it auto-links to the assigned campaign.
 - Use concise snapshots and message the coordinator through Proteus.
 - Coordinator messages and broadcasts update notifications.json in this session directory. Treat it as a lightweight signal to poll, not as the source of truth.
 - Priority messages may also arrive as direct OpenCode steer notifications telling you to poll Proteus. Treat those notifications as a request to poll as soon as you can do so without corrupting an in-flight command or losing evidence.
@@ -1047,6 +1058,7 @@ Required behavior:
 Communication commands:
 - ${proteusCommand} --root "${db.targetRoot}" chimera poll --unread --agent
 - ${proteusCommand} --root "${db.targetRoot}" chimera post --kind message --body "..."
+- ${session.campaignId ? `${proteusCommand} --root "${db.targetRoot}" campaign resume --id ${session.campaignId}` : `${proteusCommand} --root "${db.targetRoot}" campaign resume`}
 - ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --message "..." --priority
 - ${proteusCommand} --root "${db.targetRoot}" chimera relay --to-id CH-0000 --message "..." --priority
 - ${proteusCommand} --root "${db.targetRoot}" chimera council accept --council-id CO-... --body "ready"

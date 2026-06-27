@@ -17,11 +17,12 @@ const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"
 const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
 const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
 const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
+const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
 
-function run(args, cwd = tmpRoot) {
+function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
     cwd,
-    env: smokeEnv(),
+    env: smokeEnv(extraEnv),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -69,9 +70,9 @@ function waitForChild(child, timeoutMs = 10000) {
   });
 }
 
-function runFail(args, cwd = tmpRoot) {
+function runFail(args, cwd = tmpRoot, extraEnv = {}) {
   try {
-    run(args, cwd);
+    run(args, cwd, extraEnv);
   } catch (error) {
     return `${error.stdout ?? ""}${error.stderr ?? ""}`;
   }
@@ -349,6 +350,50 @@ try {
   const chimeraHeartbeat = run(["chimera", "heartbeat", "--id", "CH-0001"]);
   if (!chimeraHeartbeat.includes('"alive": true')) {
     throw new Error("chimera heartbeat did not report alive session");
+  }
+  run(["init", "--root", chimeraScopeRoot, "--name", "chimera-scope-smoke"], chimeraScopeRoot);
+  run(["campaign", "create", "--root", chimeraScopeRoot, "--title", "Chimera scoped campaign", "--objective", "Validate Chimera scoped records"], chimeraScopeRoot);
+  run(["plan-round", "--root", chimeraScopeRoot, "--objective", "Chimera scoped round"], chimeraScopeRoot);
+  run([
+    "chimera",
+    "start",
+    "--root",
+    chimeraScopeRoot,
+    "--role",
+    "codebase-research",
+    "--goal",
+    "Validate scoped Proteus records"
+  ], chimeraScopeRoot);
+  const chimeraScopeLab = path.join(chimeraScopeRoot, ".vros/chimera/sessions/CH-0001/lab");
+  const chimeraScopeEnv = {
+    PROTEUS_CHIMERA_SESSION_ID: "CH-0001",
+    PROTEUS_TARGET_ROOT: chimeraScopeRoot
+  };
+  const wrongRootOutput = runFail(["status"], chimeraScopeLab, chimeraScopeEnv);
+  if (!wrongRootOutput.includes("must use the shared Proteus target root")) {
+    throw new Error("Chimera session command without shared --root did not fail clearly");
+  }
+  const chimeraCampaignMutation = runFail(["campaign", "create", "--root", chimeraScopeRoot, "--title", "Should fail"], chimeraScopeLab, chimeraScopeEnv);
+  if (!chimeraCampaignMutation.includes("cannot mutate campaign state")) {
+    throw new Error("Chimera session was allowed to mutate campaign state");
+  }
+  const chimeraScopedEvidence = run([
+    "record",
+    "evidence",
+    "--root",
+    chimeraScopeRoot,
+    "--title",
+    "Chimera scoped evidence test",
+    "--body",
+    "Evidence recorded by Chimera scope smoke"
+  ], chimeraScopeLab, chimeraScopeEnv);
+  const chimeraScopedEvidenceId = Number(chimeraScopedEvidence.match(/E(\d+)/)?.[1]);
+  if (!chimeraScopedEvidenceId) {
+    throw new Error("Chimera scoped evidence test did not record evidence");
+  }
+  const chimeraScopedLinks = run(["list", "links", "--root", chimeraScopeRoot, "--entity-type", "campaign", "--entity-id", "1"], chimeraScopeRoot);
+  if (!chimeraScopedLinks.includes(`campaign#1 -[has_evidence]-> evidence#${chimeraScopedEvidenceId}`)) {
+    throw new Error("Chimera scoped evidence did not link to the session campaign");
   }
   const chimeraRun = JSON.parse(run([
     "chimera",
@@ -977,4 +1022,5 @@ try {
   fs.rmSync(helpRoot, { recursive: true, force: true });
   fs.rmSync(mergeRoot, { recursive: true, force: true });
   fs.rmSync(killRoot, { recursive: true, force: true });
+  fs.rmSync(chimeraScopeRoot, { recursive: true, force: true });
 }

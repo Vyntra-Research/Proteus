@@ -93,9 +93,26 @@ Each co-agent receives:
 - the role-specific skill when available;
 - a private lab for notes, evidence, scripts, and PoC material.
 
+Every co-agent is a `CH-...` session with its own assigned `campaignId`,
+`roundId`, access mode, and lab path. When a co-agent records evidence,
+hypotheses, decisions, gates, branches, or agent output through Proteus, the
+CLI links the record to the assigned campaign and round from that session. This
+avoids ambiguity when several campaigns are active.
+
+Co-agents must run Proteus against the shared workspace root, not their lab or a
+package subdirectory. Generated contracts and skills include commands with
+`--root C:\path\to\target`, and the CLI rejects Chimera-session commands when
+`PROTEUS_TARGET_ROOT` does not match the selected root.
+
 The coordinator leads strategy and validation. Chimera agents run independent
 research fronts and bring different angles, but they do not promote findings or
 bypass Proteus gates.
+
+Co-agents may read campaign context, but campaign and round state belongs to
+the coordinator. From inside a Chimera session, Proteus blocks `campaign
+create`, `campaign checkpoint`, `campaign close`, `plan-round`, round updates,
+and manual campaign links. Agents should post a message, blocker, or snapshot
+when campaign state needs coordinator action.
 
 ## Access Modes
 
