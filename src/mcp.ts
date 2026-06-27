@@ -132,7 +132,7 @@ const tools: ToolDefinition[] = [
     description: "Show, initialize, or disable optional OpenCode-backed Chimera mode.",
     inputSchema: schema(
       {
-        root: stringProp("Target root path."),
+        root: stringProp("Ignored legacy field. Chimera runtime config is global."),
         action: stringProp("show, init, or disable."),
         opencodeCommand: stringProp("OpenCode command or executable path."),
         serverUrl: stringProp("Optional existing OpenCode server URL for this target."),
@@ -146,19 +146,18 @@ const tools: ToolDefinition[] = [
         skipPermissions: booleanProp("Auto-approve OpenCode permissions not explicitly denied for non-interactive Chimera runs."),
         disabled: booleanProp("Initialize but disabled.")
       },
-      ["root", "action"]
+      ["action"]
     ),
-    handler: (input) =>
-      withDb(str(input.root), (db) => {
+    handler: (input) => {
         const action = str(input.action);
-        if (action === "show") return toolEnvelope(getChimeraConfig(db));
+        if (action === "show") return toolEnvelope(getChimeraConfig());
         if (action === "disable") {
-          const current = getChimeraConfig(db);
-          saveChimeraConfig(db, { ...current, enabled: false });
-          return toolEnvelope(getChimeraConfig(db));
+          const current = getChimeraConfig();
+          saveChimeraConfig({ ...current, enabled: false });
+          return toolEnvelope(getChimeraConfig());
         }
         if (action !== "init") throw new Error("action must be one of: show, init, disable");
-        const config = initChimeraConfig(db, {
+        const config = initChimeraConfig({
           enabled: input.disabled !== true,
           runtime: "opencode",
           opencodeCommand: maybeStr(input.opencodeCommand) ?? DEFAULT_CHIMERA_CONFIG.opencodeCommand,
@@ -173,7 +172,7 @@ const tools: ToolDefinition[] = [
           skipPermissions: input.skipPermissions !== false
         });
         return toolEnvelope(config);
-      })
+      }
   },
   {
     name: "proteus_chimera_doctor",

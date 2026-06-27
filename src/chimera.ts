@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { ProteusDb, type ChimeraMessageRow, type ChimeraSessionRow } from "./db";
-import { chimeraDir, chimeraSessionDir, chimeraSessionsDir, ensureDir, toRelative } from "./paths";
+import { chimeraDir, chimeraSessionDir, chimeraSessionsDir, ensureDir, globalChimeraConfigPath, toRelative } from "./paths";
 import type {
   ChimeraConfig,
   ChimeraAccessMode,
@@ -96,8 +96,8 @@ export interface ChimeraCouncilStatus {
   turns: ChimeraMessageRow[];
 }
 
-export function initChimeraConfig(db: ProteusDb, input: Partial<ChimeraConfig> = {}): ChimeraConfig {
-  const current = db.getChimeraConfig() ?? DEFAULT_CHIMERA_CONFIG;
+export function initChimeraConfig(input: Partial<ChimeraConfig> = {}): ChimeraConfig {
+  const current = getChimeraConfig();
   const next: ChimeraConfig = {
     enabled: input.enabled ?? true,
     runtime: "opencode",
@@ -112,18 +112,24 @@ export function initChimeraConfig(db: ProteusDb, input: Partial<ChimeraConfig> =
     defaultNetwork: input.defaultNetwork ?? current.defaultNetwork,
     skipPermissions: input.skipPermissions ?? current.skipPermissions
   };
-  saveChimeraConfig(db, next);
+  saveChimeraConfig(next);
   return next;
 }
 
-export function saveChimeraConfig(db: ProteusDb, config: ChimeraConfig): void {
-  db.saveChimeraConfig(config);
-  ensureDir(chimeraDir(db.targetRoot));
-  fs.writeFileSync(path.join(chimeraDir(db.targetRoot), "config.json"), JSON.stringify(config, null, 2) + "\n");
+export function saveChimeraConfig(config: ChimeraConfig): void {
+  const configPath = globalChimeraConfigPath();
+  ensureDir(path.dirname(configPath));
+  fs.writeFileSync(configPath, JSON.stringify(normalizeChimeraConfig(config), null, 2) + "\n");
 }
 
-export function getChimeraConfig(db: ProteusDb): ChimeraConfig {
-  return db.getChimeraConfig() ?? DEFAULT_CHIMERA_CONFIG;
+export function getChimeraConfig(): ChimeraConfig {
+  const configPath = globalChimeraConfigPath();
+  if (!fs.existsSync(configPath)) return DEFAULT_CHIMERA_CONFIG;
+  try {
+    return normalizeChimeraConfig(JSON.parse(fs.readFileSync(configPath, "utf8")) as Partial<ChimeraConfig>);
+  } catch {
+    return DEFAULT_CHIMERA_CONFIG;
+  }
 }
 
 export function chimeraDoctor(db: ProteusDb): {
@@ -131,13 +137,13 @@ export function chimeraDoctor(db: ProteusDb): {
   config: ChimeraConfig;
   checks: Array<{ name: string; ok: boolean; detail: string }>;
 } {
-  const config = getChimeraConfig(db);
+  const config = getChimeraConfig();
   ensureDir(chimeraDir(db.targetRoot));
   const checks = [
     {
       name: "enabled",
       ok: config.enabled,
-      detail: config.enabled ? "Chimera is enabled." : "Run proteus chimera config init before starting agents."
+      detail: config.enabled ? "Chimera is enabled globally." : "Run proteus chimera config init before starting agents."
     },
     {
       name: "chimera_dir",
@@ -156,7 +162,7 @@ export function chimeraDoctor(db: ProteusDb): {
 }
 
 export function stopOpenCodeServer(db: ProteusDb): { stopped: boolean; pid: number | null; url: string | null; detail: string } {
-  const config = getChimeraConfig(db);
+  const config = getChimeraConfig();
   let stopped = false;
   let detail = "no managed OpenCode server PID is recorded";
   if (config.opencodeServerPid) {
@@ -168,7 +174,7 @@ export function stopOpenCodeServer(db: ProteusDb): { stopped: boolean; pid: numb
       detail = error instanceof Error ? error.message : String(error);
     }
   }
-  saveChimeraConfig(db, { ...config, opencodeServerUrl: null, opencodeServerPid: null });
+  saveChimeraConfig({ ...config, opencodeServerUrl: null, opencodeServerPid: null });
   return { stopped, pid: config.opencodeServerPid, url: config.opencodeServerUrl, detail };
 }
 
@@ -181,9 +187,9 @@ export function startChimeraSession(db: ProteusDb, input: ChimeraStartInput): {
 } {
   if (!input.role?.trim()) throw new Error("Missing Chimera role.");
   if (!input.goal?.trim()) throw new Error("Missing Chimera goal.");
-  const config = getChimeraConfig(db);
+  const config = getChimeraConfig();
   if (!config.enabled) {
-    throw new Error("Chimera is disabled. Run `proteus chimera config init` first.");
+    throw new Error("Chimera is disabled. Run `proteus chimera config init` once for the user first.");
   }
   const accessMode = input.accessMode ?? "explorer";
   const accessNotes = input.accessNotes?.trim() ?? "";
@@ -736,7 +742,7 @@ export function startChimeraSwarm(db: ProteusDb, plan: ChimeraSwarmPlan): {
   sessions: Array<ReturnType<typeof startChimeraSession>>;
   maxAgents: number;
 } {
-  const config = getChimeraConfig(db);
+  const config = getChimeraConfig();
   if (!Array.isArray(plan.agents) || plan.agents.length === 0) throw new Error("Swarm plan must include at least one agent.");
   if (plan.agents.length > config.maxAgents) {
     throw new Error(`Swarm plan has ${plan.agents.length} agents, but config maxAgents is ${config.maxAgents}.`);
@@ -759,7 +765,7 @@ export function startChimeraSwarm(db: ProteusDb, plan: ChimeraSwarmPlan): {
 }
 
 export function runChimeraSession(db: ProteusDb, publicId: string, timeoutSec?: number): ChimeraRunResult {
-  const config = getChimeraConfig(db);
+  const config = getChimeraConfig();
   const session = requireChimeraSession(db, publicId);
   const promptPath = path.join(session.sessionDir, "opencode", "prompt.md");
   if (!fs.existsSync(promptPath)) throw new Error(`Missing Chimera prompt: ${promptPath}`);
@@ -776,7 +782,7 @@ export function runChimeraSession(db: ProteusDb, publicId: string, timeoutSec?: 
 
 export function attachOpenCodeSession(db: ProteusDb, publicId: string, input: { serverUrl?: string | null; opencodeSessionId?: string | null }): ChimeraSessionRow {
   const current = requireChimeraSession(db, publicId);
-  const config = getChimeraConfig(db);
+  const config = getChimeraConfig();
   const serverUrl = nullableString(input.serverUrl, current.opencodeServerUrl ?? config.opencodeServerUrl);
   const opencodeSessionId = nullableString(input.opencodeSessionId, current.opencodeSessionId);
   const updated = db.updateChimeraSession({
@@ -785,7 +791,7 @@ export function attachOpenCodeSession(db: ProteusDb, publicId: string, input: { 
     opencodeSessionId
   });
   if (serverUrl && serverUrl !== config.opencodeServerUrl) {
-    saveChimeraConfig(db, { ...config, opencodeServerUrl: serverUrl });
+    saveChimeraConfig({ ...config, opencodeServerUrl: serverUrl });
   }
   writeStatusFile(db, updated, { opencodeAttached: true });
   return updated;
@@ -803,7 +809,7 @@ export function snapshotChimeraWorkflow(db: ProteusDb, publicId: string, input: 
   const limit = Math.max(1, Math.min(50, positiveInteger(input.limit, 8)));
   const maxMessageChars = Math.max(80, Math.min(8000, positiveInteger(input.maxMessageChars, 1200)));
   const sanitize = input.sanitize !== false;
-  const command = commandParts(session.opencodeCommand || getChimeraConfig(db).opencodeCommand);
+  const command = commandParts(session.opencodeCommand || getChimeraConfig().opencodeCommand);
   const args = ["export", session.opencodeSessionId];
   if (sanitize) args.push("--sanitize");
   const result = spawnExternalSync(command, args, {
@@ -1499,7 +1505,7 @@ function appendJsonl(filePath: string, value: unknown): void {
 }
 
 function steerOpenCodeSession(db: ProteusDb, session: ChimeraSessionRow, message: ChimeraMessageRow): ChimeraDirectDeliveryResult {
-  const config = getChimeraConfig(db);
+  const config = getChimeraConfig();
   if (!session.opencodeSessionId) {
     return { attempted: false, ok: false, mode: "none", detail: "no OpenCode session id is attached to this Chimera session" };
   }
@@ -1582,7 +1588,7 @@ function ensureOpenCodeServer(db: ProteusDb, config: ChimeraConfig): OpenCodeSer
     const url = `http://127.0.0.1:${port}`;
     if (openCodeServerHealthy(url)) {
       const next = { ...config, opencodeServerUrl: url, opencodeServerPid: null };
-      saveChimeraConfig(db, next);
+      saveChimeraConfig(next);
       return { url, pid: null, started: false };
     }
     const started = startOpenCodeServerProcess(db, config, port);
@@ -1590,7 +1596,7 @@ function ensureOpenCodeServer(db: ProteusDb, config: ChimeraConfig): OpenCodeSer
       sleepMs(250);
       if (openCodeServerHealthy(url)) {
         const next = { ...config, opencodeServerUrl: url, opencodeServerPid: started.pid };
-        saveChimeraConfig(db, next);
+        saveChimeraConfig(next);
         return { url, pid: started.pid, started: true };
       }
     }
@@ -1812,6 +1818,31 @@ function extractOpenCodeAssistantText(stdout: string): string {
 
 function normalizeOpenCodeVariant(variant: string | undefined, provider: string | undefined, fallback: string | null): string | null {
   return variant?.trim() || provider?.trim() || fallback;
+}
+
+function normalizeChimeraConfig(input: Partial<ChimeraConfig>): ChimeraConfig {
+  return {
+    enabled: input.enabled === true,
+    runtime: "opencode",
+    opencodeCommand: typeof input.opencodeCommand === "string" && input.opencodeCommand.trim()
+      ? input.opencodeCommand.trim()
+      : DEFAULT_CHIMERA_CONFIG.opencodeCommand,
+    opencodeServerUrl: typeof input.opencodeServerUrl === "string" && input.opencodeServerUrl.trim()
+      ? input.opencodeServerUrl.trim()
+      : null,
+    opencodeServerPid: Number.isFinite(input.opencodeServerPid) && Number(input.opencodeServerPid) > 0
+      ? Math.floor(Number(input.opencodeServerPid))
+      : null,
+    defaultModel: typeof input.defaultModel === "string" && input.defaultModel.trim() ? input.defaultModel.trim() : null,
+    defaultVariant: typeof input.defaultVariant === "string" && input.defaultVariant.trim() ? input.defaultVariant.trim() : null,
+    defaultAgent: typeof input.defaultAgent === "string" && input.defaultAgent.trim() ? input.defaultAgent.trim() : DEFAULT_CHIMERA_CONFIG.defaultAgent,
+    maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : DEFAULT_CHIMERA_CONFIG.maxAgents,
+    defaultTimeoutSec: Number.isFinite(input.defaultTimeoutSec) && Number(input.defaultTimeoutSec) > 0
+      ? Math.floor(Number(input.defaultTimeoutSec))
+      : DEFAULT_CHIMERA_CONFIG.defaultTimeoutSec,
+    defaultNetwork: input.defaultNetwork === true,
+    skipPermissions: input.skipPermissions !== false
+  };
 }
 
 function stringOr(value: unknown, fallback: string): string {

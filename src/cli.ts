@@ -63,6 +63,11 @@ function main(): void {
     return;
   }
 
+  if (command === "chimera" && subcommand === "config") {
+    cmdChimeraConfig(parsed.command[2], parsed);
+    return;
+  }
+
   const targetRoot = resolveTargetRoot(getString(parsed, "root") ?? process.cwd());
   const db = new ProteusDb(targetRoot);
   try {
@@ -215,7 +220,7 @@ function cmdMerge(db: ProteusDb, parsed: ParsedArgs): void {
 function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
   switch (subcommand) {
     case "config":
-      cmdChimeraConfig(db, parsed.command[2], parsed);
+      cmdChimeraConfig(parsed.command[2], parsed);
       return;
     case "doctor":
       console.log(JSON.stringify(chimeraDoctor(db), null, 2));
@@ -417,10 +422,10 @@ function cmdChimeraCouncil(db: ProteusDb, subcommand: string | undefined, parsed
   }
 }
 
-function cmdChimeraConfig(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
+function cmdChimeraConfig(subcommand: string | undefined, parsed: ParsedArgs): void {
   switch (subcommand) {
     case "init": {
-      const config = initChimeraConfig(db, {
+      const config = initChimeraConfig({
         enabled: !getBoolean(parsed, "disabled"),
         runtime: "opencode",
         opencodeCommand: getString(parsed, "opencode-command") ?? DEFAULT_CHIMERA_CONFIG.opencodeCommand,
@@ -438,12 +443,12 @@ function cmdChimeraConfig(db: ProteusDb, subcommand: string | undefined, parsed:
       return;
     }
     case "show":
-      console.log(JSON.stringify(getChimeraConfig(db), null, 2));
+      console.log(JSON.stringify(getChimeraConfig(), null, 2));
       return;
     case "disable": {
-      const current = getChimeraConfig(db);
-      saveChimeraConfig(db, { ...current, enabled: false });
-      console.log(JSON.stringify({ ok: true, config: getChimeraConfig(db) }, null, 2));
+      const current = getChimeraConfig();
+      saveChimeraConfig({ ...current, enabled: false });
+      console.log(JSON.stringify({ ok: true, config: getChimeraConfig() }, null, 2));
       return;
     }
     default:

@@ -18,7 +18,8 @@ const child = spawn(process.execPath, [serverPath], {
   env: {
     ...process.env,
     PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
-    PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports")
+    PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
+    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
   },
   stdio: ["pipe", "pipe", "pipe"]
 });
@@ -211,11 +212,17 @@ try {
   const opencodeCommand = `"${process.execPath}" "${mockOpenCode}"`;
   const chimeraConfig = await request("tools/call", {
     name: "proteus_chimera_config",
-    arguments: { root: tmpRoot, action: "init", opencodeCommand, model: "mock/mock-model", variant: "high", maxAgents: 3 }
+    arguments: { action: "init", opencodeCommand, model: "mock/mock-model", variant: "high", maxAgents: 3 }
   });
   const chimeraConfigText = String(chimeraConfig.content?.[0]?.text ?? "");
   if (!chimeraConfigText.includes('"enabled": true') || !chimeraConfigText.includes("mock/mock-model") || !chimeraConfigText.includes('"defaultVariant": "high"')) {
     throw new Error("proteus_chimera_config did not enable mock Chimera config");
+  }
+  if (!fs.existsSync(path.join(globalRoot, "chimera", "config.json"))) {
+    throw new Error("proteus_chimera_config did not write global config");
+  }
+  if (fs.existsSync(path.join(tmpRoot, ".vros", "chimera", "config.json"))) {
+    throw new Error("proteus_chimera_config should not write workspace config");
   }
   const chimeraDoctor = await request("tools/call", {
     name: "proteus_chimera_doctor",

@@ -52,6 +52,20 @@ export function globalExportsDir(): string {
   return path.join(globalVrosDir(), "exports");
 }
 
+export function globalChimeraDir(): string {
+  if (process.env.PROTEUS_CHIMERA_DIR) {
+    return path.resolve(process.env.PROTEUS_CHIMERA_DIR);
+  }
+  return path.join(globalVrosDir(), "chimera");
+}
+
+export function globalChimeraConfigPath(): string {
+  if (process.env.PROTEUS_CHIMERA_CONFIG_PATH) {
+    return path.resolve(process.env.PROTEUS_CHIMERA_CONFIG_PATH);
+  }
+  return path.join(globalChimeraDir(), "config.json");
+}
+
 export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }

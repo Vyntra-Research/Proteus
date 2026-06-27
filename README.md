@@ -119,20 +119,20 @@ After OpenCode is configured and the model works there, enable Chimera for a
 target:
 
 ```powershell
-proteus chimera config init --root C:\path\to\target --opencode-command opencode --model zai/glm-5.2 --variant high
+proteus chimera config init --opencode-command opencode --model zai/glm-5.2 --variant high
 proteus chimera doctor --root C:\path\to\target
 ```
 
-This configuration is persistent for that Proteus target. It is stored in target
-memory and mirrored to `.vros/chimera/config.json`; individual Chimera labs do
-not need to pass `--opencode-command`, `--model`, `--variant`, or `--max-agents`
-again unless you want to change the target defaults. Chimera defaults to
-`maxAgents: 5`.
+This is global Chimera runtime configuration for the current user. It is stored
+outside the target workspace under the user's `.vros/chimera/config.json`.
+Individual workspaces and Chimera labs do not need to pass `--opencode-command`,
+`--model`, `--variant`, or `--max-agents` again unless you want to change the
+global defaults. Chimera defaults to `maxAgents: 5`.
 
 If OpenCode is outside `PATH`, pass the executable path:
 
 ```powershell
-proteus chimera config init --root C:\path\to\target --opencode-command C:\path\to\opencode.exe --model zai/glm-5.2 --variant high
+proteus chimera config init --opencode-command C:\path\to\opencode.exe --model zai/glm-5.2 --variant high
 ```
 
 ## Quick Start
@@ -234,7 +234,7 @@ proteus merge --root C:\path\to\workspace --sources .\old\.vros\memory.sqlite,.\
 Launch optional Chimera agents after OpenCode is configured:
 
 ```powershell
-proteus chimera config show --root C:\path\to\target
+proteus chimera config show
 proteus chimera doctor --root C:\path\to\target
 proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7" --run
 proteus chimera run --root C:\path\to\target --id CH-0001

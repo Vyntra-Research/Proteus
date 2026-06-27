@@ -32,6 +32,10 @@ function main() {
         printCommandHelp(command);
         return;
     }
+    if (command === "chimera" && subcommand === "config") {
+        cmdChimeraConfig(parsed.command[2], parsed);
+        return;
+    }
     const targetRoot = (0, paths_1.resolveTargetRoot)(getString(parsed, "root") ?? process.cwd());
     const db = new db_1.ProteusDb(targetRoot);
     try {
@@ -178,7 +182,7 @@ function cmdMerge(db, parsed) {
 function cmdChimera(db, subcommand, parsed) {
     switch (subcommand) {
         case "config":
-            cmdChimeraConfig(db, parsed.command[2], parsed);
+            cmdChimeraConfig(parsed.command[2], parsed);
             return;
         case "doctor":
             console.log(JSON.stringify((0, chimera_1.chimeraDoctor)(db), null, 2));
@@ -335,10 +339,10 @@ function cmdChimeraCouncil(db, subcommand, parsed) {
             throw new Error("Usage: proteus chimera council <start|accept|open-round|cue-turn|turn|status|close>");
     }
 }
-function cmdChimeraConfig(db, subcommand, parsed) {
+function cmdChimeraConfig(subcommand, parsed) {
     switch (subcommand) {
         case "init": {
-            const config = (0, chimera_1.initChimeraConfig)(db, {
+            const config = (0, chimera_1.initChimeraConfig)({
                 enabled: !getBoolean(parsed, "disabled"),
                 runtime: "opencode",
                 opencodeCommand: getString(parsed, "opencode-command") ?? chimera_1.DEFAULT_CHIMERA_CONFIG.opencodeCommand,
@@ -356,12 +360,12 @@ function cmdChimeraConfig(db, subcommand, parsed) {
             return;
         }
         case "show":
-            console.log(JSON.stringify((0, chimera_1.getChimeraConfig)(db), null, 2));
+            console.log(JSON.stringify((0, chimera_1.getChimeraConfig)(), null, 2));
             return;
         case "disable": {
-            const current = (0, chimera_1.getChimeraConfig)(db);
-            (0, chimera_1.saveChimeraConfig)(db, { ...current, enabled: false });
-            console.log(JSON.stringify({ ok: true, config: (0, chimera_1.getChimeraConfig)(db) }, null, 2));
+            const current = (0, chimera_1.getChimeraConfig)();
+            (0, chimera_1.saveChimeraConfig)({ ...current, enabled: false });
+            console.log(JSON.stringify({ ok: true, config: (0, chimera_1.getChimeraConfig)() }, null, 2));
             return;
         }
         default:

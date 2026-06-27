@@ -71,7 +71,7 @@ const tools = [
         title: "Configure Chimera Mode",
         description: "Show, initialize, or disable optional OpenCode-backed Chimera mode.",
         inputSchema: schema({
-            root: stringProp("Target root path."),
+            root: stringProp("Ignored legacy field. Chimera runtime config is global."),
             action: stringProp("show, init, or disable."),
             opencodeCommand: stringProp("OpenCode command or executable path."),
             serverUrl: stringProp("Optional existing OpenCode server URL for this target."),
@@ -84,19 +84,19 @@ const tools = [
             network: booleanProp("Whether network is allowed by default."),
             skipPermissions: booleanProp("Auto-approve OpenCode permissions not explicitly denied for non-interactive Chimera runs."),
             disabled: booleanProp("Initialize but disabled.")
-        }, ["root", "action"]),
-        handler: (input) => withDb(str(input.root), (db) => {
+        }, ["action"]),
+        handler: (input) => {
             const action = str(input.action);
             if (action === "show")
-                return toolEnvelope((0, chimera_1.getChimeraConfig)(db));
+                return toolEnvelope((0, chimera_1.getChimeraConfig)());
             if (action === "disable") {
-                const current = (0, chimera_1.getChimeraConfig)(db);
-                (0, chimera_1.saveChimeraConfig)(db, { ...current, enabled: false });
-                return toolEnvelope((0, chimera_1.getChimeraConfig)(db));
+                const current = (0, chimera_1.getChimeraConfig)();
+                (0, chimera_1.saveChimeraConfig)({ ...current, enabled: false });
+                return toolEnvelope((0, chimera_1.getChimeraConfig)());
             }
             if (action !== "init")
                 throw new Error("action must be one of: show, init, disable");
-            const config = (0, chimera_1.initChimeraConfig)(db, {
+            const config = (0, chimera_1.initChimeraConfig)({
                 enabled: input.disabled !== true,
                 runtime: "opencode",
                 opencodeCommand: maybeStr(input.opencodeCommand) ?? chimera_1.DEFAULT_CHIMERA_CONFIG.opencodeCommand,
@@ -111,7 +111,7 @@ const tools = [
                 skipPermissions: input.skipPermissions !== false
             });
             return toolEnvelope(config);
-        })
+        }
     },
     {
         name: "proteus_chimera_doctor",

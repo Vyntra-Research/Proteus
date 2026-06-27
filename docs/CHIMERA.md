@@ -21,16 +21,20 @@ OpenCode first, then point Proteus at the OpenCode command and model name.
 
 ## Enable Chimera
 
-Configuration is target-wide and persistent. It is stored in target memory and
-mirrored to `.vros/chimera/config.json`.
+Configuration is global for the current user and persistent across workspaces.
+It is stored outside target workspaces under the user's
+`.vros/chimera/config.json`.
 
 ```powershell
-proteus chimera config init --root C:\path\to\target --opencode-command opencode --model zai/glm-5.2 --variant high
+proteus chimera config init --opencode-command opencode --model zai/glm-5.2 --variant high
 proteus chimera doctor --root C:\path\to\target
 ```
 
 If OpenCode is outside `PATH`, pass the executable path as
 `--opencode-command`. `maxAgents` defaults to 5.
+
+`doctor`, `start`, `run`, messages, sessions, and labs still receive `--root`
+because they operate on a specific workspace. `config` does not need `--root`.
 
 ## Co-Agent Sessions
 

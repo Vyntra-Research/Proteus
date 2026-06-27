@@ -97,9 +97,11 @@ tasks, prefer ordinary subagents when they are available.
 
 Before launching Chimera agents:
 
-- run `proteus chimera config show` or MCP `proteus_chimera_config` with
-  `action=show`;
-- run `proteus chimera doctor` or MCP `proteus_chimera_doctor`;
+- run global `proteus chimera config show` or MCP `proteus_chimera_config`
+  with `action=show`; this checks the user's Chimera/OpenCode runtime defaults,
+  not workspace state;
+- run workspace-specific `proteus chimera doctor --root <workspace>` or MCP
+  `proteus_chimera_doctor`;
 - confirm the active campaign/round state;
 - define the role, goal, expected artifact, and stop conditions;
 - include enough workspace/research context in the goal or dossier material for

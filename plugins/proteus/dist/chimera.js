@@ -47,8 +47,8 @@ exports.DEFAULT_CHIMERA_CONFIG = {
     defaultNetwork: false,
     skipPermissions: true
 };
-function initChimeraConfig(db, input = {}) {
-    const current = db.getChimeraConfig() ?? exports.DEFAULT_CHIMERA_CONFIG;
+function initChimeraConfig(input = {}) {
+    const current = getChimeraConfig();
     const next = {
         enabled: input.enabled ?? true,
         runtime: "opencode",
@@ -63,25 +63,33 @@ function initChimeraConfig(db, input = {}) {
         defaultNetwork: input.defaultNetwork ?? current.defaultNetwork,
         skipPermissions: input.skipPermissions ?? current.skipPermissions
     };
-    saveChimeraConfig(db, next);
+    saveChimeraConfig(next);
     return next;
 }
-function saveChimeraConfig(db, config) {
-    db.saveChimeraConfig(config);
-    (0, paths_1.ensureDir)((0, paths_1.chimeraDir)(db.targetRoot));
-    node_fs_1.default.writeFileSync(node_path_1.default.join((0, paths_1.chimeraDir)(db.targetRoot), "config.json"), JSON.stringify(config, null, 2) + "\n");
+function saveChimeraConfig(config) {
+    const configPath = (0, paths_1.globalChimeraConfigPath)();
+    (0, paths_1.ensureDir)(node_path_1.default.dirname(configPath));
+    node_fs_1.default.writeFileSync(configPath, JSON.stringify(normalizeChimeraConfig(config), null, 2) + "\n");
 }
-function getChimeraConfig(db) {
-    return db.getChimeraConfig() ?? exports.DEFAULT_CHIMERA_CONFIG;
+function getChimeraConfig() {
+    const configPath = (0, paths_1.globalChimeraConfigPath)();
+    if (!node_fs_1.default.existsSync(configPath))
+        return exports.DEFAULT_CHIMERA_CONFIG;
+    try {
+        return normalizeChimeraConfig(JSON.parse(node_fs_1.default.readFileSync(configPath, "utf8")));
+    }
+    catch {
+        return exports.DEFAULT_CHIMERA_CONFIG;
+    }
 }
 function chimeraDoctor(db) {
-    const config = getChimeraConfig(db);
+    const config = getChimeraConfig();
     (0, paths_1.ensureDir)((0, paths_1.chimeraDir)(db.targetRoot));
     const checks = [
         {
             name: "enabled",
             ok: config.enabled,
-            detail: config.enabled ? "Chimera is enabled." : "Run proteus chimera config init before starting agents."
+            detail: config.enabled ? "Chimera is enabled globally." : "Run proteus chimera config init before starting agents."
         },
         {
             name: "chimera_dir",
@@ -99,7 +107,7 @@ function chimeraDoctor(db) {
     return { ok: checks.every((check) => check.ok), config, checks };
 }
 function stopOpenCodeServer(db) {
-    const config = getChimeraConfig(db);
+    const config = getChimeraConfig();
     let stopped = false;
     let detail = "no managed OpenCode server PID is recorded";
     if (config.opencodeServerPid) {
@@ -112,7 +120,7 @@ function stopOpenCodeServer(db) {
             detail = error instanceof Error ? error.message : String(error);
         }
     }
-    saveChimeraConfig(db, { ...config, opencodeServerUrl: null, opencodeServerPid: null });
+    saveChimeraConfig({ ...config, opencodeServerUrl: null, opencodeServerPid: null });
     return { stopped, pid: config.opencodeServerPid, url: config.opencodeServerUrl, detail };
 }
 function startChimeraSession(db, input) {
@@ -120,9 +128,9 @@ function startChimeraSession(db, input) {
         throw new Error("Missing Chimera role.");
     if (!input.goal?.trim())
         throw new Error("Missing Chimera goal.");
-    const config = getChimeraConfig(db);
+    const config = getChimeraConfig();
     if (!config.enabled) {
-        throw new Error("Chimera is disabled. Run `proteus chimera config init` first.");
+        throw new Error("Chimera is disabled. Run `proteus chimera config init` once for the user first.");
     }
     const accessMode = input.accessMode ?? "explorer";
     const accessNotes = input.accessNotes?.trim() ?? "";
@@ -613,7 +621,7 @@ function closeChimeraSession(db, publicId, verdict, summary) {
     return { session: updated, agentOutputId };
 }
 function startChimeraSwarm(db, plan) {
-    const config = getChimeraConfig(db);
+    const config = getChimeraConfig();
     if (!Array.isArray(plan.agents) || plan.agents.length === 0)
         throw new Error("Swarm plan must include at least one agent.");
     if (plan.agents.length > config.maxAgents) {
@@ -634,7 +642,7 @@ function startChimeraSwarm(db, plan) {
     return { sessions, maxAgents: config.maxAgents };
 }
 function runChimeraSession(db, publicId, timeoutSec) {
-    const config = getChimeraConfig(db);
+    const config = getChimeraConfig();
     const session = requireChimeraSession(db, publicId);
     const promptPath = node_path_1.default.join(session.sessionDir, "opencode", "prompt.md");
     if (!node_fs_1.default.existsSync(promptPath))
@@ -651,7 +659,7 @@ function runChimeraSession(db, publicId, timeoutSec) {
 }
 function attachOpenCodeSession(db, publicId, input) {
     const current = requireChimeraSession(db, publicId);
-    const config = getChimeraConfig(db);
+    const config = getChimeraConfig();
     const serverUrl = nullableString(input.serverUrl, current.opencodeServerUrl ?? config.opencodeServerUrl);
     const opencodeSessionId = nullableString(input.opencodeSessionId, current.opencodeSessionId);
     const updated = db.updateChimeraSession({
@@ -660,7 +668,7 @@ function attachOpenCodeSession(db, publicId, input) {
         opencodeSessionId
     });
     if (serverUrl && serverUrl !== config.opencodeServerUrl) {
-        saveChimeraConfig(db, { ...config, opencodeServerUrl: serverUrl });
+        saveChimeraConfig({ ...config, opencodeServerUrl: serverUrl });
     }
     writeStatusFile(db, updated, { opencodeAttached: true });
     return updated;
@@ -673,7 +681,7 @@ function snapshotChimeraWorkflow(db, publicId, input = {}) {
     const limit = Math.max(1, Math.min(50, positiveInteger(input.limit, 8)));
     const maxMessageChars = Math.max(80, Math.min(8000, positiveInteger(input.maxMessageChars, 1200)));
     const sanitize = input.sanitize !== false;
-    const command = commandParts(session.opencodeCommand || getChimeraConfig(db).opencodeCommand);
+    const command = commandParts(session.opencodeCommand || getChimeraConfig().opencodeCommand);
     const args = ["export", session.opencodeSessionId];
     if (sanitize)
         args.push("--sanitize");
@@ -1309,7 +1317,7 @@ function appendJsonl(filePath, value) {
     node_fs_1.default.appendFileSync(filePath, JSON.stringify(value) + "\n");
 }
 function steerOpenCodeSession(db, session, message) {
-    const config = getChimeraConfig(db);
+    const config = getChimeraConfig();
     if (!session.opencodeSessionId) {
         return { attempted: false, ok: false, mode: "none", detail: "no OpenCode session id is attached to this Chimera session" };
     }
@@ -1391,7 +1399,7 @@ function ensureOpenCodeServer(db, config) {
         const url = `http://127.0.0.1:${port}`;
         if (openCodeServerHealthy(url)) {
             const next = { ...config, opencodeServerUrl: url, opencodeServerPid: null };
-            saveChimeraConfig(db, next);
+            saveChimeraConfig(next);
             return { url, pid: null, started: false };
         }
         const started = startOpenCodeServerProcess(db, config, port);
@@ -1399,7 +1407,7 @@ function ensureOpenCodeServer(db, config) {
             sleepMs(250);
             if (openCodeServerHealthy(url)) {
                 const next = { ...config, opencodeServerUrl: url, opencodeServerPid: started.pid };
-                saveChimeraConfig(db, next);
+                saveChimeraConfig(next);
                 return { url, pid: started.pid, started: true };
             }
         }
@@ -1608,6 +1616,30 @@ function extractOpenCodeAssistantText(stdout) {
 }
 function normalizeOpenCodeVariant(variant, provider, fallback) {
     return variant?.trim() || provider?.trim() || fallback;
+}
+function normalizeChimeraConfig(input) {
+    return {
+        enabled: input.enabled === true,
+        runtime: "opencode",
+        opencodeCommand: typeof input.opencodeCommand === "string" && input.opencodeCommand.trim()
+            ? input.opencodeCommand.trim()
+            : exports.DEFAULT_CHIMERA_CONFIG.opencodeCommand,
+        opencodeServerUrl: typeof input.opencodeServerUrl === "string" && input.opencodeServerUrl.trim()
+            ? input.opencodeServerUrl.trim()
+            : null,
+        opencodeServerPid: Number.isFinite(input.opencodeServerPid) && Number(input.opencodeServerPid) > 0
+            ? Math.floor(Number(input.opencodeServerPid))
+            : null,
+        defaultModel: typeof input.defaultModel === "string" && input.defaultModel.trim() ? input.defaultModel.trim() : null,
+        defaultVariant: typeof input.defaultVariant === "string" && input.defaultVariant.trim() ? input.defaultVariant.trim() : null,
+        defaultAgent: typeof input.defaultAgent === "string" && input.defaultAgent.trim() ? input.defaultAgent.trim() : exports.DEFAULT_CHIMERA_CONFIG.defaultAgent,
+        maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : exports.DEFAULT_CHIMERA_CONFIG.maxAgents,
+        defaultTimeoutSec: Number.isFinite(input.defaultTimeoutSec) && Number(input.defaultTimeoutSec) > 0
+            ? Math.floor(Number(input.defaultTimeoutSec))
+            : exports.DEFAULT_CHIMERA_CONFIG.defaultTimeoutSec,
+        defaultNetwork: input.defaultNetwork === true,
+        skipPermissions: input.skipPermissions !== false
+    };
 }
 function stringOr(value, fallback) {
     return typeof value === "string" && value.trim() ? value.trim() : fallback;

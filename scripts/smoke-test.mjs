@@ -23,7 +23,8 @@ function run(args, cwd = tmpRoot) {
     env: {
       ...process.env,
       PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
-      PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports")
+      PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
+      PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
     },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
@@ -164,6 +165,12 @@ try {
   if (!chimeraDoctor.includes('"ok": true') || !chimeraDoctor.includes("mock-opencode")) {
     throw new Error("chimera doctor did not validate mock OpenCode runtime");
   }
+  if (!fs.existsSync(path.join(globalRoot, "chimera", "config.json"))) {
+    throw new Error("chimera config init did not write global config");
+  }
+  if (fs.existsSync(path.join(tmpRoot, ".vros", "chimera", "config.json"))) {
+    throw new Error("chimera config init should not write workspace config");
+  }
   const editorWithoutNotes = runFail([
     "chimera",
     "start",
@@ -193,7 +200,6 @@ try {
     throw new Error("chimera start did not create CH-0001 with editor access");
   }
   for (const required of [
-    ".vros/chimera/config.json",
     ".vros/chimera/sessions/CH-0001/dossier.md",
     ".vros/chimera/sessions/CH-0001/contract.md",
     ".vros/chimera/sessions/CH-0001/agent-instructions.md",

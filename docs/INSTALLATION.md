@@ -161,7 +161,7 @@ enable Chimera for a target:
 - OpenCode docs: <https://opencode.ai/docs/>
 
 ```powershell
-proteus chimera config init --root C:\path\to\target --opencode-command opencode --model zai/glm-5.2 --variant high
+proteus chimera config init --opencode-command opencode --model zai/glm-5.2 --variant high
 proteus chimera doctor --root C:\path\to\target
 ```
 
