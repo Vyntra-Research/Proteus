@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0 - 2026-06-27
+
+### Added
+
+- Added optional Chimera mode for Goose-backed secondary agents managed by Proteus.
+- Added Chimera CLI commands for config, doctor, start, swarm, send, post, snapshot, heartbeat, poll, list, kill, and close.
+- Added MCP tools matching the Chimera CLI control surface.
+- Added SQLite-backed Chimera sessions and messages with mirrored `.vros/chimera` session files, labs, JSONL inbox/outbox, snapshots, kill flags, and Goose logs.
+- Added coordinator-controlled Chimera access modes: default `lab` isolation and explicit `inherit` permission inheritance per launched agent.
+- Added `chimera-agent` skill for secondary agents, including communication commands, access-mode discipline, snapshots, heartbeat, and stop conditions.
+- Added Goose doctor checks and mock-Goose smoke coverage so CI validates Chimera without requiring an API key.
+
+### Changed
+
+- Updated the main coordinator skill to explain when to use Chimera, how to check config, how to poll unread messages, and how to choose `lab` versus `inherit` access.
+- Updated README and Chimera architecture docs with Goose installation links, Chimera setup, CLI examples, swarm usage, MCP tools, and access-mode guidance.
+- Expanded CLI and MCP smoke tests to cover Chimera config/start/post/poll/snapshot/heartbeat/kill/close/swarm flows.
+
+### Migration
+
+- Existing `.vros/memory.sqlite` databases migrate automatically to add Chimera session and message tables when opened by Proteus 2.0.0.
+- Chimera remains disabled by default. Normal Proteus CLI/MCP usage does not require Goose.
+
 ## 1.0.3 - 2026-06-23
 
 ### Fixed
