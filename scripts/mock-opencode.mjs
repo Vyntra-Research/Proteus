@@ -76,6 +76,7 @@ if (args[0] === "export") {
         ]
       },
       {
+        role: "assistant",
         type: "text",
         timestamp: 1760000000000,
         part: { type: "text", text: "Third event-style assistant text." }

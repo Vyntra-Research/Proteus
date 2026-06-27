@@ -102,6 +102,21 @@ try {
   if (!migratedVersions.includes(`Proteus DB version: ${expectedVersion}`) || !migratedVersions.includes(`previous ${expectedVersion}`)) {
     throw new Error("migrate did not report the stored Proteus database version");
   }
+  const partiallyMigratedDb = new DatabaseSync(path.join(legacyRoot, ".vros", "memory.sqlite"));
+  partiallyMigratedDb
+    .prepare("DELETE FROM schema_migrations WHERE version = ?")
+    .run("2026-06-27-chimera-access-modes");
+  partiallyMigratedDb
+    .prepare("DELETE FROM schema_migrations WHERE version = ?")
+    .run("2026-06-27-chimera-opencode-control");
+  partiallyMigratedDb
+    .prepare("UPDATE proteus_metadata SET value = ? WHERE key = 'proteus_version'")
+    .run(expectedVersion);
+  partiallyMigratedDb.close();
+  const repairedMigrations = run(["migrate", "--root", legacyRoot], legacyRoot);
+  if (!repairedMigrations.includes("2026-06-27-chimera-access-modes") || !repairedMigrations.includes("2026-06-27-chimera-opencode-control")) {
+    throw new Error("migration check skipped a missing migration when stored version already matched runtime");
+  }
   run([
     "record",
     "gate",
@@ -161,6 +176,14 @@ try {
   if (!chimeraConfig.includes('"enabled": true') || !chimeraConfig.includes("mock/mock-model") || !chimeraConfig.includes('"defaultVariant": "high"')) {
     throw new Error("chimera config init did not persist enabled mock config");
   }
+  const chimeraConfigPartial = JSON.parse(run(["chimera", "config", "init", "--model", "mock/other-model"]));
+  if (
+    chimeraConfigPartial.config?.opencodeCommand !== opencodeCommand ||
+    chimeraConfigPartial.config?.defaultVariant !== "high" ||
+    chimeraConfigPartial.config?.defaultModel !== "mock/other-model"
+  ) {
+    throw new Error("chimera config init with partial flags did not preserve existing global config fields");
+  }
   const chimeraDoctor = run(["chimera", "doctor"]);
   if (!chimeraDoctor.includes('"ok": true') || !chimeraDoctor.includes("mock-opencode")) {
     throw new Error("chimera doctor did not validate mock OpenCode runtime");
@@ -198,6 +221,10 @@ try {
   ]);
   if (!chimeraStart.includes('"publicId": "CH-0001"') || !chimeraStart.includes('"accessMode": "editor"')) {
     throw new Error("chimera start did not create CH-0001 with editor access");
+  }
+  const attachWithoutSession = runFail(["chimera", "attach-opencode", "--id", "CH-0001", "--server-url", "http://127.0.0.1:4096"]);
+  if (!attachWithoutSession.includes("Missing --opencode-session-id")) {
+    throw new Error("chimera attach-opencode should require an OpenCode session id");
   }
   for (const required of [
     ".vros/chimera/sessions/CH-0001/dossier.md",
@@ -269,6 +296,10 @@ try {
   if (!chimeraRun.includes('"publicId": "CH-0002"') || !chimeraRun.includes("mock-opencode") || !chimeraRun.includes('"provider": "high"') || !chimeraRun.includes('"opencodeSessionId": "ses_mock_CH-0002"')) {
     throw new Error("chimera --run did not capture mock OpenCode output");
   }
+  const explorerAgentFile = fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0002/.opencode/agents/proteus-chimera.md"), "utf8");
+  if (!explorerAgentFile.includes("edit: deny") || !explorerAgentFile.includes("webfetch: deny") || !explorerAgentFile.includes("websearch: deny")) {
+    throw new Error("explorer Chimera agent file did not deny edit and web permissions by default");
+  }
   const chimeraRunExisting = run(["chimera", "run", "--id", "CH-0002", "--timeout", "10"]);
   if (!chimeraRunExisting.includes('"ok": true') || !chimeraRunExisting.includes('"ses_mock_CH-0002"')) {
     throw new Error("chimera run did not reuse existing OpenCode session/lab");
@@ -313,6 +344,22 @@ try {
   if (!cueBeforeRoundOpen.includes("Manual cue-turn is disabled")) {
     throw new Error("chimera council allowed normal flow to use manual cue-turn directly");
   }
+  const invalidStartId = runFail([
+    "chimera",
+    "council",
+    "open-round",
+    "--council-id",
+    councilId,
+    "--round",
+    "1",
+    "--message",
+    "This should not create a round.",
+    "--start-id",
+    "CH-9999"
+  ]);
+  if (!invalidStartId.includes("Council participant not found")) {
+    throw new Error("chimera council open-round should fail clearly for an invalid start-id");
+  }
   const chimeraCouncilOpenRound = JSON.parse(run([
     "chimera",
     "council",
@@ -326,6 +373,24 @@ try {
   ]));
   if (!chimeraCouncilOpenRound.firstCue || !JSON.stringify(chimeraCouncilOpenRound.firstCue).includes("CH-0001") || !JSON.stringify(chimeraCouncilOpenRound.firstCue).includes("Council transcript so far")) {
     throw new Error("chimera council open-round did not automatically cue the first accepted participant");
+  }
+  const duplicateRoundOpen = runFail([
+    "chimera",
+    "council",
+    "open-round",
+    "--council-id",
+    councilId,
+    "--round",
+    "1",
+    "--message",
+    "Duplicate open should fail."
+  ]);
+  if (!duplicateRoundOpen.includes("round 1 is already open")) {
+    throw new Error("chimera council allowed the same round to be opened twice");
+  }
+  const outOfOrderTurn = runFail(["chimera", "council", "turn", "--id", "CH-0002", "--council-id", councilId, "--round", "1", "--body", "out of order"]);
+  if (!outOfOrderTurn.includes("Expected CH-0001")) {
+    throw new Error("chimera council allowed an out-of-order turn");
   }
   const chimeraCouncilTurnOne = JSON.parse(run(["chimera", "council", "turn", "--id", "CH-0001", "--council-id", councilId, "--round", "1", "--body", "CH-0001 observation"]));
   if (
@@ -409,17 +474,50 @@ try {
     "--description",
     "Surface created in the wrong Proteus base"
   ], mergeRoot);
+  run([
+    "chimera",
+    "start",
+    "--root",
+    mergeRoot,
+    "--role",
+    "explorer",
+    "--goal",
+    "Stray Chimera state"
+  ], mergeRoot);
+  run([
+    "chimera",
+    "post",
+    "--root",
+    mergeRoot,
+    "--id",
+    "CH-0001",
+    "--body",
+    "Stray Chimera message"
+  ], mergeRoot);
+  const sourceMigrationsBeforeDryRun = run(["migrate", "--root", mergeRoot], mergeRoot);
   const mergeDryRun = run(["merge", "--source", path.join(mergeRoot, ".vros", "memory.sqlite"), "--dry-run"]);
-  if (!mergeDryRun.includes('"dryRun": true') || !mergeDryRun.includes('"evidence": 1')) {
+  const sourceMigrationsAfterDryRun = run(["migrate", "--root", mergeRoot], mergeRoot);
+  if (sourceMigrationsAfterDryRun !== sourceMigrationsBeforeDryRun) {
+    throw new Error("merge dry-run modified source migration state");
+  }
+  if (!mergeDryRun.includes('"dryRun": true') || !mergeDryRun.includes('"evidence": 1') || !mergeDryRun.includes('"chimeraSessions": 1')) {
     throw new Error("merge dry-run did not preview source evidence");
   }
   const mergeResult = run(["merge", "--source", path.join(mergeRoot, ".vros")]);
-  if (!mergeResult.includes('"dryRun": false') || !mergeResult.includes('"surfaces": 1')) {
+  if (!mergeResult.includes('"dryRun": false') || !mergeResult.includes('"surfaces": 1') || !mergeResult.includes('"chimeraMessages": 2')) {
     throw new Error("merge did not copy source records into destination memory");
   }
   const mergedMemory = run(["query", "memory", "Stray merge evidence body"]);
   if (!mergedMemory.includes("evidence#")) {
     throw new Error("merged evidence was not searchable in destination memory");
+  }
+  const mergedChimera = run(["chimera", "list"]);
+  if (!mergedChimera.includes("Stray Chimera state")) {
+    throw new Error("merge did not copy Chimera session state");
+  }
+  const mergedChimeraMessages = run(["chimera", "poll", "--id", "CH-0005", "--peek"]);
+  if (!mergedChimeraMessages.includes("Stray Chimera message")) {
+    throw new Error("merge did not copy Chimera messages");
   }
   run(["ingest", "docs"]);
   run(["observe"]);

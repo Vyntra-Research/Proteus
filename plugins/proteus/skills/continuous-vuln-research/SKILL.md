@@ -110,10 +110,10 @@ Before launching Chimera agents:
   strategy, and applicable Proteus heuristics/gates;
 - make the goal and stop conditions explicit enough that the agent can keep
   working until completion or a real blocker without guessing when to stop;
-- check `proteus chimera list` before creating new agents; inspect role, goal,
+- check `proteus chimera list --root <workspace>` before creating new agents; inspect role, goal,
   status, `labDir`, and `opencodeSessionId`; create a new co-agent only when
   there is a distinct front, role, model, or lab need, otherwise continue the
-  existing `CH-...` with `proteus chimera run --id <CH-ID>`;
+  existing `CH-...` with `proteus chimera run --root <workspace> --id <CH-ID>`;
 - choose the access mode deliberately.
 
 Access modes:
@@ -132,10 +132,10 @@ Access modes:
 Launch examples:
 
 ```text
-proteus chimera start --role chaining --goal "Develop non-obvious chains from the upload parser branch"
-proteus chimera start --role cicada --goal "Try bypass/chaining on branch B7" --access editor --access-notes "Allowed: edit only .vros/chimera lab and generated PoC harness files; shell may run targeted tests and non-destructive probes; ask before workspace source edits."
-proteus chimera run --id CH-0001
-proteus chimera swarm --plan chimera-swarm.json
+proteus chimera start --root <workspace> --role chaining --goal "Develop non-obvious chains from the upload parser branch"
+proteus chimera start --root <workspace> --role cicada --goal "Try bypass/chaining on branch B7" --access editor --access-notes "Allowed: edit only .vros/chimera lab and generated PoC harness files; shell may run targeted tests and non-destructive probes; ask before workspace source edits."
+proteus chimera run --root <workspace> --id CH-0001
+proteus chimera swarm --root <workspace> --plan chimera-swarm.json
 ```
 
 Coordinator duties:
@@ -143,15 +143,15 @@ Coordinator duties:
 - lead the research strategy while allowing Chimera co-agents to operate as
   independent, rational research fronts that choose their own concrete next
   probes, labs, PoCs, payloads, and validation steps inside the assigned scope;
-- poll unread messages with `proteus chimera poll --unread`;
-- send redirects with `proteus chimera send`; use `--priority` when the message
+- poll unread messages with `proteus chimera poll --root <workspace> --unread`;
+- send redirects with `proteus chimera send --root <workspace>`; use `--priority` when the message
   should steer an active OpenCode session immediately;
 - understand that `--priority` can directly ping OpenCode with `delivery=steer`
   only after the Chimera session has an attached `opencodeSessionId`; if missing,
   run the existing `CH-...` once or attach the OpenCode session explicitly;
-- expect Proteus to reuse an online OpenCode server first. It should use the
-  saved target `opencodeServerUrl` when healthy, otherwise detect an already
-  running local server on the managed port range before starting a new one;
+- expect Proteus to reuse the saved/configured OpenCode server URL when it is
+  healthy. If no configured server is healthy, Proteus starts a managed local
+  server instead of attaching to an arbitrary process on the port range;
 - treat `proteus chimera poll` as the authoritative Proteus broker history:
   coordinator messages, agent posts, snapshots, heartbeat, kill/close events,
   and latest snapshots. It is not the full raw OpenCode chat transcript;
@@ -160,11 +160,11 @@ Coordinator duties:
   `opencode export <ses_id>`, and keep any imported conclusions summarized back
   into Proteus messages or snapshots;
 - when you only need to inspect the co-agent's recent workflow without being
-  flooded by context, use `proteus chimera workflow-snapshot --id CH-...`.
+  flooded by context, use `proteus chimera workflow-snapshot --root <workspace> --id CH-...`.
   It returns only the latest agent text messages from the OpenCode session,
   excluding tool calls and tool outputs, with bounded message count and bounded
   size per message;
-- kill looping or low-ROI sessions with `proteus chimera kill`;
+- kill looping or low-ROI sessions with `proteus chimera kill --root <workspace>`;
 - close sessions with a verdict and summary;
 - independently validate any agent claim before recording it as a finding.
 
@@ -189,20 +189,20 @@ must:
 - list the participant `CH-...` ids, roles, and current goals;
 - include the current state: confirmed facts, killed paths, open branches,
   constraints, evidence gaps, relevant heuristics, and the decision needed;
-- start with `proteus chimera council start --topic "..." --ids CH-0001,CH-0002`
+- start with `proteus chimera council start --root <workspace> --topic "..." --ids CH-0001,CH-0002`
   or MCP `proteus_chimera_council` with `action=start`;
 - use priority invite delivery so agents are notified directly when possible;
 - let agents accept when they are free or at a safe pause point;
-- check readiness with `proteus chimera council status --council-id CO-...`;
+- check readiness with `proteus chimera council status --root <workspace> --council-id CO-...`;
 - begin once all useful participants are ready, or proceed with ready agents if
   waiting longer would stall the campaign;
 - open every round with a coordinator message using
-  `proteus chimera council open-round --council-id CO-... --round N --message "..."`
+  `proteus chimera council open-round --root <workspace> --council-id CO-... --round N --message "..."`
   so every participant sees the same question, constraints, and output shape.
   In the normal flow, `open-round` automatically cues the first accepted
   participant with the council transcript and required response command through
   the Proteus inbox and direct OpenCode steer when possible;
-- expect the called agent to answer with `proteus chimera council turn`, not by
+- expect the called agent to answer with `proteus chimera council turn --root <workspace>`, not by
   replying directly to the steer notification;
 - after each agent posts a turn, Proteus automatically cues the next accepted
   participant in that round when one remains. The coordinator and agents should
@@ -211,14 +211,14 @@ must:
   recovery command and must not be used in the normal council flow. When the
   last accepted participant has answered, the round returns to the coordinator with
   `roundComplete=true`;
-- check `proteus chimera council status --council-id CO-...` after turns and
+- check `proteus chimera council status --root <workspace> --council-id CO-...` after turns and
   before deciding whether to close, open a new round, or record a resulting
   decision/branch/checkpoint;
 - rely on Proteus to reject duplicate turns from the same agent in the same
   round, and open a new round only when you intentionally extend the council;
 - keep the default to one round and normally cap at two rounds. Extend only for
   a concrete unresolved high-ROI question;
-- end with `proteus chimera council close --council-id CO-... --summary "..."`
+- end with `proteus chimera council close --root <workspace> --council-id CO-... --summary "..."`
   and include the final decision, next actions, and whether agents should
   resume prior work or follow a redirect.
 

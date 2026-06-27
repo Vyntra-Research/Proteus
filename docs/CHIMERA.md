@@ -18,6 +18,10 @@ OpenCode by following the official project:
 
 Proteus does not manage provider credentials. Configure the model/provider in
 OpenCode first, then point Proteus at the OpenCode command and model name.
+When a Chimera run needs the OpenCode server API, Proteus reuses the configured
+server URL if it is healthy. Otherwise it starts a managed local server on an
+available port in the managed range; it does not attach to an arbitrary healthy
+process just because it is listening on that range.
 
 ## Enable Chimera
 
@@ -104,6 +108,12 @@ proteus chimera start --root C:\path\to\target --role explorer --goal "Map side 
 In `explorer` mode, repository writes are out of scope and artifacts belong in
 the session lab. The agent may read the workspace and use shell for read-only
 inspection and lab-local scripts.
+
+Access modes are Proteus/OpenCode coordination controls, not an operating-system
+sandbox. When network is disabled in the global Chimera config, Proteus omits
+OpenCode web permissions from the generated agent file. Shell access is still
+governed by the coordinator's contract and access notes, so do not describe
+network or write limits as hard OS isolation.
 
 Editor access is explicit:
 

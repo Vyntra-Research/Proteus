@@ -183,8 +183,8 @@ function startChimeraSession(db, input) {
         paths,
         run,
         nextSuggestedReads: [
-            `proteus chimera poll --id ${session.publicId} --unread`,
-            `proteus chimera send --id ${session.publicId} --message "..."`
+            `proteus chimera poll --root "${db.targetRoot}" --id ${session.publicId} --unread`,
+            `proteus chimera send --root "${db.targetRoot}" --id ${session.publicId} --message "..."`
         ]
     };
 }
@@ -301,8 +301,8 @@ function startChimeraCouncil(db, input) {
         })),
         invitations,
         nextSuggestedReads: [
-            `proteus chimera council status --council-id ${councilId}`,
-            `proteus chimera poll --unread`
+            `proteus chimera council status --root "${db.targetRoot}" --council-id ${councilId}`,
+            `proteus chimera poll --root "${db.targetRoot}" --unread`
         ]
     };
 }
@@ -319,8 +319,15 @@ function postChimeraCouncilTurn(db, publicId, councilId, body, round, advance) {
     if (!trimmed)
         throw new Error("Council turn body is required.");
     const roundNumber = positiveInteger(round, 1);
+    if (!councilRoundOpened(council, roundNumber)) {
+        throw new Error(`Council ${councilId} round ${roundNumber} has not been opened by the coordinator yet.`);
+    }
     if (council.turns.some((message) => message.publicId === publicId && councilMetadata(message).round === roundNumber)) {
         throw new Error(`${publicId} already posted a council turn for ${councilId} round ${roundNumber}. Use the next round only if the coordinator extends the council.`);
+    }
+    const expected = nextCouncilParticipant(council, roundNumber);
+    if (!expected || expected.publicId !== publicId) {
+        throw new Error(`It is not ${publicId}'s council turn for ${councilId} round ${roundNumber}. Expected ${expected?.publicId ?? "coordinator"}.`);
     }
     const message = postChimeraMessage(db, publicId, "council", trimmed, {
         councilId,
@@ -393,9 +400,21 @@ function openChimeraCouncilRound(db, councilId, round, body, startId, autoCue = 
     const trimmed = body.trim();
     if (!trimmed)
         throw new Error("Council round opening body is required.");
+    if (councilRoundOpened(council, roundNumber)) {
+        throw new Error(`Council ${councilId} round ${roundNumber} is already open.`);
+    }
     const coordinatorSession = council.participants[0];
     if (!coordinatorSession)
         throw new Error(`Council has no participants: ${councilId}`);
+    let firstParticipantId = null;
+    if (autoCue) {
+        const next = startId ? council.participants.find((participant) => participant.publicId === startId) : nextCouncilParticipant(council, roundNumber);
+        if (startId && !next)
+            throw new Error(`Council participant not found for startId: ${startId}`);
+        if (startId && next && !next.accepted)
+            throw new Error(`Council participant has not accepted yet: ${startId}`);
+        firstParticipantId = next?.publicId ?? null;
+    }
     const message = db.addChimeraMessage({
         publicId: coordinatorSession.publicId,
         direction: "system",
@@ -411,13 +430,9 @@ function openChimeraCouncilRound(db, councilId, round, body, startId, autoCue = 
         readByCoordinator: true
     });
     appendJsonl(node_path_1.default.join(requireChimeraSession(db, coordinatorSession.publicId).sessionDir, "transcript.jsonl"), message);
-    const updatedCouncil = getChimeraCouncil(db, councilId);
     let firstCue = null;
-    if (autoCue) {
-        const next = startId ? updatedCouncil.participants.find((participant) => participant.publicId === startId) : nextCouncilParticipant(updatedCouncil, roundNumber);
-        if (next) {
-            firstCue = cueChimeraCouncilTurnInternal(db, next.publicId, councilId, roundNumber, "The coordinator opened this council round. It is now your ordered turn.");
-        }
+    if (firstParticipantId) {
+        firstCue = cueChimeraCouncilTurnInternal(db, firstParticipantId, councilId, roundNumber, "The coordinator opened this council round. It is now your ordered turn.");
     }
     return { message, firstCue, council: getChimeraCouncil(db, councilId) };
 }
@@ -662,6 +677,12 @@ function attachOpenCodeSession(db, publicId, input) {
     const config = getChimeraConfig();
     const serverUrl = nullableString(input.serverUrl, current.opencodeServerUrl ?? config.opencodeServerUrl);
     const opencodeSessionId = nullableString(input.opencodeSessionId, current.opencodeSessionId);
+    if (!serverUrl)
+        throw new Error(`OpenCode server URL is required to attach Chimera session ${publicId}.`);
+    if (!opencodeSessionId)
+        throw new Error(`OpenCode session id is required to attach Chimera session ${publicId}.`);
+    if (!openCodeServerHealthy(serverUrl))
+        throw new Error(`OpenCode server is not reachable or healthy: ${serverUrl}`);
     const updated = db.updateChimeraSession({
         publicId,
         opencodeServerUrl: serverUrl,
@@ -952,7 +973,7 @@ Required behavior:
 - Shared Chimera chat is advisory context. You do not need to answer every broadcast. Respond only when it changes your branch, asks you a direct question, or can help another active agent.
 - Coordinator questions should be answered unless doing so would exceed scope or interrupt a higher-priority safety stop.
 - Brainstorm council messages use kind "council". Accept a council invite only when you are free or at a safe pause point. In a council, identify yourself as ${session.publicId} / ${session.role}, wait for your ordered cue-turn message, read the included council transcript, and send exactly one concise turn per round with non-obvious options, evidence gaps, risks, and recommended next move. Do not answer the steer notification directly, debate every point, create a chat loop, or manually pass the turn to another agent; Proteus advances to the next accepted participant automatically after your turn. After the coordinator closes the council, resume prior work if still valid or follow the final instruction.
-- Network is ${config.defaultNetwork ? "allowed only within the target authorization" : "disabled by default unless the coordinator explicitly authorizes it"}.
+- Network use is ${config.defaultNetwork ? "authorized only within the target scope and coordinator restrictions" : "not authorized by default. Proteus omits OpenCode web permissions unless the coordinator enables network, but shell is not an OS sandbox; do not use network from shell unless explicitly authorized."}
 
 Communication commands:
 - ${proteusCommand} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent
@@ -1021,13 +1042,20 @@ function copySkillFiles(session) {
 function writeOpenCodeAgentFile(session, config) {
     const agentName = config.defaultAgent ?? "proteus-chimera";
     const permissions = session.accessMode === "editor"
-        ? ["bash", "read", "edit", "glob", "grep", "webfetch", "websearch", "skill", "lsp"]
-        : ["bash", "read", "glob", "grep", "webfetch", "websearch", "skill", "lsp"];
+        ? ["bash", "read", "edit", "glob", "grep", "skill", "lsp"]
+        : ["bash", "read", "glob", "grep", "skill", "lsp"];
+    if (config.defaultNetwork)
+        permissions.push("webfetch", "websearch");
+    const deniedPermissions = [
+        ...(session.accessMode === "editor" ? [] : ["edit"]),
+        ...(config.defaultNetwork ? [] : ["webfetch", "websearch"])
+    ];
     const agent = `---
 description: Proteus Chimera secondary agent for ${session.role} work.
 mode: primary
 ${session.model ? `model: ${session.model}\n` : ""}permissions:
   ${permissions.map((permission) => `${permission}: allow`).join("\n  ")}
+  ${deniedPermissions.map((permission) => `${permission}: deny`).join("\n  ")}
 ---
 
 # Proteus Chimera Runtime Agent
@@ -1152,9 +1180,7 @@ function isAgentMessageObject(object) {
     const role = lowerString(object.role) ?? lowerString(metadataObject(object.author)?.role) ?? lowerString(metadataObject(object.message)?.role);
     if (role === "assistant" || role === "agent")
         return true;
-    const type = lowerString(object.type);
-    const part = metadataObject(object.part);
-    return type === "text" && lowerString(part?.type) === "text" && typeof part?.text === "string";
+    return false;
 }
 function extractWorkflowText(object) {
     const parts = [];
@@ -1398,9 +1424,7 @@ function ensureOpenCodeServer(db, config) {
     for (let port = 4096; port <= 4115; port++) {
         const url = `http://127.0.0.1:${port}`;
         if (openCodeServerHealthy(url)) {
-            const next = { ...config, opencodeServerUrl: url, opencodeServerPid: null };
-            saveChimeraConfig(next);
-            return { url, pid: null, started: false };
+            continue;
         }
         const started = startOpenCodeServerProcess(db, config, port);
         for (let attempt = 0; attempt < 20; attempt++) {
@@ -1514,10 +1538,31 @@ function commandCheck(name, command, args) {
     };
 }
 function commandParts(command) {
+    const trimmed = command.trim();
+    if (trimmed && node_fs_1.default.existsSync(trimmed))
+        return { file: resolveWindowsCommand(trimmed), args: [] };
     const parts = command.match(/"([^"]+)"|'([^']+)'|[^\s]+/g)?.map((part) => part.replace(/^["']|["']$/g, "")) ?? [];
     if (parts.length === 0)
         return { file: command, args: [] };
+    const joinedPrefix = longestExistingCommandPrefix(parts);
+    if (joinedPrefix)
+        return { file: resolveWindowsCommand(joinedPrefix.file), args: [...joinedPrefix.args, ...parts.slice(joinedPrefix.consumed)] };
     return { file: resolveWindowsCommand(parts[0]), args: parts.slice(1) };
+}
+function longestExistingCommandPrefix(parts) {
+    for (let consumed = parts.length; consumed > 1; consumed--) {
+        const candidate = parts.slice(0, consumed).join(" ");
+        if (node_fs_1.default.existsSync(candidate))
+            return { file: candidate, args: [], consumed };
+        if (process.platform === "win32") {
+            for (const extension of [".exe", ".cmd", ".bat"]) {
+                const withExtension = `${candidate}${extension}`;
+                if (node_fs_1.default.existsSync(withExtension))
+                    return { file: withExtension, args: [], consumed };
+            }
+        }
+    }
+    return null;
 }
 function spawnExternalSync(command, args, options) {
     return (0, node_child_process_1.spawnSync)(command.file, [...command.args, ...args], {

@@ -8,7 +8,7 @@
 - Added Chimera CLI commands for config, doctor, start, swarm, send, broadcast, post, snapshot, heartbeat, poll, list, kill, and close.
 - Added MCP tools matching the Chimera CLI control surface.
 - Added SQLite-backed Chimera sessions and messages with mirrored `.vros/chimera` session files, labs, JSONL inbox/outbox, snapshots, kill flags, and OpenCode logs.
-- Added coordinator-controlled Chimera access modes: default `lab` isolation and explicit `inherit` permission inheritance per launched agent.
+- Added coordinator-controlled Chimera access modes: default `explorer` and explicit `editor` per launched agent.
 - Added `chimera-agent` skill for secondary agents, including communication commands, shared-chat broadcast, inbox polling, access-mode discipline, snapshots, heartbeat, and stop conditions.
 - Added OpenCode doctor checks and mock-OpenCode smoke coverage so CI validates Chimera without requiring an API key.
 - Added priority Chimera notifications for coordinator messages and broadcasts, plus a session-local `notifications.json` signal that running agents check periodically before polling Proteus.
@@ -18,17 +18,16 @@
 
 ### Changed
 
-- Updated the main coordinator skill to explain when to use Chimera, how to check config, how to poll unread messages, and how to choose `lab` versus `inherit` access.
+- Updated the main coordinator skill to explain when to use Chimera, how to check config, how to poll unread messages, and how to choose `explorer` versus `editor` access.
 - Updated README and Chimera docs with the official OpenCode project link, GLM-style model/variant target config, CLI examples, swarm usage, MCP tools, broadcast chat, and access-mode guidance.
 - Consolidated human docs by replacing redundant planning/update documents with the current technical Chimera reference.
 - Renamed Chimera access modes to `explorer` and `editor`; `editor` now requires explicit `--access-notes` restrictions, and co-agents are instructed to create/edit files only inside their own Chimera lab unless a specific workspace path and action is granted.
 - Separated global Chimera runtime configuration from workspace state: `proteus chimera config init/show/disable` now writes the user's global `.vros/chimera/config.json` without creating workspace memory, while doctor/sessions/labs remain workspace-scoped.
 - Expanded CLI and MCP smoke tests to cover Chimera config/start/post/poll/snapshot/heartbeat/kill/close/swarm flows.
-- Validated a real OpenCode run with `zai/glm-5.2`, `--variant high`, generated Chimera skills, Proteus CLI communication, snapshot creation, and unread polling.
 
 ### Migration
 
-- Existing `.vros/memory.sqlite` databases migrate automatically to add Chimera session and message tables when opened by Proteus 2.0.0.
+- Existing `.vros/memory.sqlite` databases migrate automatically to add Chimera session and message tables when opened by Proteus 2.0.0. Proteus also checks the recorded migration ids, so a database stamped with the current runtime version still receives any missing idempotent migrations.
 - Chimera remains disabled by default. Normal Proteus CLI/MCP usage does not require OpenCode.
 
 ## 1.0.3 - 2026-06-23

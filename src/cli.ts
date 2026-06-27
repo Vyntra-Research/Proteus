@@ -31,7 +31,6 @@ import {
   startChimeraCouncil,
   startChimeraSwarm,
   stopOpenCodeServer,
-  DEFAULT_CHIMERA_CONFIG,
   type ChimeraSwarmPlan
 } from "./chimera";
 import { defaultGlobalScopeFromTarget, GlobalMemoryDb, globalMemoryLocation } from "./global-memory";
@@ -306,8 +305,8 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
       console.log(JSON.stringify({
         ok: true,
         session: attachOpenCodeSession(db, requiredString(parsed, "id"), {
-          serverUrl: getString(parsed, "server-url"),
-          opencodeSessionId: getString(parsed, "opencode-session-id")
+          serverUrl: requiredString(parsed, "server-url"),
+          opencodeSessionId: requiredString(parsed, "opencode-session-id")
         })
       }, null, 2));
       return;
@@ -428,16 +427,15 @@ function cmdChimeraConfig(subcommand: string | undefined, parsed: ParsedArgs): v
       const config = initChimeraConfig({
         enabled: !getBoolean(parsed, "disabled"),
         runtime: "opencode",
-        opencodeCommand: getString(parsed, "opencode-command") ?? DEFAULT_CHIMERA_CONFIG.opencodeCommand,
+        opencodeCommand: getString(parsed, "opencode-command"),
         opencodeServerUrl: getString(parsed, "server-url") ?? undefined,
-        opencodeServerPid: getNumber(parsed, "server-pid") ?? undefined,
         defaultModel: getString(parsed, "model") ?? undefined,
         defaultVariant: getString(parsed, "variant") ?? getString(parsed, "provider") ?? undefined,
         defaultAgent: getString(parsed, "agent") ?? undefined,
         maxAgents: getNumber(parsed, "max-agents"),
         defaultTimeoutSec: getNumber(parsed, "timeout"),
-        defaultNetwork: getBoolean(parsed, "network"),
-        skipPermissions: !getBoolean(parsed, "no-skip-permissions")
+        defaultNetwork: hasFlag(parsed, "network") ? getBoolean(parsed, "network") : undefined,
+        skipPermissions: hasFlag(parsed, "no-skip-permissions") ? false : undefined
       });
       console.log(JSON.stringify({ ok: true, config }, null, 2));
       return;
@@ -1173,6 +1171,10 @@ function getBoolean(parsed: ParsedArgs, key: string): boolean {
   return parsed.flags[key] === true || parsed.flags[key] === "true";
 }
 
+function hasFlag(parsed: ParsedArgs, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(parsed.flags, key);
+}
+
 function autoLinkActiveCampaign(db: ProteusDb, entityType: string, entityId: number, relation: string, eventSummary: string): void {
   db.linkActiveCampaignTo({
     toType: entityType,
@@ -1399,6 +1401,13 @@ Usage:
   proteus status [--root <path>]
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
+  proteus chimera config init|show|disable [--opencode-command <cmd>] [--server-url <url>] [--model <provider/model>] [--variant <variant>]
+  proteus chimera doctor [--root <path>]
+  proteus chimera stop-server [--root <path>]
+  proteus chimera start --root <path> --role <role> --goal <text> [--access explorer|editor] [--access-notes <text>] [--run]
+  proteus chimera swarm --root <path> --plan <json> [--run]
+  proteus chimera council start|accept|open-round|cue-turn|turn|status|close --root <path>
+  proteus chimera send|broadcast|post|snapshot|workflow-snapshot|heartbeat|poll|list|kill|close --root <path>
   proteus ingest [--root <path>] [paths...]
   proteus observe [--root <path>]
   proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]

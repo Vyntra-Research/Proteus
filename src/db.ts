@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import os from "node:os";
 import { memoryPath, vrosDir, ensureDir } from "./paths";
 import {
   decisionInputSchema,
@@ -1212,24 +1213,26 @@ export class ProteusDb {
     try {
       for (const sourceInput of sourceInputs) {
         const sourceRoot = resolveProteusSourceRoot(sourceInput, options.sourceBaseRoot ?? this.targetRoot);
-        const source = new ProteusDb(sourceRoot);
+        const sourceDbPath = memoryPath(sourceRoot);
+        if (path.resolve(sourceDbPath) === path.resolve(this.dbPath)) {
+          result.sources.push({
+            input: sourceInput,
+            root: sourceRoot,
+            dbPath: sourceDbPath,
+            skipped: true,
+            reason: "source and destination are the same database",
+            counts: emptyMergeCounts()
+          });
+          continue;
+        }
+        const opened = openMergeSource(sourceRoot, options.dryRun === true);
+        const source = opened.db;
         try {
-          if (path.resolve(source.dbPath) === path.resolve(this.dbPath)) {
-            result.sources.push({
-              input: sourceInput,
-              root: source.targetRoot,
-              dbPath: source.dbPath,
-              skipped: true,
-              reason: "source and destination are the same database",
-              counts: emptyMergeCounts()
-            });
-            continue;
-          }
           const sourceResult = this.mergeOneSource(source, destinationTarget.id, options.dryRun === true);
           result.sources.push({
             input: sourceInput,
-            root: source.targetRoot,
-            dbPath: source.dbPath,
+            root: sourceRoot,
+            dbPath: sourceDbPath,
             skipped: false,
             counts: sourceResult.counts,
             sourceTarget: source.getTarget()?.name ?? null
@@ -1237,6 +1240,9 @@ export class ProteusDb {
           addMergeCounts(result.totals, sourceResult.counts);
         } finally {
           source.close();
+          if (opened.cleanupRoot) {
+            fs.rmSync(opened.cleanupRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+          }
         }
       }
       if (!options.dryRun) this.db.exec("COMMIT");
@@ -1274,6 +1280,8 @@ export class ProteusDb {
       countOnly("campaignCheckpoints", "campaign_checkpoints");
       countOnly("entityLinks", "entity_links");
       countOnly("campaignEvents", "campaign_events");
+      countOnly("chimeraSessions", "chimera_sessions");
+      countOnly("chimeraMessages", "chimera_messages");
       return { counts };
     }
 
@@ -1641,6 +1649,69 @@ export class ProteusDb {
       counts.campaignEvents += 1;
     }
 
+    for (const row of source.rows("chimera_sessions")) {
+      const publicId = this.nextChimeraPublicId();
+      const newId = this.insertRow(
+        `INSERT INTO chimera_sessions
+          (public_id, target_id, campaign_id, round_id, role, goal, status,
+           access_mode, access_notes, model, provider, session_dir, lab_dir,
+           opencode_command, opencode_pid, opencode_server_url, opencode_session_id,
+           created_at, updated_at, closed_at, close_verdict, close_summary)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          publicId,
+          destinationTargetId,
+          remapNullableId(maps, "campaign", row.campaign_id),
+          remapNullableId(maps, "round", row.round_id),
+          row.role,
+          row.goal,
+          row.status,
+          normalizeChimeraAccessMode(String(row.access_mode ?? "")),
+          row.access_notes,
+          row.model,
+          row.provider,
+          row.session_dir,
+          row.lab_dir,
+          row.opencode_command,
+          row.opencode_pid,
+          row.opencode_server_url,
+          row.opencode_session_id,
+          row.created_at,
+          row.updated_at,
+          row.closed_at,
+          row.close_verdict,
+          row.close_summary
+        ]
+      );
+      mapId(maps, "chimera_session", Number(row.id), newId);
+      this.indexFts("chimera_session", newId, `${publicId}\n${String(row.role ?? "")}\n${String(row.goal ?? "")}\n${String(row.model ?? "")}`);
+      counts.chimeraSessions += 1;
+    }
+
+    for (const row of source.rows("chimera_messages")) {
+      const sessionId = remapNullableId(maps, "chimera_session", row.session_id);
+      if (sessionId === null) {
+        counts.skippedChimeraMessages += 1;
+        continue;
+      }
+      this.insertRow(
+        `INSERT INTO chimera_messages
+          (session_id, direction, kind, body, metadata_json, read_by_coordinator, read_by_agent, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          sessionId,
+          row.direction,
+          row.kind,
+          row.body,
+          row.metadata_json,
+          row.read_by_coordinator,
+          row.read_by_agent,
+          row.created_at
+        ]
+      );
+      counts.chimeraMessages += 1;
+    }
+
     return { counts };
   }
 
@@ -1690,25 +1761,28 @@ export class ProteusDb {
 
   private migrateIfNeeded(): void {
     this.ensureMetadataTable();
-    if (this.getMetadata("proteus_version") === CURRENT_PROTEUS_VERSION) return;
     this.migrate(false);
   }
 
   private migrate(force: boolean): void {
     this.ensureMetadataTable();
-    if (!force && this.getMetadata("proteus_version") === CURRENT_PROTEUS_VERSION) return;
+    const storedVersion = this.getMetadata("proteus_version");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version TEXT PRIMARY KEY,
         applied_at TEXT NOT NULL
       );
     `);
-    this.applyMigration("2026-05-17-validation-gates-surfaces-and-focused-duplicates", BASE_SCHEMA_SQL);
-    this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL);
-    this.applyMigration("2026-06-17-campaign-checkpoints", CAMPAIGN_CHECKPOINT_SCHEMA_SQL);
-    this.applyMigration("2026-06-27-chimera-mode", CHIMERA_SCHEMA_SQL);
-    this.applyMigration("2026-06-27-chimera-opencode-control", CHIMERA_OPENCODE_CONTROL_SCHEMA_SQL);
-    this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
+    let changed = false;
+    changed = this.applyMigration("2026-05-17-validation-gates-surfaces-and-focused-duplicates", BASE_SCHEMA_SQL) || changed;
+    changed = this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL) || changed;
+    changed = this.applyMigration("2026-06-17-campaign-checkpoints", CAMPAIGN_CHECKPOINT_SCHEMA_SQL) || changed;
+    changed = this.applyMigration("2026-06-27-chimera-mode", CHIMERA_SCHEMA_SQL) || changed;
+    changed = this.applyChimeraOpenCodeControlMigration("2026-06-27-chimera-opencode-control") || changed;
+    changed = this.applyMigration("2026-06-27-chimera-access-modes", CHIMERA_ACCESS_MODE_SCHEMA_SQL) || changed;
+    if (changed || storedVersion !== CURRENT_PROTEUS_VERSION || force) {
+      this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
+    }
   }
 
   private ensureMetadataTable(): void {
@@ -1738,11 +1812,11 @@ export class ProteusDb {
       .run(key, value, nowIso());
   }
 
-  private applyMigration(version: string, sql: string): void {
+  private applyMigration(version: string, sql: string): boolean {
     const existing = this.db
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
       .get(version) as Row | undefined;
-    if (existing) return;
+    if (existing) return false;
     this.db.exec("BEGIN");
     try {
       this.db.exec(sql);
@@ -1750,10 +1824,37 @@ export class ProteusDb {
         .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
         .run(version, nowIso());
       this.db.exec("COMMIT");
+      return true;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  private applyChimeraOpenCodeControlMigration(version: string): boolean {
+    const existing = this.db
+      .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+      .get(version) as Row | undefined;
+    if (existing) return false;
+    this.db.exec("BEGIN");
+    try {
+      this.addColumnIfMissing("chimera_sessions", "opencode_server_url", "TEXT");
+      this.addColumnIfMissing("chimera_sessions", "opencode_session_id", "TEXT");
+      this.db
+        .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+        .run(version, nowIso());
+      this.db.exec("COMMIT");
+      return true;
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string): void {
+    const exists = (this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[])
+      .some((row) => String(row.name) === column);
+    if (!exists) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
   }
 
   private indexFts(entityType: string, entityId: number, content: string): void {
@@ -2009,7 +2110,7 @@ const CHIMERA_SCHEMA_SQL = `
         role TEXT NOT NULL,
         goal TEXT NOT NULL,
         status TEXT NOT NULL,
-        access_mode TEXT NOT NULL DEFAULT 'lab',
+        access_mode TEXT NOT NULL DEFAULT 'explorer',
         access_notes TEXT,
         model TEXT,
         provider TEXT,
@@ -2047,9 +2148,13 @@ const CHIMERA_SCHEMA_SQL = `
         ON chimera_messages(read_by_agent, direction);
 `;
 
-const CHIMERA_OPENCODE_CONTROL_SCHEMA_SQL = `
-      ALTER TABLE chimera_sessions ADD COLUMN opencode_server_url TEXT;
-      ALTER TABLE chimera_sessions ADD COLUMN opencode_session_id TEXT;
+const CHIMERA_ACCESS_MODE_SCHEMA_SQL = `
+      UPDATE chimera_sessions
+      SET access_mode = CASE
+        WHEN access_mode = 'inherit' THEN 'editor'
+        ELSE 'explorer'
+      END
+      WHERE access_mode IS NULL OR access_mode = '' OR access_mode IN ('lab', 'inherit');
 `;
 
 export interface MergeMemoryResult {
@@ -2092,6 +2197,9 @@ export interface MergeCounts {
   skippedEntityLinks: number;
   campaignEvents: number;
   skippedCampaignEvents: number;
+  chimeraSessions: number;
+  chimeraMessages: number;
+  skippedChimeraMessages: number;
 }
 
 export interface SurfaceRow {
@@ -2396,7 +2504,10 @@ function emptyMergeCounts(): MergeCounts {
     entityLinks: 0,
     skippedEntityLinks: 0,
     campaignEvents: 0,
-    skippedCampaignEvents: 0
+    skippedCampaignEvents: 0,
+    chimeraSessions: 0,
+    chimeraMessages: 0,
+    skippedChimeraMessages: 0
   };
 }
 
@@ -2404,6 +2515,20 @@ function addMergeCounts(target: MergeCounts, source: MergeCounts): void {
   for (const key of Object.keys(target) as Array<keyof MergeCounts>) {
     target[key] += source[key];
   }
+}
+
+function openMergeSource(sourceRoot: string, dryRun: boolean): { db: ProteusDb; cleanupRoot: string | null } {
+  if (!dryRun) return { db: new ProteusDb(sourceRoot), cleanupRoot: null };
+  const cleanupRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-dryrun-"));
+  const sourceDb = memoryPath(sourceRoot);
+  const tempVros = vrosDir(cleanupRoot);
+  ensureDir(tempVros);
+  fs.copyFileSync(sourceDb, memoryPath(cleanupRoot));
+  for (const suffix of ["-wal", "-shm"]) {
+    const sidecar = `${sourceDb}${suffix}`;
+    if (fs.existsSync(sidecar)) fs.copyFileSync(sidecar, `${memoryPath(cleanupRoot)}${suffix}`);
+  }
+  return { db: new ProteusDb(cleanupRoot), cleanupRoot };
 }
 
 function resolveProteusSourceRoot(input: string, baseRoot: string): string {

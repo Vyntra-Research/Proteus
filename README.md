@@ -217,10 +217,11 @@ proteus campaign checkpoint --root C:\path\to\target --id 1 --confirmed "auth bo
 proteus link --root C:\path\to\target --from-type campaign --from-id 1 --relation has_round --to-type round --to-id 1
 ```
 
-Each target database records the Proteus runtime version that last migrated it.
-On startup, Proteus runs automatic migrations only when that stored version is
-missing or different from the current runtime. `proteus migrate` forces a full
-idempotent migration check and refreshes the stored version.
+Each target database records the Proteus runtime version that last migrated it
+and the individual migration ids already applied. On startup, Proteus checks
+both values, so a database stamped with the current runtime still receives any
+missing idempotent migrations. `proteus migrate` runs the same full migration
+check explicitly and refreshes the stored version.
 
 Use the actual workspace/repository root as `--root` unless you intentionally
 want a separate target memory. If a nested `.vros` is created by mistake, merge
@@ -249,9 +250,12 @@ Chimera agents default to `--access explorer`, meaning repository writes are out
 of scope and research artifacts go into that agent's private `.vros/chimera`
 lab. The coordinator can grant editor access only when needed or explicitly
 instructed, and must describe shell/edit restrictions in `--access-notes`.
-Agents are instructed to create/edit files only inside their own Chimera lab
-unless editor restrictions explicitly name another allowed workspace path and
-action:
+These are Proteus/OpenCode coordination controls, not an operating-system
+sandbox. Agents are instructed to create/edit files only inside their own
+Chimera lab unless editor restrictions explicitly name another allowed
+workspace path and action. When network is not enabled globally, Proteus omits
+OpenCode web permissions from the generated agent, but shell use still depends
+on the coordinator's contract and restrictions.
 
 ```powershell
 proteus chimera start --root C:\path\to\target --role cicada --goal "Try bypass/chaining on branch B7" --access editor --access-notes "Allowed: edit only .vros/chimera lab and generated PoC harness files; shell may run targeted tests and non-destructive probes; ask before workspace source edits."
@@ -268,16 +272,17 @@ Coordinator messages and broadcasts update each destination session's
 urgent. If Proteus has an attached OpenCode server URL and `opencodeSessionId`
 for that Chimera session, priority messages also send a direct OpenCode
 `delivery=steer` ping that tells the agent to poll Proteus immediately. Agents
-still use `proteus chimera poll --id <CH-ID> --unread --agent` as the source of
+still use `proteus chimera poll --root C:\path\to\target --id <CH-ID> --unread --agent` as the source of
 truth, and the Chimera agent contract tells them to check periodically on their
 own.
 
 Create new Chimera co-agents only for distinct research fronts, roles, models,
 or lab needs. For continuation of the same bounded front, run the existing
-session with `proteus chimera run --id CH-0001`. When Proteus launches OpenCode
-through Chimera, it starts or reuses a local OpenCode server, discovers the
-matching `ses_...` session by title/directory, and stores it on the `CH-...`
-record. If auto-discovery is not possible, attach manually:
+session with `proteus chimera run --root C:\path\to\target --id CH-0001`. When Proteus launches OpenCode
+through Chimera, it reuses the configured server URL when healthy or starts a
+managed local OpenCode server, discovers the matching `ses_...` session by
+title/directory, and stores it on the `CH-...` record. If auto-discovery is not
+possible, attach manually:
 
 ```powershell
 proteus chimera attach-opencode --root C:\path\to\target --id CH-0001 --server-url http://127.0.0.1:4096 --opencode-session-id ses_xxx
@@ -455,11 +460,12 @@ proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--s
 proteus chimera config init|show|disable [--opencode-command <cmd>] [--server-url <url>] [--model <provider/model>] [--variant <variant>]
 proteus chimera doctor [--root <path>]
 proteus chimera stop-server [--root <path>]
-proteus chimera start --role <role> --goal <text> [--access explorer|editor] [--access-notes <text>] [--run]
-proteus chimera swarm --plan <json>
-proteus chimera run --id <CH-ID>
-proteus chimera attach-opencode --id <CH-ID> --server-url <url> --opencode-session-id <ses-id>
-proteus chimera send|broadcast|post|snapshot|heartbeat|poll|list|kill|close
+proteus chimera start --root <path> --role <role> --goal <text> [--access explorer|editor] [--access-notes <text>] [--run]
+proteus chimera swarm --root <path> --plan <json>
+proteus chimera council start|accept|open-round|cue-turn|turn|status|close --root <path>
+proteus chimera run --root <path> --id <CH-ID>
+proteus chimera attach-opencode --root <path> --id <CH-ID> --server-url <url> --opencode-session-id <ses-id>
+proteus chimera send|broadcast|post|snapshot|workflow-snapshot|heartbeat|poll|list|kill|close --root <path>
 proteus ingest [--root <path>] [paths...]
 proteus observe [--root <path>]
 proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
@@ -522,12 +528,17 @@ proteus_migrate
 proteus_merge_memory
 proteus_chimera_config
 proteus_chimera_doctor
+proteus_chimera_stop_server
 proteus_chimera_start
 proteus_chimera_swarm
+proteus_chimera_council
 proteus_chimera_broadcast
 proteus_chimera_send
+proteus_chimera_run
+proteus_chimera_attach_opencode
 proteus_chimera_post
 proteus_chimera_snapshot
+proteus_chimera_workflow_snapshot
 proteus_chimera_heartbeat
 proteus_chimera_poll
 proteus_chimera_list

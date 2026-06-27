@@ -63,6 +63,15 @@ function request(method, params = {}) {
   });
 }
 
+async function requestFail(method, params = {}) {
+  try {
+    await request(method, params);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error(`${method} unexpectedly succeeded`);
+}
+
 try {
   await request("initialize", {
     protocolVersion: "2025-06-18",
@@ -218,6 +227,18 @@ try {
   if (!chimeraConfigText.includes('"enabled": true') || !chimeraConfigText.includes("mock/mock-model") || !chimeraConfigText.includes('"defaultVariant": "high"')) {
     throw new Error("proteus_chimera_config did not enable mock Chimera config");
   }
+  const chimeraConfigPartial = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { action: "init", model: "mock/other-model" }
+  });
+  const chimeraConfigPartialJson = JSON.parse(String(chimeraConfigPartial.content?.[0]?.text ?? "{}"));
+  if (
+    chimeraConfigPartialJson.record?.opencodeCommand !== opencodeCommand ||
+    chimeraConfigPartialJson.record?.defaultVariant !== "high" ||
+    chimeraConfigPartialJson.record?.defaultModel !== "mock/other-model"
+  ) {
+    throw new Error("proteus_chimera_config partial init did not preserve existing global config fields");
+  }
   if (!fs.existsSync(path.join(globalRoot, "chimera", "config.json"))) {
     throw new Error("proteus_chimera_config did not write global config");
   }
@@ -245,10 +266,21 @@ try {
   if (!chimeraStartText.includes('"publicId": "CH-0001"') || !chimeraStartText.includes('"accessMode": "editor"')) {
     throw new Error("proteus_chimera_start did not create editor CH-0001");
   }
-  await request("tools/call", {
+  const invalidAttach = await requestFail("tools/call", {
     name: "proteus_chimera_attach_opencode",
-    arguments: { root: tmpRoot, id: "CH-0001", opencodeSessionId: "ses_mock_CH-0001" }
+    arguments: { root: tmpRoot, id: "CH-0001", serverUrl: "http://127.0.0.1:4096" }
   });
+  if (!invalidAttach.includes("Expected non-empty string")) {
+    throw new Error("proteus_chimera_attach_opencode should require an OpenCode session id");
+  }
+  const chimeraRun = await request("tools/call", {
+    name: "proteus_chimera_run",
+    arguments: { root: tmpRoot, id: "CH-0001", timeout: 10 }
+  });
+  const chimeraRunJson = JSON.parse(String(chimeraRun.content?.[0]?.text ?? "{}"));
+  if (chimeraRunJson.record?.run?.exitCode !== 0 || chimeraRunJson.record?.session?.opencodeSessionId !== "ses_mock_CH-0001") {
+    throw new Error("proteus_chimera_run did not attach the mock OpenCode session");
+  }
   const chimeraWorkflowSnapshot = await request("tools/call", {
     name: "proteus_chimera_workflow_snapshot",
     arguments: { root: tmpRoot, id: "CH-0001", limit: 3, maxMessageChars: 80 }
@@ -682,11 +714,37 @@ try {
   if (!String(revisit.content?.[0]?.text ?? "").includes("Smoke daemon protocol surface")) {
     throw new Error("proteus_query_revisit did not return recorded surface");
   }
+  await request("tools/call", {
+    name: "proteus_chimera_stop_server",
+    arguments: { root: tmpRoot }
+  });
 
   console.log(`Proteus MCP smoke test passed: ${tmpRoot}`);
 } finally {
+  child.stdin.end();
   child.kill();
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-  fs.rmSync(globalRoot, { recursive: true, force: true });
-  fs.rmSync(mergeSourceRoot, { recursive: true, force: true });
+  await waitForExit(child, 2000);
+  rmTemp(tmpRoot);
+  rmTemp(globalRoot);
+  rmTemp(mergeSourceRoot);
+}
+
+function waitForExit(childProcess, timeoutMs) {
+  if (childProcess.exitCode !== null || childProcess.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    childProcess.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+function rmTemp(target) {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+    console.warn(`warning: could not remove temp path ${target}: ${error.message}`);
+  }
 }
