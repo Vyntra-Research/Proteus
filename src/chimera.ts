@@ -401,18 +401,16 @@ function runGooseOnce(db: ProteusDb, session: ChimeraSessionRow, promptPath: str
   const runPath = path.join(gooseDir, "run.json");
   const args = [
     "run",
-    "--name",
-    `proteus-${session.publicId}`,
     "--instructions",
     promptPath,
-    "--text",
-    `Execute the Proteus Chimera objective for ${session.publicId}. Use Proteus CLI to post progress.`,
     "--no-profile",
     "--no-session",
+    "--with-builtin",
+    "developer",
     "--output-format",
     "json",
     "--max-turns",
-    "3"
+    "8"
   ];
   if (session.model) args.push("--model", session.model);
   if (session.provider) args.push("--provider", session.provider);
@@ -448,11 +446,12 @@ function runGooseOnce(db: ProteusDb, session: ChimeraSessionRow, promptPath: str
   fs.writeFileSync(runPath, JSON.stringify(run, null, 2) + "\n");
   appendJsonl(path.join(session.sessionDir, "transcript.jsonl"), { type: "goose_run", ...run });
   if (stdout.trim()) {
+    const agentText = extractGooseAssistantText(stdout.trim());
     db.addChimeraMessage({
       publicId: session.publicId,
       direction: "agent_to_coordinator",
       kind: "message",
-      body: truncate(stdout.trim(), 4000),
+      body: agentText,
       metadata: { source: "goose_stdout", stdoutPath: toRelative(db.targetRoot, stdoutPath) },
       readByAgent: true
     });
@@ -509,6 +508,7 @@ Stop conditions:
 }
 
 function renderContract(db: ProteusDb, session: ChimeraSessionRow, config: ChimeraConfig): string {
+  const proteusCommand = proteusCliCommand();
   return `# Chimera Contract
 
 You are a secondary Proteus agent. The coordinator remains the final authority.
@@ -525,13 +525,14 @@ Required behavior:
 - Network is ${config.defaultNetwork ? "allowed only within the target authorization" : "disabled by default unless the coordinator explicitly authorizes it"}.
 
 Communication commands:
-- proteus --root "${db.targetRoot}" chimera post --id ${session.publicId} --kind message --body "..."
-- proteus --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "..."
-- proteus --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
+- ${proteusCommand} --root "${db.targetRoot}" chimera post --id ${session.publicId} --kind message --body "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
 `;
 }
 
 function renderAgentInstructions(db: ProteusDb, session: ChimeraSessionRow): string {
+  const proteusCommand = proteusCliCommand();
   return `# Agent Instructions
 
 Start with the highest-ROI path for this exact goal. Avoid broad repo review unless it directly supports the assignment.
@@ -540,7 +541,7 @@ For creative offensive work, generate several distinct branches, kill weak ones 
 
 Before stopping, write a snapshot:
 
-proteus --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "Confirmed / killed / open / next move"
+${proteusCommand} --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "Confirmed / killed / open / next move"
 `;
 }
 
@@ -683,6 +684,30 @@ function resolveProteusCliPath(): string {
     path.resolve(__dirname, "..", "dist", "cli.js")
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? (process.argv[1] ?? "");
+}
+
+function proteusCliCommand(): string {
+  return `${quoteArg(process.execPath)} ${quoteArg(resolveProteusCliPath())}`;
+}
+
+function quoteArg(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+function extractGooseAssistantText(stdout: string): string {
+  try {
+    const parsed = JSON.parse(stdout) as {
+      messages?: Array<{ role?: string; content?: Array<{ type?: string; text?: string }> }>;
+    };
+    const assistantMessages = (parsed.messages ?? []).filter((message) => message.role === "assistant");
+    for (const message of assistantMessages.reverse()) {
+      const text = message.content?.find((part) => part.type === "text" && typeof part.text === "string")?.text;
+      if (text?.trim()) return truncate(text.trim(), 4000);
+    }
+  } catch {
+    // Goose can prepend non-JSON banner text in some modes; keep a compact pointer instead of transcript spam.
+  }
+  return "Goose run completed. See stdout log for the full transcript.";
 }
 
 function stringOr(value: unknown, fallback: string): string {
