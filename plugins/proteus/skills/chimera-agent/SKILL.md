@@ -22,10 +22,6 @@ agent-instructions.md
 skills/*.md
 ```
 
-Do not assume access to the Proteus project README or external installation
-docs. Runtime instructions are the session files, injected skills, coordinator
-messages, and Proteus CLI/tool responses.
-
 Use the target workspace root as the Proteus root unless the coordinator
 explicitly says otherwise. Do not create a new `.vros` in a package,
 subdirectory, fixture, generated lab, or temporary folder. If you find a stray

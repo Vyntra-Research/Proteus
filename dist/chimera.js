@@ -587,7 +587,6 @@ You are a secondary Proteus agent. The coordinator remains the final authority.
 
 Required behavior:
 - Read dossier.md, contract.md, agent-instructions.md, and skills/*.md before acting.
-- Do not rely on the Proteus README or installation docs. Treat this session's dossier, contract, instructions, skills, coordinator messages, and Proteus CLI responses as the runtime contract.
 - Respect access mode ${session.accessMode}: ${accessLine(session)}
 - Use ${(0, paths_1.toRelative)(db.targetRoot, session.labDir)} for notes, scripts, PoC material, and evidence even when broader access is granted.
 - Prefer the workspace root as the Proteus base. Do not create stray .vros directories in subfolders.
