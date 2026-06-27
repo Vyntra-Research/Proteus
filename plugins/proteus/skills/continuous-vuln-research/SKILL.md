@@ -89,6 +89,11 @@ Chimera is optional. Use it only when the target benefits from one or more
 bounded secondary agents working under Proteus coordination. Normal Proteus
 research must still work without Chimera or OpenCode.
 
+Do not rely on the Proteus README for runtime instructions. The README is
+human-facing installation documentation. Coordinator behavior must come from
+this skill, the generated Chimera dossier/contract, MCP/CLI tool responses, and
+the active Proteus state.
+
 Before launching Chimera agents:
 
 - run `proteus chimera config show` or MCP `proteus_chimera_config` with
@@ -129,6 +134,9 @@ Coordinator duties:
 - understand that `--priority` can directly ping OpenCode with `delivery=steer`
   only after the Chimera session has an attached `opencodeSessionId`; if missing,
   run the existing `CH-...` once or attach the OpenCode session explicitly;
+- expect Proteus to reuse an online OpenCode server first. It should use the
+  saved target `opencodeServerUrl` when healthy, otherwise detect an already
+  running local server on the managed port range before starting a new one;
 - treat `proteus chimera poll` as the authoritative Proteus broker history:
   coordinator messages, agent posts, snapshots, heartbeat, kill/close events,
   and latest snapshots. It is not the full raw OpenCode chat transcript;
