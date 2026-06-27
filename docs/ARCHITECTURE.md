@@ -304,32 +304,33 @@ Immediate kill reasons:
 - duplicate of an existing finding;
 - old trivial bug with weak impact.
 
-## 7. Runtime and Technology Plan
+## 7. Runtime Stack
 
-Phase 1 should use:
+Proteus uses:
 
-- TypeScript runtime;
-- SQLite memory database;
-- Zod schemas;
-- Markdown templates;
-- Node child process orchestration;
-- optional Python helpers for ecosystem-specific analysis;
-- CLI first, MCP later.
+- TypeScript for the CLI and MCP runtime;
+- SQLite for local target memory;
+- Markdown templates for exports, labs, reports, and role contracts;
+- Node child processes for local tool orchestration;
+- Codex and Claude Code plugin packages for assistant integration;
+- OpenCode as the optional Chimera secondary-agent runtime.
 
-Expected commands:
+Core commands:
 
 ```text
-vros init <target>
-vros ingest <path>
-vros observe
-vros plan-round
-vros prompt-agents
-vros record <entity>
-vros validate-output <file>
-vros query duplicates <text>
-vros query revisit <surface>
-vros export markdown
-vros lab create <candidate-id>
+proteus init
+proteus ingest
+proteus observe
+proteus plan-round
+proteus prompt
+proteus record <entity>
+proteus query duplicates
+proteus query memory
+proteus query revisit
+proteus export
+proteus lab create
+proteus chimera <command>
+proteus-mcp
 ```
 
 ## 8. Integration With Assistant Hosts
@@ -369,15 +370,3 @@ The runtime will execute local tools. It must:
 - avoid storing secrets in exports;
 - allow redaction of requests, tokens, and credentials;
 - maintain append-only evidence where feasible.
-
-## 10. Open Design Questions
-
-- Should the first runtime be pure TypeScript or TypeScript with Python helper
-  packages?
-- Should MCP be implemented in M1 or after the CLI is stable?
-- Should the memory store be one database per target or one global database with
-  target namespaces?
-- How strict should output validation be before the system rejects an agent
-  result?
-- Should public-intel search be manual checklist first or tool-assisted from
-  the beginning?

@@ -13,11 +13,14 @@
 - Added OpenCode doctor checks and mock-OpenCode smoke coverage so CI validates Chimera without requiring an API key.
 - Added priority Chimera notifications for coordinator messages and broadcasts, plus a session-local `notifications.json` signal that running agents check periodically before polling Proteus.
 - Added managed OpenCode server/session tracking for Chimera runs, `chimera run` reuse of existing labs, manual `attach-opencode`, and priority `delivery=steer` pings when an OpenCode session is attached.
+- Added Chimera brainstorm councils with ordered turns, automatic cueing, exclusive council transcripts, and bounded close instructions.
+- Added compact Chimera workflow snapshots that export recent OpenCode assistant messages while excluding user messages, tool calls, tool outputs, command output, patches, and file payloads.
 
 ### Changed
 
 - Updated the main coordinator skill to explain when to use Chimera, how to check config, how to poll unread messages, and how to choose `lab` versus `inherit` access.
-- Updated README and Chimera architecture docs with OpenCode installation links, GLM-style model/variant setup, CLI examples, swarm usage, MCP tools, broadcast chat, and access-mode guidance.
+- Updated README and Chimera docs with the official OpenCode project link, GLM-style model/variant target config, CLI examples, swarm usage, MCP tools, broadcast chat, and access-mode guidance.
+- Consolidated human docs by replacing redundant planning/update documents with the current technical Chimera reference.
 - Expanded CLI and MCP smoke tests to cover Chimera config/start/post/poll/snapshot/heartbeat/kill/close/swarm flows.
 - Validated a real OpenCode run with `zai/glm-5.2`, `--variant high`, generated Chimera skills, Proteus CLI communication, snapshot creation, and unread polling.
 

@@ -105,20 +105,18 @@ Then register the MCP server from the CLI install:
 claude mcp add -s user proteus -- proteus-mcp
 ```
 
-### 4. Install OpenCode For Chimera Mode
+### 4. Configure OpenCode For Chimera Mode
 
-Chimera mode is optional and requires [OpenCode](https://github.com/sst/opencode)
-as the secondary-agent runtime. Normal Proteus CLI, MCP, memory, skills, and
-exports work without OpenCode.
+Chimera mode is optional and uses OpenCode as the secondary-agent runtime.
+Normal Proteus CLI, MCP, memory, skills, and exports work without OpenCode.
 
-Install OpenCode from the official docs or repository:
+Install and configure OpenCode by following the official project:
 
-- OpenCode repository: <https://github.com/sst/opencode>
+- OpenCode repository: <https://github.com/anomalyco/opencode>
 - OpenCode docs: <https://opencode.ai/docs/>
 
-Configure your OpenCode provider/model first. For example, if you use Z.AI GLM,
-configure OpenCode with the provider credentials and confirm the model name
-works. Then enable Chimera for a target:
+After OpenCode is configured and the model works there, enable Chimera for a
+target:
 
 ```powershell
 proteus chimera config init --root C:\path\to\target --opencode-command opencode --model zai/glm-5.2 --variant high
@@ -131,7 +129,7 @@ not need to pass `--opencode-command`, `--model`, `--variant`, or `--max-agents`
 again unless you want to change the target defaults. Chimera defaults to
 `maxAgents: 5`.
 
-If OpenCode is installed outside `PATH`, pass the executable path:
+If OpenCode is outside `PATH`, pass the executable path:
 
 ```powershell
 proteus chimera config init --root C:\path\to\target --opencode-command C:\path\to\opencode.exe --model zai/glm-5.2 --variant high
@@ -271,11 +269,12 @@ still use `proteus chimera poll --id <CH-ID> --unread --agent` as the source of
 truth, and the Chimera agent contract tells them to check periodically on their
 own.
 
-Prefer reusing an existing relevant Chimera lab with `proteus chimera run --id
-CH-0001` instead of creating a new agent for every continuation. When Proteus
-launches OpenCode through Chimera, it starts or reuses a local OpenCode server,
-discovers the matching `ses_...` session by title/directory, and stores it on
-the `CH-...` record. If auto-discovery is not possible, attach manually:
+Create new Chimera co-agents only for distinct research fronts, roles, models,
+or lab needs. For continuation of the same bounded front, run the existing
+session with `proteus chimera run --id CH-0001`. When Proteus launches OpenCode
+through Chimera, it starts or reuses a local OpenCode server, discovers the
+matching `ses_...` session by title/directory, and stores it on the `CH-...`
+record. If auto-discovery is not possible, attach manually:
 
 ```powershell
 proteus chimera attach-opencode --root C:\path\to\target --id CH-0001 --server-url http://127.0.0.1:4096 --opencode-session-id ses_xxx
@@ -608,7 +607,7 @@ Project layout:
 ```text
 docs/
   ARCHITECTURE.md
-  DEVELOPMENT_PLAN.md
+  CHIMERA.md
   INSTALLATION.md
   MEMORY_MODEL.md
   REQUIREMENTS.md
@@ -663,9 +662,9 @@ coverage against temporary targets.
 - [Installation](docs/INSTALLATION.md)
 - [Runtime usage](docs/RUNTIME_USAGE.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Chimera mode](docs/CHIMERA.md)
 - [Requirements](docs/REQUIREMENTS.md)
 - [Memory model](docs/MEMORY_MODEL.md)
-- [Development plan](docs/DEVELOPMENT_PLAN.md)
 
 
 ## License

@@ -1,0 +1,267 @@
+# Chimera Mode
+
+Chimera mode is the optional Proteus runtime for OpenCode-backed co-agents. It
+lets the coordinator launch secondary agents with a bounded goal, Proteus
+context, role skills, a private lab, message flow, snapshots, and kill/close
+control.
+
+Chimera is not required for normal Proteus usage. CLI commands, MCP tools,
+campaign memory, exports, labs, and skills work without OpenCode.
+
+## OpenCode
+
+Proteus uses OpenCode as the Chimera execution runtime. Install and configure
+OpenCode by following the official project:
+
+- OpenCode repository: <https://github.com/anomalyco/opencode>
+- OpenCode docs: <https://opencode.ai/docs/>
+
+Proteus does not manage provider credentials. Configure the model/provider in
+OpenCode first, then point Proteus at the OpenCode command and model name.
+
+## Enable Chimera
+
+Configuration is target-wide and persistent. It is stored in target memory and
+mirrored to `.vros/chimera/config.json`.
+
+```powershell
+proteus chimera config init --root C:\path\to\target --opencode-command opencode --model zai/glm-5.2 --variant high
+proteus chimera doctor --root C:\path\to\target
+```
+
+If OpenCode is outside `PATH`, pass the executable path as
+`--opencode-command`. `maxAgents` defaults to 5.
+
+## Co-Agent Sessions
+
+A Chimera session has an id such as `CH-0001`.
+
+```powershell
+proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7"
+proteus chimera run --root C:\path\to\target --id CH-0001
+```
+
+Create and run in one command:
+
+```powershell
+proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7" --run
+```
+
+Create new co-agents only when there is a distinct research front, role, model,
+or lab need. For continuation of the same bounded front, run the existing
+session again with `chimera run --id <CH-ID>`.
+
+Session state is stored under:
+
+```text
+.vros/chimera/sessions/<CH-ID>/
+  dossier.md
+  contract.md
+  agent-instructions.md
+  inbox.jsonl
+  outbox.jsonl
+  transcript.jsonl
+  notifications.json
+  snapshot.md
+  opencode/
+  lab/
+  skills/
+```
+
+SQLite memory remains the source of truth. JSONL and Markdown files are local
+mirrors for inspection and recovery.
+
+## Agent Context
+
+Each co-agent receives:
+
+- a compact dossier with target context, goal, role, allowed actions, stop
+  conditions, campaign/round links, and output requirements;
+- the Chimera contract explaining that it is a co-agent, not a normal
+  lightweight subagent;
+- exact Proteus communication commands;
+- the base Proteus skill;
+- the `chimera-agent` skill;
+- the role-specific skill when available;
+- a private lab for notes, evidence, scripts, and PoC material.
+
+The coordinator leads strategy and validation. Chimera agents run independent
+research fronts and bring different angles, but they do not promote findings or
+bypass Proteus gates.
+
+## Access Modes
+
+Default access is `lab`:
+
+```powershell
+proteus chimera start --root C:\path\to\target --role explorer --goal "Map side effects around branch B7"
+```
+
+In `lab` mode, repository writes are out of scope and artifacts belong in the
+session lab. The agent may read the workspace as needed for the assigned task.
+
+Inherited access is explicit:
+
+```powershell
+proteus chimera start --root C:\path\to\target --role cicada --goal "Try bypass/chaining on branch B7" --access inherit --access-notes "Coordinator grants edit/run access for isolated exploit lab work"
+```
+
+Use inherited access only when the task needs it or the user grants it.
+
+## Messages
+
+Coordinator to one agent:
+
+```powershell
+proteus chimera send --root C:\path\to\target --id CH-0001 --message "Drop parser diffing and focus on policy side effects."
+```
+
+Coordinator to all active agents:
+
+```powershell
+proteus chimera broadcast --root C:\path\to\target --message "Shared pivot: B7 matters only if it crosses the policy cache boundary."
+```
+
+Agent to coordinator:
+
+```powershell
+proteus chimera post --root C:\path\to\target --id CH-0001 --kind message --body "Current state..."
+```
+
+Unread messages:
+
+```powershell
+proteus chimera poll --root C:\path\to\target --unread
+proteus chimera poll --root C:\path\to\target --id CH-0001 --unread
+proteus chimera poll --root C:\path\to\target --id CH-0001 --unread --agent
+```
+
+`--peek` returns unread messages without marking them read.
+
+Priority messages update the destination `notifications.json`. If an OpenCode
+server and `opencodeSessionId` are attached, Proteus also sends a direct
+OpenCode steer ping telling the agent to poll Proteus. The canonical message
+still lives in Proteus.
+
+```powershell
+proteus chimera send --root C:\path\to\target --id CH-0001 --message "Poll now and answer this scope question." --priority
+```
+
+## Snapshots
+
+Agent-authored research snapshot:
+
+```powershell
+proteus chimera snapshot --root C:\path\to\target --id CH-0001 --body "Confirmed / killed / open / next move"
+```
+
+Coordinator snapshot of recent OpenCode assistant messages:
+
+```powershell
+proteus chimera workflow-snapshot --root C:\path\to\target --id CH-0001 --limit 8 --max-message-chars 1200
+```
+
+`workflow-snapshot` exports the attached OpenCode session and returns only
+recent assistant text messages. It excludes user messages, tool calls, tool
+outputs, command output, diffs, patches, and file payloads. Output is bounded by
+message count and max characters per message.
+
+## Councils
+
+A council is an ordered, bounded brainstorm across active Chimera agents.
+
+```powershell
+proteus chimera council start --root C:\path\to\target --topic "B7 chain pivot" --ids CH-0001,CH-0002 --max-rounds 1
+proteus chimera council status --root C:\path\to\target --council-id CO-...
+proteus chimera council open-round --root C:\path\to\target --council-id CO-... --round 1 --message "Give one pivot, one risk, and one next experiment."
+proteus chimera council close --root C:\path\to\target --council-id CO-... --summary "..." --instruction "Resume prior work or follow this pivot."
+```
+
+Agents accept when they are free or at a safe pause point:
+
+```powershell
+proteus chimera council accept --root C:\path\to\target --id CH-0001 --council-id CO-... --body "ready"
+```
+
+When a round is opened, Proteus cues accepted participants in order. Each agent
+posts exactly one turn for that round:
+
+```powershell
+proteus chimera council turn --root C:\path\to\target --id CH-0001 --council-id CO-... --round 1 --body "..."
+```
+
+After each turn, Proteus automatically cues the next accepted participant. When
+the round is complete, control returns to the coordinator. `cue-turn` is manual
+recovery only and requires an explicit manual flag.
+
+## Swarm
+
+Swarm starts multiple independent sessions from a compact plan:
+
+```json
+{
+  "campaignId": 1,
+  "roundId": 7,
+  "agents": [
+    {
+      "role": "codebase-research",
+      "goal": "Map upload pipeline trust boundaries"
+    },
+    {
+      "role": "chaining",
+      "goal": "Find non-obvious chains from upload side effects"
+    }
+  ]
+}
+```
+
+Run:
+
+```powershell
+proteus chimera swarm --root C:\path\to\target --plan chimera-swarm.json
+proteus chimera swarm --root C:\path\to\target --plan chimera-swarm.json --run
+```
+
+## Lifecycle
+
+```powershell
+proteus chimera heartbeat --root C:\path\to\target --id CH-0001
+proteus chimera list --root C:\path\to\target
+proteus chimera attach-opencode --root C:\path\to\target --id CH-0001 --server-url http://127.0.0.1:4096 --opencode-session-id ses_xxx
+proteus chimera stop-server --root C:\path\to\target
+proteus chimera kill --root C:\path\to\target --id CH-0001 --reason "Looping without new testable signal"
+proteus chimera close --root C:\path\to\target --id CH-0001 --verdict watchlist --summary "Useful ideas, no validated PoC yet"
+```
+
+## MCP Tools
+
+```text
+proteus_chimera_config
+proteus_chimera_doctor
+proteus_chimera_stop_server
+proteus_chimera_start
+proteus_chimera_swarm
+proteus_chimera_council
+proteus_chimera_send
+proteus_chimera_broadcast
+proteus_chimera_post
+proteus_chimera_snapshot
+proteus_chimera_workflow_snapshot
+proteus_chimera_heartbeat
+proteus_chimera_run
+proteus_chimera_attach_opencode
+proteus_chimera_poll
+proteus_chimera_list
+proteus_chimera_kill
+proteus_chimera_close
+```
+
+## Validation
+
+```powershell
+npm run release:validate
+```
+
+The smoke tests use a mock OpenCode command, so CI validates Chimera control
+flow without a real API key. Validate real OpenCode/provider behavior manually
+before relying on Chimera in a campaign.
