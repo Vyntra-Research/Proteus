@@ -21,7 +21,12 @@ import type {
   TargetContract,
   ValidationGateInput,
   CampaignStatus,
-  BranchStatus
+  BranchStatus,
+  ChimeraAccessMode,
+  ChimeraConfig,
+  ChimeraMessageDirection,
+  ChimeraMessageKind,
+  ChimeraStatus
 } from "./types";
 
 const emitWarning = process.emitWarning;
@@ -974,6 +979,211 @@ export class ProteusDb {
     };
   }
 
+  getChimeraConfig(): ChimeraConfig | null {
+    const raw = this.getMetadata("chimera_config_json");
+    if (!raw) return null;
+    const parsed = parseJson(raw) as unknown as Partial<ChimeraConfig>;
+    return normalizeChimeraConfig(parsed);
+  }
+
+  saveChimeraConfig(config: ChimeraConfig): void {
+    this.setMetadata("chimera_config_json", json(config));
+  }
+
+  createChimeraSession(input: {
+    publicId?: string;
+    campaignId?: number | null;
+    roundId?: number | null;
+    role: string;
+    goal: string;
+    accessMode?: ChimeraAccessMode;
+    accessNotes?: string | null;
+    model?: string | null;
+    provider?: string | null;
+    sessionDir: string;
+    labDir: string;
+    gooseCommand?: string | null;
+  }): ChimeraSessionRow {
+    const target = requireTarget(this);
+    const now = nowIso();
+    const publicId = input.publicId ?? this.nextChimeraPublicId();
+    const result = this.db
+      .prepare(
+        `INSERT INTO chimera_sessions
+          (public_id, target_id, campaign_id, round_id, role, goal, status,
+           access_mode, access_notes, model, provider, session_dir, lab_dir, goose_command, goose_pid,
+           created_at, updated_at, closed_at, close_verdict, close_summary)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        publicId,
+        target.id,
+        input.campaignId ?? null,
+        input.roundId ?? null,
+        input.role,
+        input.goal,
+        "starting",
+        input.accessMode ?? "lab",
+        input.accessNotes ?? null,
+        input.model ?? null,
+        input.provider ?? null,
+        input.sessionDir,
+        input.labDir,
+        input.gooseCommand ?? null,
+        null,
+        now,
+        now,
+        null,
+        null,
+        null
+      );
+    const id = Number(result.lastInsertRowid);
+    this.indexFts("chimera_session", id, `${publicId}\n${input.role}\n${input.goal}\n${input.model ?? ""}`);
+    return this.getChimeraSession(publicId) as ChimeraSessionRow;
+  }
+
+  getChimeraSession(publicId: string): ChimeraSessionRow | null {
+    const row = this.db.prepare("SELECT * FROM chimera_sessions WHERE public_id = ?").get(publicId) as Row | undefined;
+    return row ? toChimeraSessionRow(row) : null;
+  }
+
+  listChimeraSessions(input: { status?: ChimeraStatus; limit?: number } = {}): ChimeraSessionRow[] {
+    const rows = this.db
+      .prepare("SELECT * FROM chimera_sessions ORDER BY id DESC")
+      .all()
+      .map(toChimeraSessionRow)
+      .filter((session) => !input.status || session.status === input.status);
+    return rows.slice(0, input.limit ?? 50);
+  }
+
+  updateChimeraSession(input: {
+    publicId: string;
+    status?: ChimeraStatus;
+    goosePid?: number | null;
+    closeVerdict?: string | null;
+    closeSummary?: string | null;
+  }): ChimeraSessionRow {
+    const current = this.getChimeraSession(input.publicId);
+    if (!current) throw new Error(`Chimera session not found: ${input.publicId}`);
+    const status = input.status ?? current.status;
+    const now = nowIso();
+    const closedAt = status === "closed" || status === "killed" || status === "failed" || status === "timeout"
+      ? now
+      : current.closedAt || null;
+    this.db
+      .prepare(
+        `UPDATE chimera_sessions
+         SET status = ?, goose_pid = ?, updated_at = ?, closed_at = ?,
+             close_verdict = ?, close_summary = ?
+         WHERE public_id = ?`
+      )
+      .run(
+        status,
+        input.goosePid === undefined ? current.goosePid : input.goosePid,
+        now,
+        closedAt,
+        input.closeVerdict === undefined ? current.closeVerdict : input.closeVerdict,
+        input.closeSummary === undefined ? current.closeSummary : input.closeSummary,
+        input.publicId
+      );
+    this.indexFts(
+      "chimera_session",
+      current.id,
+      `${current.publicId}\n${status}\n${current.role}\n${current.goal}\n${input.closeVerdict ?? ""}\n${input.closeSummary ?? ""}`
+    );
+    return this.getChimeraSession(input.publicId) as ChimeraSessionRow;
+  }
+
+  addChimeraMessage(input: {
+    publicId: string;
+    direction: ChimeraMessageDirection;
+    kind: ChimeraMessageKind;
+    body: string;
+    metadata?: JsonValue;
+    readByCoordinator?: boolean;
+    readByAgent?: boolean;
+  }): ChimeraMessageRow {
+    const session = this.getChimeraSession(input.publicId);
+    if (!session) throw new Error(`Chimera session not found: ${input.publicId}`);
+    const now = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO chimera_messages
+          (session_id, direction, kind, body, metadata_json,
+           read_by_coordinator, read_by_agent, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        session.id,
+        input.direction,
+        input.kind,
+        input.body,
+        json(input.metadata ?? {}),
+        input.readByCoordinator ? 1 : 0,
+        input.readByAgent ? 1 : 0,
+        now
+      );
+    const id = Number(result.lastInsertRowid);
+    this.indexFts("chimera_message", id, `${session.publicId}\n${input.direction}\n${input.kind}\n${input.body}`);
+    return this.getChimeraMessage(id) as ChimeraMessageRow;
+  }
+
+  getChimeraMessage(id: number): ChimeraMessageRow | null {
+    const row = this.db
+      .prepare(
+        `SELECT m.*, s.public_id
+         FROM chimera_messages m
+         JOIN chimera_sessions s ON s.id = m.session_id
+         WHERE m.id = ?`
+      )
+      .get(id) as Row | undefined;
+    return row ? toChimeraMessageRow(row) : null;
+  }
+
+  listChimeraMessages(input: {
+    publicId?: string;
+    unreadFor?: "coordinator" | "agent";
+    limit?: number;
+  } = {}): ChimeraMessageRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT m.*, s.public_id
+         FROM chimera_messages m
+         JOIN chimera_sessions s ON s.id = m.session_id
+         ORDER BY m.id DESC`
+      )
+      .all()
+      .map(toChimeraMessageRow)
+      .filter((message) => !input.publicId || message.publicId === input.publicId)
+      .filter((message) => {
+        if (input.unreadFor === "coordinator") return message.direction === "agent_to_coordinator" && !message.readByCoordinator;
+        if (input.unreadFor === "agent") return message.direction === "coordinator_to_agent" && !message.readByAgent;
+        return true;
+      });
+    return rows.slice(0, input.limit ?? 50).reverse();
+  }
+
+  markChimeraMessagesRead(ids: number[], side: "coordinator" | "agent"): void {
+    if (ids.length === 0) return;
+    const column = side === "coordinator" ? "read_by_coordinator" : "read_by_agent";
+    const statement = this.db.prepare(`UPDATE chimera_messages SET ${column} = 1 WHERE id = ?`);
+    for (const id of ids) statement.run(id);
+  }
+
+  latestChimeraSnapshot(publicId: string): ChimeraMessageRow | null {
+    const row = this.db
+      .prepare(
+        `SELECT m.*, s.public_id
+         FROM chimera_messages m
+         JOIN chimera_sessions s ON s.id = m.session_id
+         WHERE s.public_id = ? AND m.kind = 'snapshot'
+         ORDER BY m.id DESC
+         LIMIT 1`
+      )
+      .get(publicId) as Row | undefined;
+    return row ? toChimeraMessageRow(row) : null;
+  }
+
   mergeMemoryBases(sources: string[], options: { dryRun?: boolean; sourceBaseRoot?: string } = {}): MergeMemoryResult {
     const destinationTarget = requireTarget(this);
     const sourceInputs = sources.map((source) => source.trim()).filter(Boolean);
@@ -1442,6 +1652,12 @@ export class ProteusDb {
     }
   }
 
+  private nextChimeraPublicId(): string {
+    const row = this.db.prepare("SELECT id FROM chimera_sessions ORDER BY id DESC LIMIT 1").get() as Row | undefined;
+    const nextId = Number(row?.id ?? 0) + 1;
+    return `CH-${String(nextId).padStart(4, "0")}`;
+  }
+
   private coverageCandidates(): CoverageCandidate[] {
     const candidates: CoverageCandidate[] = [];
     for (const row of this.db.prepare("SELECT * FROM sources").all() as Row[]) {
@@ -1480,6 +1696,7 @@ export class ProteusDb {
     this.applyMigration("2026-05-17-validation-gates-surfaces-and-focused-duplicates", BASE_SCHEMA_SQL);
     this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL);
     this.applyMigration("2026-06-17-campaign-checkpoints", CAMPAIGN_CHECKPOINT_SCHEMA_SQL);
+    this.applyMigration("2026-06-27-chimera-mode", CHIMERA_SCHEMA_SQL);
     this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
   }
 
@@ -1771,6 +1988,54 @@ const CAMPAIGN_CHECKPOINT_SCHEMA_SQL = `
       );
 `;
 
+const CHIMERA_SCHEMA_SQL = `
+      CREATE TABLE IF NOT EXISTS chimera_sessions (
+        id INTEGER PRIMARY KEY,
+        public_id TEXT NOT NULL UNIQUE,
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,
+        round_id INTEGER REFERENCES rounds(id) ON DELETE SET NULL,
+        role TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        status TEXT NOT NULL,
+        access_mode TEXT NOT NULL DEFAULT 'lab',
+        access_notes TEXT,
+        model TEXT,
+        provider TEXT,
+        session_dir TEXT NOT NULL,
+        lab_dir TEXT NOT NULL,
+        goose_command TEXT,
+        goose_pid INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        closed_at TEXT,
+        close_verdict TEXT,
+        close_summary TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_chimera_sessions_target_status
+        ON chimera_sessions(target_id, status);
+
+      CREATE TABLE IF NOT EXISTS chimera_messages (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES chimera_sessions(id) ON DELETE CASCADE,
+        direction TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        body TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        read_by_coordinator INTEGER NOT NULL DEFAULT 0,
+        read_by_agent INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_chimera_messages_session_created
+        ON chimera_messages(session_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_chimera_messages_unread_coordinator
+        ON chimera_messages(read_by_coordinator, direction);
+      CREATE INDEX IF NOT EXISTS idx_chimera_messages_unread_agent
+        ON chimera_messages(read_by_agent, direction);
+`;
+
 export interface MergeMemoryResult {
   ok: true;
   dryRun: boolean;
@@ -2034,6 +2299,42 @@ export interface SourceRow {
   createdAt: string;
 }
 
+export interface ChimeraSessionRow {
+  id: number;
+  publicId: string;
+  campaignId: number | null;
+  roundId: number | null;
+  role: string;
+  goal: string;
+  status: ChimeraStatus;
+  accessMode: ChimeraAccessMode;
+  accessNotes: string;
+  model: string | null;
+  provider: string | null;
+  sessionDir: string;
+  labDir: string;
+  gooseCommand: string | null;
+  goosePid: number | null;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  closeVerdict: string | null;
+  closeSummary: string | null;
+}
+
+export interface ChimeraMessageRow {
+  id: number;
+  publicId: string;
+  sessionId: number;
+  direction: ChimeraMessageDirection;
+  kind: ChimeraMessageKind;
+  body: string;
+  metadata: JsonValue;
+  readByCoordinator: boolean;
+  readByAgent: boolean;
+  createdAt: string;
+}
+
 interface CoverageCandidate {
   entityType: string;
   entityId: number;
@@ -2169,6 +2470,46 @@ function toSourceRow(row: Row): SourceRow {
     pathOrUrl: String(row.path_or_url),
     title: String(row.title),
     summary: String(row.summary ?? ""),
+    createdAt: String(row.created_at)
+  };
+}
+
+function toChimeraSessionRow(row: Row): ChimeraSessionRow {
+  return {
+    id: Number(row.id),
+    publicId: String(row.public_id),
+    campaignId: row.campaign_id === null || row.campaign_id === undefined ? null : Number(row.campaign_id),
+    roundId: row.round_id === null || row.round_id === undefined ? null : Number(row.round_id),
+    role: String(row.role),
+    goal: String(row.goal),
+    status: normalizeChimeraStatus(String(row.status)),
+    accessMode: normalizeChimeraAccessMode(String(row.access_mode ?? "")),
+    accessNotes: String(row.access_notes ?? ""),
+    model: row.model === null || row.model === undefined ? null : String(row.model),
+    provider: row.provider === null || row.provider === undefined ? null : String(row.provider),
+    sessionDir: String(row.session_dir),
+    labDir: String(row.lab_dir),
+    gooseCommand: row.goose_command === null || row.goose_command === undefined ? null : String(row.goose_command),
+    goosePid: row.goose_pid === null || row.goose_pid === undefined ? null : Number(row.goose_pid),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+    closedAt: row.closed_at === null || row.closed_at === undefined ? null : String(row.closed_at),
+    closeVerdict: row.close_verdict === null || row.close_verdict === undefined ? null : String(row.close_verdict),
+    closeSummary: row.close_summary === null || row.close_summary === undefined ? null : String(row.close_summary)
+  };
+}
+
+function toChimeraMessageRow(row: Row): ChimeraMessageRow {
+  return {
+    id: Number(row.id),
+    publicId: String(row.public_id),
+    sessionId: Number(row.session_id),
+    direction: normalizeChimeraMessageDirection(String(row.direction)),
+    kind: normalizeChimeraMessageKind(String(row.kind)),
+    body: String(row.body ?? ""),
+    metadata: parseJson(String(row.metadata_json ?? "{}")),
+    readByCoordinator: Boolean(row.read_by_coordinator),
+    readByAgent: Boolean(row.read_by_agent),
     createdAt: String(row.created_at)
   };
 }
@@ -2379,6 +2720,63 @@ function normalizeBranchStatus(value: string): BranchStatus {
     return value;
   }
   return value.length > 0 ? "blocked" : "open";
+}
+
+function normalizeChimeraConfig(input: Partial<ChimeraConfig>): ChimeraConfig {
+  return {
+    enabled: input.enabled === true,
+    runtime: "goose",
+    gooseCommand: typeof input.gooseCommand === "string" && input.gooseCommand.trim() ? input.gooseCommand.trim() : "goose",
+    defaultModel: typeof input.defaultModel === "string" && input.defaultModel.trim() ? input.defaultModel.trim() : null,
+    defaultProvider: typeof input.defaultProvider === "string" && input.defaultProvider.trim() ? input.defaultProvider.trim() : null,
+    maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : 4,
+    defaultTimeoutSec: Number.isFinite(input.defaultTimeoutSec) && Number(input.defaultTimeoutSec) > 0
+      ? Math.floor(Number(input.defaultTimeoutSec))
+      : 900,
+    defaultNetwork: input.defaultNetwork === true
+  };
+}
+
+function normalizeChimeraStatus(value: string): ChimeraStatus {
+  if (
+    value === "starting" ||
+    value === "running" ||
+    value === "waiting" ||
+    value === "killed" ||
+    value === "closed" ||
+    value === "failed" ||
+    value === "timeout"
+  ) {
+    return value;
+  }
+  return value.length > 0 ? "failed" : "starting";
+}
+
+function normalizeChimeraAccessMode(value: string): ChimeraAccessMode {
+  if (value === "inherit") return "inherit";
+  return "lab";
+}
+
+function normalizeChimeraMessageDirection(value: string): ChimeraMessageDirection {
+  if (value === "coordinator_to_agent" || value === "agent_to_coordinator" || value === "system") return value;
+  return "system";
+}
+
+function normalizeChimeraMessageKind(value: string): ChimeraMessageKind {
+  if (
+    value === "message" ||
+    value === "redirect" ||
+    value === "finding" ||
+    value === "blocker" ||
+    value === "snapshot" ||
+    value === "heartbeat" ||
+    value === "kill" ||
+    value === "close" ||
+    value === "error"
+  ) {
+    return value;
+  }
+  return "message";
 }
 
 function scoreCoverageCandidate(candidate: CoverageCandidate, query: string, queryTerms: string[]): ScoredCoverageCandidate {

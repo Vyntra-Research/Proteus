@@ -11,8 +11,25 @@ import { renderAgentPrompt } from "./prompts";
 import { ROLE_ORDER, ROLES } from "./roles";
 import { exportMarkdown } from "./exporter";
 import { createLab } from "./lab";
+import {
+  chimeraDoctor,
+  closeChimeraSession,
+  getChimeraConfig,
+  heartbeatChimeraSession,
+  initChimeraConfig,
+  killChimeraSession,
+  pollChimeraMessages,
+  postChimeraMessage,
+  saveChimeraConfig,
+  sendChimeraMessage,
+  snapshotChimeraSession,
+  startChimeraSession,
+  startChimeraSwarm,
+  DEFAULT_CHIMERA_CONFIG,
+  type ChimeraSwarmPlan
+} from "./chimera";
 import { resolveTargetRoot } from "./paths";
-import type { AgentCodename, BranchStatus, CampaignStatus, RoiFactors, RoundStatus } from "./types";
+import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, RoiFactors, RoundStatus } from "./types";
 
 type JsonRpcId = string | number | null;
 type JsonObject = Record<string, unknown>;
@@ -96,6 +113,195 @@ const tools: ToolDefinition[] = [
     ),
     handler: ({ root, sources, dryRun }) =>
       withDb(str(root), (db) => toolEnvelope(db.mergeMemoryBases(stringArray(sources), { dryRun: dryRun === true })))
+  },
+  {
+    name: "proteus_chimera_config",
+    title: "Configure Chimera Mode",
+    description: "Show, initialize, or disable optional Goose-backed Chimera mode.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        action: stringProp("show, init, or disable."),
+        gooseCommand: stringProp("Goose command or executable path."),
+        model: stringProp("Default Goose model."),
+        provider: stringProp("Default Goose provider."),
+        maxAgents: numberProp("Maximum Chimera agents in one swarm."),
+        timeout: numberProp("Default timeout in seconds."),
+        network: booleanProp("Whether network is allowed by default."),
+        disabled: booleanProp("Initialize but disabled.")
+      },
+      ["root", "action"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) => {
+        const action = str(input.action);
+        if (action === "show") return toolEnvelope(getChimeraConfig(db));
+        if (action === "disable") {
+          const current = getChimeraConfig(db);
+          saveChimeraConfig(db, { ...current, enabled: false });
+          return toolEnvelope(getChimeraConfig(db));
+        }
+        if (action !== "init") throw new Error("action must be one of: show, init, disable");
+        const config = initChimeraConfig(db, {
+          enabled: input.disabled !== true,
+          runtime: "goose",
+          gooseCommand: maybeStr(input.gooseCommand) ?? DEFAULT_CHIMERA_CONFIG.gooseCommand,
+          defaultModel: maybeStr(input.model),
+          defaultProvider: maybeStr(input.provider),
+          maxAgents: maybeNum(input.maxAgents),
+          defaultTimeoutSec: maybeNum(input.timeout),
+          defaultNetwork: input.network === true
+        });
+        return toolEnvelope(config);
+      })
+  },
+  {
+    name: "proteus_chimera_doctor",
+    title: "Check Chimera Runtime",
+    description: "Check Chimera config, Goose CLI, Proteus CLI, skills, and writable session storage.",
+    inputSchema: schema({ root: stringProp("Target root path.") }, ["root"]),
+    handler: ({ root }) => withDb(str(root), (db) => toolEnvelope(chimeraDoctor(db)))
+  },
+  {
+    name: "proteus_chimera_start",
+    title: "Start Chimera Agent",
+    description: "Create a bounded Chimera session and optionally run Goose once.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        role: stringProp("Role such as chaining, fuzzing, codebase-research, cicada, explorer, or custom."),
+        goal: stringProp("Bounded agent goal."),
+        access: stringProp("lab or inherit. Defaults to lab."),
+        accessNotes: stringProp("Why this access mode is needed."),
+        campaignId: numberProp("Campaign id."),
+        roundId: numberProp("Round id."),
+        model: stringProp("Runtime model override."),
+        provider: stringProp("Runtime provider override."),
+        timeout: numberProp("Timeout seconds for --run."),
+        run: booleanProp("Run Goose once now.")
+      },
+      ["root", "role", "goal"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) =>
+        toolEnvelope(startChimeraSession(db, {
+          role: str(input.role),
+          goal: str(input.goal),
+          accessMode: chimeraAccess(input.access),
+          accessNotes: maybeStr(input.accessNotes),
+          campaignId: maybeNum(input.campaignId),
+          roundId: maybeNum(input.roundId),
+          model: maybeStr(input.model),
+          provider: maybeStr(input.provider),
+          timeoutSec: maybeNum(input.timeout),
+          run: input.run === true
+        }))
+      )
+  },
+  {
+    name: "proteus_chimera_swarm",
+    title: "Start Chimera Swarm",
+    description: "Start multiple independent Chimera sessions from a compact plan object.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        plan: objectProp("Swarm plan with agents array."),
+        run: booleanProp("Run each Goose session once now.")
+      },
+      ["root", "plan"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) => {
+        const plan = objectValue(input.plan);
+        if (!plan) throw new Error("plan must be an object");
+        const swarmPlan = plan as unknown as ChimeraSwarmPlan;
+        return toolEnvelope(startChimeraSwarm(db, { ...swarmPlan, run: input.run === true || swarmPlan.run === true }));
+      })
+  },
+  {
+    name: "proteus_chimera_send",
+    title: "Send Chimera Message",
+    description: "Send a coordinator-to-agent message or redirect.",
+    inputSchema: schema(
+      { root: stringProp("Target root path."), id: stringProp("Chimera session id."), message: stringProp("Message body."), kind: stringProp("message or redirect.") },
+      ["root", "id", "message"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) => toolEnvelope(sendChimeraMessage(db, str(input.id), str(input.message), chimeraKind(input.kind, "message"))))
+  },
+  {
+    name: "proteus_chimera_post",
+    title: "Post Chimera Agent Message",
+    description: "Post an agent-to-coordinator Chimera message.",
+    inputSchema: schema(
+      { root: stringProp("Target root path."), id: stringProp("Chimera session id."), kind: stringProp("Message kind."), body: stringProp("Message body."), metadata: objectProp("Optional metadata.") },
+      ["root", "id", "body"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) => toolEnvelope(postChimeraMessage(db, str(input.id), chimeraKind(input.kind, "message"), str(input.body), objectValue(input.metadata) as never)))
+  },
+  {
+    name: "proteus_chimera_snapshot",
+    title: "Write Chimera Snapshot",
+    description: "Write the latest Chimera snapshot and notify the coordinator.",
+    inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id."), body: stringProp("Snapshot body.") }, ["root", "id", "body"]),
+    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(snapshotChimeraSession(db, str(input.id), str(input.body))))
+  },
+  {
+    name: "proteus_chimera_heartbeat",
+    title: "Heartbeat Chimera Agent",
+    description: "Heartbeat a Chimera session and learn whether it was killed.",
+    inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id.") }, ["root", "id"]),
+    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(heartbeatChimeraSession(db, str(input.id))))
+  },
+  {
+    name: "proteus_chimera_poll",
+    title: "Poll Chimera Messages",
+    description: "Recover unread Chimera messages, statuses, and latest snapshots.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        id: stringProp("Optional Chimera session id."),
+        unreadOnly: booleanProp("Only unread messages."),
+        forAgent: booleanProp("Poll coordinator-to-agent messages."),
+        peek: booleanProp("Do not mark returned messages read."),
+        limit: numberProp("Message limit.")
+      },
+      ["root"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) => toolEnvelope(pollChimeraMessages(db, {
+        publicId: maybeStr(input.id),
+        unreadOnly: input.unreadOnly === true,
+        forAgent: input.forAgent === true,
+        peek: input.peek === true,
+        limit: maybeNum(input.limit)
+      })))
+  },
+  {
+    name: "proteus_chimera_list",
+    title: "List Chimera Sessions",
+    description: "List Chimera sessions.",
+    inputSchema: schema({ root: stringProp("Target root path."), limit: numberProp("Limit.") }, ["root"]),
+    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(db.listChimeraSessions({ limit: maybeNum(input.limit) })))
+  },
+  {
+    name: "proteus_chimera_kill",
+    title: "Kill Chimera Session",
+    description: "Write a kill flag, send a kill message, and mark the session killed.",
+    inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id."), reason: stringProp("Kill reason.") }, ["root", "id", "reason"]),
+    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(killChimeraSession(db, str(input.id), str(input.reason))))
+  },
+  {
+    name: "proteus_chimera_close",
+    title: "Close Chimera Session",
+    description: "Close a Chimera session with a final verdict and summary.",
+    inputSchema: schema(
+      { root: stringProp("Target root path."), id: stringProp("Chimera session id."), verdict: stringProp("Final verdict."), summary: stringProp("Final summary.") },
+      ["root", "id", "summary"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) => toolEnvelope(closeChimeraSession(db, str(input.id), maybeStr(input.verdict) ?? "useful", str(input.summary))))
   },
   {
     name: "proteus_ingest",
@@ -1372,6 +1578,32 @@ function parseBranchStatus(status: string): BranchStatus {
     return status;
   }
   throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
+}
+
+function chimeraAccess(value: unknown): ChimeraAccessMode {
+  if (value === undefined || value === null || value === "") return "lab";
+  const access = str(value);
+  if (access === "lab" || access === "inherit") return access;
+  throw new Error("Chimera access must be one of: lab, inherit");
+}
+
+function chimeraKind(value: unknown, fallback: ChimeraMessageKind): ChimeraMessageKind {
+  if (value === undefined || value === null || value === "") return fallback;
+  const kind = str(value);
+  if (
+    kind === "message" ||
+    kind === "redirect" ||
+    kind === "finding" ||
+    kind === "blocker" ||
+    kind === "snapshot" ||
+    kind === "heartbeat" ||
+    kind === "kill" ||
+    kind === "close" ||
+    kind === "error"
+  ) {
+    return kind;
+  }
+  throw new Error("Chimera message kind must be one of: message, redirect, finding, blocker, snapshot, heartbeat, kill, close, error");
 }
 
 function stringArray(value: unknown): string[] {

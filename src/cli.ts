@@ -5,13 +5,30 @@ import { ProteusDb, createDefaultContract } from "./db";
 import { exportMarkdown } from "./exporter";
 import { ingestPaths } from "./ingest";
 import { createLab } from "./lab";
+import {
+  chimeraDoctor,
+  closeChimeraSession,
+  getChimeraConfig,
+  heartbeatChimeraSession,
+  initChimeraConfig,
+  killChimeraSession,
+  pollChimeraMessages,
+  postChimeraMessage,
+  saveChimeraConfig,
+  sendChimeraMessage,
+  snapshotChimeraSession,
+  startChimeraSession,
+  startChimeraSwarm,
+  DEFAULT_CHIMERA_CONFIG,
+  type ChimeraSwarmPlan
+} from "./chimera";
 import { defaultGlobalScopeFromTarget, GlobalMemoryDb, globalMemoryLocation } from "./global-memory";
 import { observeTarget } from "./observe";
 import { planRound, renderRoundPlan } from "./planner";
 import { renderAgentPrompt } from "./prompts";
 import { ROLE_ORDER, ROLES } from "./roles";
 import { ensureDir, exportsDir, resolveTargetRoot } from "./paths";
-import type { AgentCodename, BranchStatus, CampaignStatus, HypothesisInput, JsonValue, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
+import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, HypothesisInput, JsonValue, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
 
 interface ParsedArgs {
   command: string[];
@@ -49,6 +66,9 @@ function main(): void {
         break;
       case "merge":
         cmdMerge(db, parsed);
+        break;
+      case "chimera":
+        cmdChimera(db, subcommand, parsed);
         break;
       case "ingest":
         cmdIngest(db, parsed.command.slice(1));
@@ -178,6 +198,124 @@ function cmdMerge(db: ProteusDb, parsed: ParsedArgs): void {
   ];
   const result = db.mergeMemoryBases(sources, { dryRun: getBoolean(parsed, "dry-run"), sourceBaseRoot: process.cwd() });
   console.log(JSON.stringify(result, null, 2));
+}
+
+function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
+  switch (subcommand) {
+    case "config":
+      cmdChimeraConfig(db, parsed.command[2], parsed);
+      return;
+    case "doctor":
+      console.log(JSON.stringify(chimeraDoctor(db), null, 2));
+      return;
+    case "start":
+      console.log(JSON.stringify(startChimeraSession(db, {
+        role: requiredString(parsed, "role"),
+        goal: requiredString(parsed, "goal"),
+        accessMode: chimeraAccessMode(parsed),
+        accessNotes: getString(parsed, "access-notes"),
+        campaignId: getNumber(parsed, "campaign-id"),
+        roundId: getNumber(parsed, "round-id"),
+        model: getString(parsed, "model"),
+        provider: getString(parsed, "provider"),
+        timeoutSec: getNumber(parsed, "timeout"),
+        run: getBoolean(parsed, "run")
+      }), null, 2));
+      return;
+    case "swarm": {
+      const planPath = requiredString(parsed, "plan");
+      const plan = JSON.parse(fs.readFileSync(path.resolve(db.targetRoot, planPath), "utf8")) as ChimeraSwarmPlan;
+      console.log(JSON.stringify(startChimeraSwarm(db, { ...plan, run: getBoolean(parsed, "run") || plan.run }), null, 2));
+      return;
+    }
+    case "send":
+      console.log(JSON.stringify({
+        ok: true,
+        message: sendChimeraMessage(
+          db,
+          requiredString(parsed, "id"),
+          requiredString(parsed, "message"),
+          chimeraMessageKind(parsed, "kind", "message")
+        )
+      }, null, 2));
+      return;
+    case "post":
+      console.log(JSON.stringify({
+        ok: true,
+        message: postChimeraMessage(
+          db,
+          requiredString(parsed, "id"),
+          chimeraMessageKind(parsed, "kind", "message"),
+          requiredString(parsed, "body"),
+          parseJsonFlag(getString(parsed, "metadata"))
+        )
+      }, null, 2));
+      return;
+    case "snapshot":
+      console.log(JSON.stringify({
+        ok: true,
+        message: snapshotChimeraSession(db, requiredString(parsed, "id"), requiredString(parsed, "body"))
+      }, null, 2));
+      return;
+    case "heartbeat":
+      console.log(JSON.stringify(heartbeatChimeraSession(db, requiredString(parsed, "id")), null, 2));
+      return;
+    case "poll":
+      console.log(JSON.stringify(pollChimeraMessages(db, {
+        publicId: getString(parsed, "id"),
+        unreadOnly: getBoolean(parsed, "unread"),
+        forAgent: getBoolean(parsed, "agent"),
+        peek: getBoolean(parsed, "peek"),
+        limit: getNumber(parsed, "limit")
+      }), null, 2));
+      return;
+    case "list":
+      console.log(JSON.stringify(db.listChimeraSessions({ limit: getNumber(parsed, "limit") }), null, 2));
+      return;
+    case "kill":
+      console.log(JSON.stringify(killChimeraSession(db, requiredString(parsed, "id"), requiredString(parsed, "reason")), null, 2));
+      return;
+    case "close":
+      console.log(JSON.stringify(closeChimeraSession(
+        db,
+        requiredString(parsed, "id"),
+        getString(parsed, "verdict") ?? "useful",
+        requiredString(parsed, "summary")
+      ), null, 2));
+      return;
+    default:
+      throw new Error("Usage: proteus chimera <config|doctor|start|swarm|send|post|snapshot|heartbeat|poll|list|kill|close>");
+  }
+}
+
+function cmdChimeraConfig(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
+  switch (subcommand) {
+    case "init": {
+      const config = initChimeraConfig(db, {
+        enabled: !getBoolean(parsed, "disabled"),
+        runtime: "goose",
+        gooseCommand: getString(parsed, "goose-command") ?? DEFAULT_CHIMERA_CONFIG.gooseCommand,
+        defaultModel: getString(parsed, "model") ?? undefined,
+        defaultProvider: getString(parsed, "provider") ?? undefined,
+        maxAgents: getNumber(parsed, "max-agents"),
+        defaultTimeoutSec: getNumber(parsed, "timeout"),
+        defaultNetwork: getBoolean(parsed, "network")
+      });
+      console.log(JSON.stringify({ ok: true, config }, null, 2));
+      return;
+    }
+    case "show":
+      console.log(JSON.stringify(getChimeraConfig(db), null, 2));
+      return;
+    case "disable": {
+      const current = getChimeraConfig(db);
+      saveChimeraConfig(db, { ...current, enabled: false });
+      console.log(JSON.stringify({ ok: true, config: getChimeraConfig(db) }, null, 2));
+      return;
+    }
+    default:
+      throw new Error("Usage: proteus chimera config <init|show|disable>");
+  }
 }
 
 function cmdIngest(db: ProteusDb, inputs: string[]): void {
@@ -1056,6 +1194,30 @@ function parseBranchStatus(status: string): BranchStatus {
     return status;
   }
   throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
+}
+
+function chimeraAccessMode(parsed: ParsedArgs): ChimeraAccessMode {
+  const access = getString(parsed, "access") ?? "lab";
+  if (access === "lab" || access === "inherit") return access;
+  throw new Error("Chimera access must be one of: lab, inherit");
+}
+
+function chimeraMessageKind(parsed: ParsedArgs, key: string, fallback: ChimeraMessageKind): ChimeraMessageKind {
+  const kind = getString(parsed, key) ?? fallback;
+  if (
+    kind === "message" ||
+    kind === "redirect" ||
+    kind === "finding" ||
+    kind === "blocker" ||
+    kind === "snapshot" ||
+    kind === "heartbeat" ||
+    kind === "kill" ||
+    kind === "close" ||
+    kind === "error"
+  ) {
+    return kind;
+  }
+  throw new Error("Chimera message kind must be one of: message, redirect, finding, blocker, snapshot, heartbeat, kill, close, error");
 }
 
 function isHelpRequested(parsed: ParsedArgs): boolean {

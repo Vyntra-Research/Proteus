@@ -22,6 +22,18 @@ export function labsDir(targetRoot: string): string {
   return path.join(vrosDir(targetRoot), "labs");
 }
 
+export function chimeraDir(targetRoot: string): string {
+  return path.join(vrosDir(targetRoot), "chimera");
+}
+
+export function chimeraSessionsDir(targetRoot: string): string {
+  return path.join(chimeraDir(targetRoot), "sessions");
+}
+
+export function chimeraSessionDir(targetRoot: string, publicId: string): string {
+  return path.join(chimeraSessionsDir(targetRoot), publicId);
+}
+
 export function globalVrosDir(): string {
   return path.join(os.homedir(), ".vros");
 }

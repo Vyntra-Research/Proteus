@@ -8,6 +8,9 @@ exports.vrosDir = vrosDir;
 exports.memoryPath = memoryPath;
 exports.exportsDir = exportsDir;
 exports.labsDir = labsDir;
+exports.chimeraDir = chimeraDir;
+exports.chimeraSessionsDir = chimeraSessionsDir;
+exports.chimeraSessionDir = chimeraSessionDir;
 exports.globalVrosDir = globalVrosDir;
 exports.globalMemoryPath = globalMemoryPath;
 exports.globalExportsDir = globalExportsDir;
@@ -30,6 +33,15 @@ function exportsDir(targetRoot) {
 }
 function labsDir(targetRoot) {
     return node_path_1.default.join(vrosDir(targetRoot), "labs");
+}
+function chimeraDir(targetRoot) {
+    return node_path_1.default.join(vrosDir(targetRoot), "chimera");
+}
+function chimeraSessionsDir(targetRoot) {
+    return node_path_1.default.join(chimeraDir(targetRoot), "sessions");
+}
+function chimeraSessionDir(targetRoot, publicId) {
+    return node_path_1.default.join(chimeraSessionsDir(targetRoot), publicId);
 }
 function globalVrosDir() {
     return node_path_1.default.join(node_os_1.default.homedir(), ".vros");

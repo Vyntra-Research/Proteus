@@ -62,6 +62,58 @@ export type BranchStatus =
   | "promoted"
   | "blocked";
 
+export type ChimeraRole =
+  | "generalist"
+  | "explorer"
+  | "codebase-research"
+  | "chaining"
+  | "fuzzing"
+  | "web-intel"
+  | "web-research"
+  | "poc-exploit"
+  | "cicada"
+  | "custom";
+
+export type ChimeraStatus =
+  | "starting"
+  | "running"
+  | "waiting"
+  | "killed"
+  | "closed"
+  | "failed"
+  | "timeout";
+
+export type ChimeraAccessMode =
+  | "lab"
+  | "inherit";
+
+export type ChimeraMessageDirection =
+  | "coordinator_to_agent"
+  | "agent_to_coordinator"
+  | "system";
+
+export type ChimeraMessageKind =
+  | "message"
+  | "redirect"
+  | "finding"
+  | "blocker"
+  | "snapshot"
+  | "heartbeat"
+  | "kill"
+  | "close"
+  | "error";
+
+export interface ChimeraConfig {
+  enabled: boolean;
+  runtime: "goose";
+  gooseCommand: string;
+  defaultModel: string | null;
+  defaultProvider: string | null;
+  maxAgents: number;
+  defaultTimeoutSec: number;
+  defaultNetwork: boolean;
+}
+
 export interface TargetContract {
   target: string;
   scopeRoot: string;
