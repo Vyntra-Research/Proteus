@@ -309,6 +309,7 @@ finding
 blocker
 snapshot
 heartbeat
+council
 kill
 close
 error
@@ -355,6 +356,55 @@ prompt.text: "Priority Proteus coordinator message... poll Proteus now"
 This direct steer is only a notification path. Proteus remains the broker and
 audit source. The agent still retrieves the actual canonical message with
 `proteus chimera poll --id <CH-ID> --unread --agent`.
+
+### Brainstorm Council
+
+A council is a bounded ordered brainstorm across active Chimera co-agents. Use
+it at checkpoints, between campaigns, or when a campaign has stalled and needs
+fresh independent angles.
+
+The council uses normal Chimera messages with `kind=council` and metadata:
+
+```json
+{
+  "councilId": "CO-...",
+  "councilState": "invited|accepted|turn|closed",
+  "round": 1
+}
+```
+
+Flow:
+
+```text
+1. Coordinator starts the council and sends priority invites.
+2. Agents accept when free or at a safe pause point.
+3. Coordinator checks status and starts ordered turns.
+4. Each agent sends one separated turn per round.
+5. Coordinator closes with a final decision and resume/redirect instruction.
+```
+
+Commands:
+
+```text
+proteus chimera council start --topic "..." --ids CH-0001,CH-0002 --max-rounds 1
+proteus chimera council accept --id CH-0001 --council-id CO-... --body "ready"
+proteus chimera council turn --id CH-0001 --council-id CO-... --round 1 --body "..."
+proteus chimera council status --council-id CO-...
+proteus chimera council close --council-id CO-... --summary "..." --instruction "..."
+```
+
+Default to one round and normally cap at two. Extend only for a concrete
+unresolved high-ROI question. Agents should not reply to every other agent or
+turn the council into debate. Proteus rejects a second turn from the same agent
+in the same round; if the coordinator extends the council, agents must post to
+the next explicit round. The transcript is coordination history, not evidence
+until the coordinator validates and records resulting decisions, branches,
+evidence, or checkpoints.
+
+Concurrency note: SQLite memory is the source of truth and runs with WAL plus a
+busy timeout so concurrent Chimera writes wait briefly for locks instead of
+failing immediately. JSONL files are mirrors for local inspection and recovery,
+not the authoritative lock or ordering mechanism.
 
 ## Agent Contract
 
@@ -439,6 +489,7 @@ proteus chimera config show
 proteus chimera doctor
 proteus chimera start
 proteus chimera swarm
+proteus chimera council start|accept|turn|status|close
 proteus chimera send
 proteus chimera post
 proteus chimera snapshot
@@ -634,6 +685,7 @@ proteus_chimera_doctor
 proteus_chimera_stop_server
 proteus_chimera_start
 proteus_chimera_swarm
+proteus_chimera_council
 proteus_chimera_send
 proteus_chimera_post
 proteus_chimera_snapshot

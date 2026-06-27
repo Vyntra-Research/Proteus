@@ -118,6 +118,41 @@ Do not create chat loops. If another agent's message is interesting but not
 immediately actionable, record it in your notes and continue your assigned
 goal.
 
+## Brainstorm Council
+
+A council invite arrives as a `council` message, usually priority. Treat it as
+an ordered brainstorm meeting called by the coordinator.
+
+Accept only when you are free or at a safe pause point. If you are capturing
+important evidence or running a fragile command, finish that safe point first.
+Then accept:
+
+```text
+proteus chimera council accept --id <CH-ID> --council-id <CO-ID> --body "ready"
+```
+
+When the coordinator starts turns, remember your identity: your `CH-ID`, role,
+goal, and current branch. Wait for your ordered turn. Send exactly one concise
+turn for the current round:
+
+```text
+proteus chimera council turn --id <CH-ID> --council-id <CO-ID> --round 1 --body "..."
+```
+
+Your council turn should be useful without becoming a report:
+
+- one or two non-obvious hypotheses or pivots;
+- side effects, trust-boundary shifts, low-level behavior, or cross-component
+  links others may have missed;
+- strongest evidence gap or downgrade risk;
+- one recommended next high-ROI move.
+
+Do not answer every other agent. Do not debate unless the coordinator asks for
+another round. Default to one contribution per round, then return to waiting or
+work. If the coordinator closes the council, follow the final instruction. If
+the final instruction does not redirect you, resume the previous branch from
+the last safe state.
+
 ## Research Discipline
 
 Do not review broadly for its own sake. Work the assigned goal as a complete,

@@ -80,6 +80,7 @@ try {
     "proteus_chimera_stop_server",
     "proteus_chimera_start",
     "proteus_chimera_swarm",
+    "proteus_chimera_council",
     "proteus_chimera_broadcast",
     "proteus_chimera_send",
     "proteus_chimera_post",
@@ -301,6 +302,45 @@ try {
   const chimeraSwarmText = String(chimeraSwarm.content?.[0]?.text ?? "");
   if (!chimeraSwarmText.includes('"publicId": "CH-0002"') || !chimeraSwarmText.includes('"publicId": "CH-0003"')) {
     throw new Error("proteus_chimera_swarm did not create independent sessions");
+  }
+  const chimeraCouncil = await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: {
+      root: tmpRoot,
+      action: "start",
+      topic: "MCP stalled branch brainstorm",
+      reason: "MCP checkpoint needs fresh angles",
+      ids: ["CH-0001", "CH-0002"],
+      maxRounds: 1
+    }
+  });
+  const councilText = String(chimeraCouncil.content?.[0]?.text ?? "");
+  const councilId = councilText.match(/"councilId": "([^"]+)"/)?.[1];
+  if (!councilId || !councilText.includes('"participants"')) {
+    throw new Error("proteus_chimera_council start did not return a council id and participants");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "accept", id: "CH-0001", councilId, body: "MCP CH-0001 ready" }
+  });
+  await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "turn", id: "CH-0001", councilId, round: 1, body: "MCP CH-0001 observation" }
+  });
+  const councilStatus = await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "status", councilId }
+  });
+  const councilStatusText = String(councilStatus.content?.[0]?.text ?? "");
+  if (!councilStatusText.includes('"readyCount": 1') || !councilStatusText.includes("MCP CH-0001 observation")) {
+    throw new Error("proteus_chimera_council status did not recover accept and turn messages");
+  }
+  const councilClose = await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "close", councilId, summary: "MCP council final decision", instruction: "Resume MCP smoke work" }
+  });
+  if (!String(councilClose.content?.[0]?.text ?? "").includes('"closed": true')) {
+    throw new Error("proteus_chimera_council close did not mark the council closed");
   }
   await request("tools/call", {
     name: "proteus_chimera_kill",

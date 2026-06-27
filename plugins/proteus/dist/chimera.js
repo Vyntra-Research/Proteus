@@ -12,6 +12,11 @@ exports.stopOpenCodeServer = stopOpenCodeServer;
 exports.startChimeraSession = startChimeraSession;
 exports.sendChimeraMessage = sendChimeraMessage;
 exports.broadcastChimeraMessage = broadcastChimeraMessage;
+exports.startChimeraCouncil = startChimeraCouncil;
+exports.acceptChimeraCouncil = acceptChimeraCouncil;
+exports.postChimeraCouncilTurn = postChimeraCouncilTurn;
+exports.getChimeraCouncil = getChimeraCouncil;
+exports.closeChimeraCouncil = closeChimeraCouncil;
 exports.postChimeraMessage = postChimeraMessage;
 exports.snapshotChimeraSession = snapshotChimeraSession;
 exports.heartbeatChimeraSession = heartbeatChimeraSession;
@@ -174,7 +179,7 @@ function sendChimeraMessage(db, publicId, body, kind = "message", options = {}) 
         direction: "coordinator_to_agent",
         kind,
         body,
-        metadata: { priority: options.priority === true },
+        metadata: { ...(options.metadata ?? {}), priority: options.priority === true },
         readByCoordinator: true,
         readByAgent: false
     });
@@ -224,6 +229,164 @@ function broadcastChimeraMessage(db, input) {
         });
     }
     return { delivered, directDeliveries, skipped };
+}
+function startChimeraCouncil(db, input) {
+    const topic = input.topic.trim();
+    if (!topic)
+        throw new Error("Council topic is required.");
+    const participants = resolveCouncilParticipants(db, input.sessionIds);
+    if (participants.length === 0)
+        throw new Error("No active Chimera sessions are available for council.");
+    const maxRounds = Math.max(1, Math.min(5, positiveInteger(input.maxRounds, 1)));
+    const councilId = nextCouncilId();
+    const participantBrief = participants.map((session) => `${session.publicId} (${session.role})`).join(", ");
+    const body = [
+        `Brainstorm council invite ${councilId}.`,
+        `Topic: ${topic}`,
+        input.reason ? `Reason: ${input.reason.trim()}` : null,
+        `Participants: ${participantBrief}`,
+        `Default limit: ${maxRounds} ordered round${maxRounds === 1 ? "" : "s"}, with one separated turn per agent per round.`,
+        "",
+        "Accept when you are free or at a safe pause point. If you are in the middle of important evidence capture, finish that safe point first.",
+        `When ready: proteus chimera council accept --id <your CH-ID> --council-id ${councilId} --body "ready"`,
+        `During the council, wait for your turn and send exactly one concise observation for the current round: proteus chimera council turn --id <your CH-ID> --council-id ${councilId} --round 1 --body "...".`,
+        "Do not reply to every other agent. Do not start a debate loop. The coordinator owns the order, any extension, and the final decision."
+    ].filter(Boolean).join("\n");
+    const commonMetadata = {
+        councilId,
+        councilState: "invited",
+        topic,
+        reason: input.reason?.trim() ?? null,
+        maxRounds,
+        participants: participants.map((session) => ({
+            publicId: session.publicId,
+            role: session.role,
+            goal: session.goal,
+            status: session.status
+        }))
+    };
+    const invitations = participants.map((session) => sendChimeraMessage(db, session.publicId, body, "council", {
+        priority: true,
+        metadata: {
+            ...commonMetadata,
+            participantId: session.publicId,
+            participantRole: session.role
+        }
+    }));
+    return {
+        councilId,
+        topic,
+        maxRounds,
+        participants: participants.map((session) => ({
+            publicId: session.publicId,
+            role: session.role,
+            goal: session.goal,
+            status: session.status
+        })),
+        invitations,
+        nextSuggestedReads: [
+            `proteus chimera council status --council-id ${councilId}`,
+            `proteus chimera poll --unread`
+        ]
+    };
+}
+function acceptChimeraCouncil(db, publicId, councilId, body) {
+    requireOpenCouncilParticipation(db, publicId, councilId);
+    return postChimeraMessage(db, publicId, "council", body?.trim() || `Ready for council ${councilId}.`, {
+        councilId,
+        councilState: "accepted"
+    });
+}
+function postChimeraCouncilTurn(db, publicId, councilId, body, round) {
+    const council = requireOpenCouncilParticipation(db, publicId, councilId);
+    const trimmed = body.trim();
+    if (!trimmed)
+        throw new Error("Council turn body is required.");
+    const roundNumber = positiveInteger(round, 1);
+    if (council.turns.some((message) => message.publicId === publicId && councilMetadata(message).round === roundNumber)) {
+        throw new Error(`${publicId} already posted a council turn for ${councilId} round ${roundNumber}. Use the next round only if the coordinator extends the council.`);
+    }
+    return postChimeraMessage(db, publicId, "council", trimmed, {
+        councilId,
+        councilState: "turn",
+        round: roundNumber
+    });
+}
+function getChimeraCouncil(db, councilId) {
+    const messages = councilMessages(db, councilId);
+    if (messages.length === 0)
+        throw new Error(`Council not found: ${councilId}`);
+    const invite = messages.find((message) => councilMetadata(message).councilState === "invited");
+    const inviteMetadata = invite ? councilMetadata(invite) : {};
+    const invitedIds = new Set();
+    const participantIdsFromInvite = Array.isArray(inviteMetadata.participants)
+        ? inviteMetadata.participants
+            .map((item) => metadataObject(item)?.publicId)
+            .filter((value) => typeof value === "string")
+        : [];
+    for (const id of participantIdsFromInvite)
+        invitedIds.add(id);
+    for (const message of messages)
+        invitedIds.add(message.publicId);
+    const acceptedBy = new Map();
+    const turns = [];
+    let closed = false;
+    for (const message of messages) {
+        const metadata = councilMetadata(message);
+        if (metadata.councilState === "accepted")
+            acceptedBy.set(message.publicId, message);
+        if (metadata.councilState === "turn")
+            turns.push(message);
+        if (metadata.councilState === "closed")
+            closed = true;
+    }
+    const participants = [...invitedIds]
+        .map((publicId) => db.getChimeraSession(publicId))
+        .filter((session) => session !== null)
+        .map((session) => {
+        const accepted = acceptedBy.get(session.publicId);
+        return {
+            publicId: session.publicId,
+            role: session.role,
+            goal: session.goal,
+            status: session.status,
+            accepted: Boolean(accepted),
+            acceptedAt: accepted?.createdAt ?? null
+        };
+    });
+    return {
+        councilId,
+        topic: typeof inviteMetadata.topic === "string" ? inviteMetadata.topic : null,
+        maxRounds: typeof inviteMetadata.maxRounds === "number" ? inviteMetadata.maxRounds : null,
+        participants,
+        readyCount: participants.filter((participant) => participant.accepted).length,
+        invitedCount: participants.length,
+        closed,
+        messages,
+        turns
+    };
+}
+function closeChimeraCouncil(db, councilId, summary, instruction) {
+    const council = getChimeraCouncil(db, councilId);
+    const trimmedSummary = summary.trim();
+    if (!trimmedSummary)
+        throw new Error("Council close summary is required.");
+    const body = [
+        `Brainstorm council ${councilId} closed.`,
+        `Final coordinator decision: ${trimmedSummary}`,
+        instruction?.trim() ? `Next instruction: ${instruction.trim()}` : null,
+        "Resume your previous work if it is still valid, or follow the coordinator's updated instruction. Do not continue the council unless explicitly reopened."
+    ].filter(Boolean).join("\n");
+    const deliveries = council.participants.map((participant) => sendChimeraMessage(db, participant.publicId, body, "council", {
+        priority: true,
+        metadata: {
+            councilId,
+            councilState: "closed",
+            summary: trimmedSummary,
+            instruction: instruction?.trim() || null
+        }
+    }));
+    return { council: getChimeraCouncil(db, councilId), deliveries };
 }
 function postChimeraMessage(db, publicId, kind, body, metadata) {
     const message = db.addChimeraMessage({
@@ -604,12 +767,15 @@ Required behavior:
 - Do not invent evidence, ignore duplicate checks, or turn brainstorms into findings.
 - Shared Chimera chat is advisory context. You do not need to answer every broadcast. Respond only when it changes your branch, asks you a direct question, or can help another active agent.
 - Coordinator questions should be answered unless doing so would exceed scope or interrupt a higher-priority safety stop.
+- Brainstorm council messages use kind "council". Accept a council invite only when you are free or at a safe pause point. In a council, identify yourself as ${session.publicId} / ${session.role}, wait for your ordered turn, and send exactly one concise turn per round with non-obvious options, evidence gaps, risks, and recommended next move. Do not debate every point or create a chat loop. After the coordinator closes the council, resume prior work if still valid or follow the final instruction.
 - Network is ${config.defaultNetwork ? "allowed only within the target authorization" : "disabled by default unless the coordinator explicitly authorizes it"}.
 
 Communication commands:
 - ${proteusCommand} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent
 - ${proteusCommand} --root "${db.targetRoot}" chimera post --id ${session.publicId} --kind message --body "..."
 - ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --from-id ${session.publicId} --message "..." --priority
+- ${proteusCommand} --root "${db.targetRoot}" chimera council accept --id ${session.publicId} --council-id CO-... --body "ready"
+- ${proteusCommand} --root "${db.targetRoot}" chimera council turn --id ${session.publicId} --council-id CO-... --round 1 --body "..."
 - ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "..."
 - ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
 `;
@@ -623,6 +789,8 @@ Start with the highest-ROI path for this exact goal. Avoid broad repo review unl
 For creative offensive work, generate several distinct branches, kill weak ones quickly, and preserve why they died. For fuzzing, learn how inputs change behavior instead of spraying generic payloads. For PoC work, prefer realistic manual blackbox reproduction and clear negative controls.
 
 Keep working until the assigned goal is complete or blocked. Prototype labs, PoCs, harnesses, and payloads when they are the best path to evidence. If blocked, post the blocker and the next decision needed from the coordinator.
+
+If invited to a brainstorm council, accept only at a safe pause point. During the council, wait for your turn, send one compact contribution for that round, and avoid reply loops. When the coordinator closes the council, resume the prior branch if still valid or follow the final coordinator instruction.
 
 Before stopping, write a snapshot:
 
@@ -720,6 +888,41 @@ function linkChimeraSession(db, session) {
     }
     return linked;
 }
+function resolveCouncilParticipants(db, sessionIds) {
+    const closedStatuses = new Set(["closed", "failed", "killed", "timeout"]);
+    if (sessionIds && sessionIds.length > 0) {
+        return sessionIds
+            .map((id) => requireChimeraSession(db, id))
+            .filter((session) => !closedStatuses.has(session.status));
+    }
+    return db
+        .listChimeraSessions({ limit: 500 })
+        .filter((session) => !closedStatuses.has(session.status))
+        .reverse();
+}
+function councilMessages(db, councilId) {
+    return db
+        .listChimeraMessages({ limit: 2000 })
+        .filter((message) => councilMetadata(message).councilId === councilId);
+}
+function councilMetadata(message) {
+    return metadataObject(message.metadata) ?? {};
+}
+function requireOpenCouncilParticipation(db, publicId, councilId) {
+    requireChimeraSession(db, publicId);
+    const council = getChimeraCouncil(db, councilId);
+    if (council.closed)
+        throw new Error(`Council is already closed: ${councilId}`);
+    if (!council.participants.some((participant) => participant.publicId === publicId)) {
+        throw new Error(`${publicId} is not an invited participant for council ${councilId}.`);
+    }
+    return council;
+}
+function metadataObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? value
+        : null;
+}
 function writeStatusFile(db, session, extra = {}) {
     (0, paths_1.ensureDir)(session.sessionDir);
     node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "status.json"), JSON.stringify({ session, extra }, null, 2) + "\n");
@@ -733,6 +936,11 @@ function requireChimeraSession(db, publicId) {
 function nextPublicId(db) {
     const latest = db.listChimeraSessions({ limit: 1 })[0];
     return `CH-${String((latest?.id ?? 0) + 1).padStart(4, "0")}`;
+}
+function nextCouncilId() {
+    const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+    const suffix = Math.random().toString(36).slice(2, 6);
+    return `CO-${stamp}-${suffix}`;
 }
 function inboxPath(db, publicId) {
     return node_path_1.default.join(requireChimeraSession(db, publicId).sessionDir, "inbox.jsonl");

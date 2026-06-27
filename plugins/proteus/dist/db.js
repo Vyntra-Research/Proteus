@@ -33,6 +33,7 @@ class ProteusDb {
         this.db = new DatabaseSync(this.dbPath);
         this.db.exec("PRAGMA foreign_keys = ON;");
         this.db.exec("PRAGMA journal_mode = WAL;");
+        this.db.exec("PRAGMA busy_timeout = 10000;");
         this.migrateIfNeeded();
     }
     close() {

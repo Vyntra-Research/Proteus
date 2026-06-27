@@ -207,6 +207,9 @@ function cmdChimera(db, subcommand, parsed) {
             console.log(JSON.stringify((0, chimera_1.startChimeraSwarm)(db, { ...plan, run: getBoolean(parsed, "run") || plan.run }), null, 2));
             return;
         }
+        case "council":
+            cmdChimeraCouncil(db, parsed.command[2], parsed);
+            return;
         case "send":
             console.log(JSON.stringify({
                 ok: true,
@@ -275,7 +278,39 @@ function cmdChimera(db, subcommand, parsed) {
             console.log(JSON.stringify((0, chimera_1.closeChimeraSession)(db, requiredString(parsed, "id"), getString(parsed, "verdict") ?? "useful", requiredString(parsed, "summary")), null, 2));
             return;
         default:
-            throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|send|broadcast|post|snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
+            throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|council|send|broadcast|post|snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
+    }
+}
+function cmdChimeraCouncil(db, subcommand, parsed) {
+    switch (subcommand) {
+        case "start":
+            console.log(JSON.stringify((0, chimera_1.startChimeraCouncil)(db, {
+                topic: requiredString(parsed, "topic"),
+                reason: getString(parsed, "reason"),
+                sessionIds: splitList(getString(parsed, "ids") ?? getString(parsed, "sessions") ?? ""),
+                maxRounds: getNumber(parsed, "max-rounds")
+            }), null, 2));
+            return;
+        case "accept":
+            console.log(JSON.stringify({
+                ok: true,
+                message: (0, chimera_1.acceptChimeraCouncil)(db, requiredString(parsed, "id"), requiredString(parsed, "council-id"), getString(parsed, "body"))
+            }, null, 2));
+            return;
+        case "turn":
+            console.log(JSON.stringify({
+                ok: true,
+                message: (0, chimera_1.postChimeraCouncilTurn)(db, requiredString(parsed, "id"), requiredString(parsed, "council-id"), requiredString(parsed, "body"), getNumber(parsed, "round"))
+            }, null, 2));
+            return;
+        case "status":
+            console.log(JSON.stringify((0, chimera_1.getChimeraCouncil)(db, requiredString(parsed, "council-id")), null, 2));
+            return;
+        case "close":
+            console.log(JSON.stringify((0, chimera_1.closeChimeraCouncil)(db, requiredString(parsed, "council-id"), requiredString(parsed, "summary"), getString(parsed, "instruction")), null, 2));
+            return;
+        default:
+            throw new Error("Usage: proteus chimera council <start|accept|turn|status|close>");
     }
 }
 function cmdChimeraConfig(db, subcommand, parsed) {
@@ -1172,12 +1207,13 @@ function chimeraMessageKind(parsed, key, fallback) {
         kind === "blocker" ||
         kind === "snapshot" ||
         kind === "heartbeat" ||
+        kind === "council" ||
         kind === "kill" ||
         kind === "close" ||
         kind === "error") {
         return kind;
     }
-    throw new Error("Chimera message kind must be one of: message, redirect, finding, blocker, snapshot, heartbeat, kill, close, error");
+    throw new Error("Chimera message kind must be one of: message, redirect, finding, blocker, snapshot, heartbeat, council, kill, close, error");
 }
 function isHelpRequested(parsed) {
     return (parsed.flags.help === true ||

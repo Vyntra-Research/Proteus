@@ -177,6 +177,49 @@ const tools = [
         })
     },
     {
+        name: "proteus_chimera_council",
+        title: "Run Chimera Brainstorm Council",
+        description: "Coordinate a bounded brainstorm council across Chimera co-agents: start invite, accept, ordered turn, status, or close.",
+        inputSchema: schema({
+            root: stringProp("Target root path."),
+            action: stringProp("start, accept, turn, status, or close."),
+            topic: stringProp("Council topic for action=start."),
+            reason: stringProp("Why the council is being called."),
+            ids: arrayProp("Specific Chimera session ids. Defaults to all active sessions for action=start."),
+            id: stringProp("Single Chimera session id for accept or turn."),
+            councilId: stringProp("Council id returned by action=start."),
+            body: stringProp("Accept or turn body."),
+            round: numberProp("Council round number for action=turn."),
+            maxRounds: numberProp("Default max ordered rounds for action=start. Defaults to 1, capped at 5."),
+            summary: stringProp("Final coordinator summary for action=close."),
+            instruction: stringProp("Final resume or redirect instruction for action=close.")
+        }, ["root", "action"]),
+        handler: (input) => withDb(str(input.root), (db) => {
+            const action = str(input.action);
+            if (action === "start") {
+                return toolEnvelope((0, chimera_1.startChimeraCouncil)(db, {
+                    topic: str(input.topic),
+                    reason: maybeStr(input.reason),
+                    sessionIds: stringArray(input.ids),
+                    maxRounds: maybeNum(input.maxRounds)
+                }));
+            }
+            if (action === "accept") {
+                return toolEnvelope((0, chimera_1.acceptChimeraCouncil)(db, str(input.id), str(input.councilId), maybeStr(input.body)));
+            }
+            if (action === "turn") {
+                return toolEnvelope((0, chimera_1.postChimeraCouncilTurn)(db, str(input.id), str(input.councilId), str(input.body), maybeNum(input.round)));
+            }
+            if (action === "status") {
+                return toolEnvelope((0, chimera_1.getChimeraCouncil)(db, str(input.councilId)));
+            }
+            if (action === "close") {
+                return toolEnvelope((0, chimera_1.closeChimeraCouncil)(db, str(input.councilId), str(input.summary), maybeStr(input.instruction)));
+            }
+            throw new Error("action must be one of: start, accept, turn, status, close");
+        })
+    },
+    {
         name: "proteus_chimera_broadcast",
         title: "Broadcast Chimera Message",
         description: "Send one shared-chat message to all active Chimera agents, optionally from one agent to the others.",
@@ -1428,12 +1471,13 @@ function chimeraKind(value, fallback) {
         kind === "blocker" ||
         kind === "snapshot" ||
         kind === "heartbeat" ||
+        kind === "council" ||
         kind === "kill" ||
         kind === "close" ||
         kind === "error") {
         return kind;
     }
-    throw new Error("Chimera message kind must be one of: message, redirect, finding, blocker, snapshot, heartbeat, kill, close, error");
+    throw new Error("Chimera message kind must be one of: message, redirect, finding, blocker, snapshot, heartbeat, council, kill, close, error");
 }
 function stringArray(value) {
     return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];

@@ -99,6 +99,7 @@ export type ChimeraMessageKind =
   | "blocker"
   | "snapshot"
   | "heartbeat"
+  | "council"
   | "kill"
   | "close"
   | "error";

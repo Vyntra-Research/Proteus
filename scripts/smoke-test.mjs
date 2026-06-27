@@ -262,6 +262,49 @@ try {
   if (!steerLog.includes("Smoke direct steer") || !steerLog.includes('"delivery":"steer"')) {
     throw new Error("mock OpenCode server did not receive delivery=steer prompt");
   }
+  const chimeraCouncilStart = JSON.parse(run([
+    "chimera",
+    "council",
+    "start",
+    "--topic",
+    "Smoke stalled branch brainstorm",
+    "--reason",
+    "Smoke checkpoint needs fresh angles",
+    "--ids",
+    "CH-0001,CH-0002",
+    "--max-rounds",
+    "1"
+  ]));
+  const councilId = chimeraCouncilStart.councilId;
+  if (!councilId || chimeraCouncilStart.participants.length !== 2) {
+    throw new Error("chimera council start did not invite the expected participants");
+  }
+  run(["chimera", "council", "accept", "--id", "CH-0001", "--council-id", councilId, "--body", "CH-0001 ready"]);
+  run(["chimera", "council", "accept", "--id", "CH-0002", "--council-id", councilId, "--body", "CH-0002 ready"]);
+  run(["chimera", "council", "turn", "--id", "CH-0001", "--council-id", councilId, "--round", "1", "--body", "CH-0001 observation"]);
+  const duplicateCouncilTurn = runFail(["chimera", "council", "turn", "--id", "CH-0001", "--council-id", councilId, "--round", "1", "--body", "duplicate observation"]);
+  if (!duplicateCouncilTurn.includes("already posted a council turn")) {
+    throw new Error("chimera council allowed a duplicate turn for the same agent and round");
+  }
+  run(["chimera", "council", "turn", "--id", "CH-0002", "--council-id", councilId, "--round", "1", "--body", "CH-0002 observation"]);
+  const chimeraCouncilStatus = JSON.parse(run(["chimera", "council", "status", "--council-id", councilId]));
+  if (chimeraCouncilStatus.readyCount !== 2 || chimeraCouncilStatus.turns.length !== 2 || chimeraCouncilStatus.closed !== false) {
+    throw new Error("chimera council status did not recover ready participants and ordered turns");
+  }
+  const chimeraCouncilClose = JSON.parse(run([
+    "chimera",
+    "council",
+    "close",
+    "--council-id",
+    councilId,
+    "--summary",
+    "Smoke council final decision",
+    "--instruction",
+    "Resume prior smoke work"
+  ]));
+  if (!chimeraCouncilClose.council.closed || chimeraCouncilClose.deliveries.length !== 2) {
+    throw new Error("chimera council close did not notify all participants and mark the council closed");
+  }
   const swarmPlan = path.join(tmpRoot, "chimera-swarm.json");
   fs.writeFileSync(swarmPlan, JSON.stringify({
     agents: [

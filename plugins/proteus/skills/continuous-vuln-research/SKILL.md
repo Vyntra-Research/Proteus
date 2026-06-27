@@ -164,6 +164,45 @@ pragmatic, low-noise, and focused on efficient progress toward precise
 objectives. Do not over-control every step. Redirect only when strategy,
 scope, duplicated work, or new evidence requires it.
 
+### Chimera Brainstorm Council
+
+Use a Chimera council when a checkpoint, stalled campaign, cross-campaign
+pivot, or difficult branch would benefit from ordered independent perspectives.
+Do not call a council for routine decisions or every minor uncertainty.
+
+A council is a short structured meeting, not a free-form chat. The coordinator
+must:
+
+- choose a narrow topic and reason;
+- list the participant `CH-...` ids, roles, and current goals;
+- include the current state: confirmed facts, killed paths, open branches,
+  constraints, evidence gaps, relevant heuristics, and the decision needed;
+- start with `proteus chimera council start --topic "..." --ids CH-0001,CH-0002`
+  or MCP `proteus_chimera_council` with `action=start`;
+- use priority invite delivery so agents are notified directly when possible;
+- let agents accept when they are free or at a safe pause point;
+- check readiness with `proteus chimera council status --council-id CO-...`;
+- begin once all useful participants are ready, or proceed with ready agents if
+  waiting longer would stall the campaign;
+- run ordered turns: one separated response per agent per round;
+- rely on Proteus to reject duplicate turns from the same agent in the same
+  round, and open a new round only when you intentionally extend the council;
+- keep the default to one round and normally cap at two rounds. Extend only for
+  a concrete unresolved high-ROI question;
+- end with `proteus chimera council close --council-id CO-... --summary "..."`
+  and include the final decision, next actions, and whether agents should
+  resume prior work or follow a redirect.
+
+During council turns, ask each co-agent for concise, non-obvious observations:
+surprising side effects, cross-component links, low-level angles, evidence
+gaps, kill risks, and the next high-ROI experiment. Do not ask them to debate
+every other message. Do not let the council become a loop or replace concrete
+validation work.
+
+If a council produces a useful pivot, record the resulting decision, branch,
+checkpoint, or kill reason in normal Proteus memory. The council transcript is
+coordination history, not proof by itself.
+
 ## Proteus State
 
 Treat `.vros/memory.sqlite` as the source of truth. Markdown exports are human
