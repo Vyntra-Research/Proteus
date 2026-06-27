@@ -637,9 +637,9 @@ class ProteusDb {
             .prepare(`INSERT INTO chimera_sessions
           (public_id, target_id, campaign_id, round_id, role, goal, status,
            access_mode, access_notes, model, provider, session_dir, lab_dir, opencode_command, opencode_pid,
-           created_at, updated_at, closed_at, close_verdict, close_summary)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-            .run(publicId, target.id, input.campaignId ?? null, input.roundId ?? null, input.role, input.goal, "starting", input.accessMode ?? "lab", input.accessNotes ?? null, input.model ?? null, input.provider ?? null, input.sessionDir, input.labDir, input.opencodeCommand ?? null, null, now, now, null, null, null);
+           opencode_server_url, opencode_session_id, created_at, updated_at, closed_at, close_verdict, close_summary)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(publicId, target.id, input.campaignId ?? null, input.roundId ?? null, input.role, input.goal, "starting", input.accessMode ?? "lab", input.accessNotes ?? null, input.model ?? null, input.provider ?? null, input.sessionDir, input.labDir, input.opencodeCommand ?? null, null, input.opencodeServerUrl ?? null, input.opencodeSessionId ?? null, now, now, null, null, null);
         const id = Number(result.lastInsertRowid);
         this.indexFts("chimera_session", id, `${publicId}\n${input.role}\n${input.goal}\n${input.model ?? ""}`);
         return this.getChimeraSession(publicId);
@@ -668,9 +668,10 @@ class ProteusDb {
         this.db
             .prepare(`UPDATE chimera_sessions
          SET status = ?, opencode_pid = ?, updated_at = ?, closed_at = ?,
-             close_verdict = ?, close_summary = ?
+             close_verdict = ?, close_summary = ?,
+             opencode_server_url = ?, opencode_session_id = ?
          WHERE public_id = ?`)
-            .run(status, input.opencodePid === undefined ? current.opencodePid : input.opencodePid, now, closedAt, input.closeVerdict === undefined ? current.closeVerdict : input.closeVerdict, input.closeSummary === undefined ? current.closeSummary : input.closeSummary, input.publicId);
+            .run(status, input.opencodePid === undefined ? current.opencodePid : input.opencodePid, now, closedAt, input.closeVerdict === undefined ? current.closeVerdict : input.closeVerdict, input.closeSummary === undefined ? current.closeSummary : input.closeSummary, input.opencodeServerUrl === undefined ? current.opencodeServerUrl : input.opencodeServerUrl, input.opencodeSessionId === undefined ? current.opencodeSessionId : input.opencodeSessionId, input.publicId);
         this.indexFts("chimera_session", current.id, `${current.publicId}\n${status}\n${current.role}\n${current.goal}\n${input.closeVerdict ?? ""}\n${input.closeSummary ?? ""}`);
         return this.getChimeraSession(input.publicId);
     }
@@ -1188,6 +1189,7 @@ class ProteusDb {
         this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL);
         this.applyMigration("2026-06-17-campaign-checkpoints", CAMPAIGN_CHECKPOINT_SCHEMA_SQL);
         this.applyMigration("2026-06-27-chimera-mode", CHIMERA_SCHEMA_SQL);
+        this.applyMigration("2026-06-27-chimera-opencode-control", CHIMERA_OPENCODE_CONTROL_SCHEMA_SQL);
         this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
     }
     ensureMetadataTable() {
@@ -1518,6 +1520,10 @@ const CHIMERA_SCHEMA_SQL = `
       CREATE INDEX IF NOT EXISTS idx_chimera_messages_unread_agent
         ON chimera_messages(read_by_agent, direction);
 `;
+const CHIMERA_OPENCODE_CONTROL_SCHEMA_SQL = `
+      ALTER TABLE chimera_sessions ADD COLUMN opencode_server_url TEXT;
+      ALTER TABLE chimera_sessions ADD COLUMN opencode_session_id TEXT;
+`;
 function emptyMergeCounts() {
     return {
         targetProfiles: 0,
@@ -1647,6 +1653,8 @@ function toChimeraSessionRow(row) {
         labDir: String(row.lab_dir),
         opencodeCommand: row.opencode_command === null || row.opencode_command === undefined ? null : String(row.opencode_command),
         opencodePid: row.opencode_pid === null || row.opencode_pid === undefined ? null : Number(row.opencode_pid),
+        opencodeServerUrl: row.opencode_server_url === null || row.opencode_server_url === undefined ? null : String(row.opencode_server_url),
+        opencodeSessionId: row.opencode_session_id === null || row.opencode_session_id === undefined ? null : String(row.opencode_session_id),
         createdAt: String(row.created_at),
         updatedAt: String(row.updated_at),
         closedAt: row.closed_at === null || row.closed_at === undefined ? null : String(row.closed_at),
@@ -1863,10 +1871,16 @@ function normalizeChimeraConfig(input) {
         opencodeCommand: typeof input.opencodeCommand === "string" && input.opencodeCommand.trim()
             ? input.opencodeCommand.trim()
             : "opencode",
+        opencodeServerUrl: typeof input.opencodeServerUrl === "string" && input.opencodeServerUrl.trim()
+            ? input.opencodeServerUrl.trim()
+            : null,
+        opencodeServerPid: Number.isFinite(input.opencodeServerPid) && Number(input.opencodeServerPid) > 0
+            ? Math.floor(Number(input.opencodeServerPid))
+            : null,
         defaultModel: typeof input.defaultModel === "string" && input.defaultModel.trim() ? input.defaultModel.trim() : null,
         defaultVariant: typeof input.defaultVariant === "string" && input.defaultVariant.trim() ? input.defaultVariant.trim() : null,
         defaultAgent: typeof input.defaultAgent === "string" && input.defaultAgent.trim() ? input.defaultAgent.trim() : null,
-        maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : 4,
+        maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : 5,
         defaultTimeoutSec: Number.isFinite(input.defaultTimeoutSec) && Number(input.defaultTimeoutSec) > 0
             ? Math.floor(Number(input.defaultTimeoutSec))
             : 900,

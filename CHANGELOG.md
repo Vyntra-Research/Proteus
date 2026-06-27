@@ -12,6 +12,7 @@
 - Added `chimera-agent` skill for secondary agents, including communication commands, shared-chat broadcast, inbox polling, access-mode discipline, snapshots, heartbeat, and stop conditions.
 - Added OpenCode doctor checks and mock-OpenCode smoke coverage so CI validates Chimera without requiring an API key.
 - Added priority Chimera notifications for coordinator messages and broadcasts, plus a session-local `notifications.json` signal that running agents check periodically before polling Proteus.
+- Added managed OpenCode server/session tracking for Chimera runs, `chimera run` reuse of existing labs, manual `attach-opencode`, and priority `delivery=steer` pings when an OpenCode session is attached.
 
 ### Changed
 

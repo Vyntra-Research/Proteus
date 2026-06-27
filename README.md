@@ -128,7 +128,8 @@ proteus chimera doctor --root C:\path\to\target
 This configuration is persistent for that Proteus target. It is stored in target
 memory and mirrored to `.vros/chimera/config.json`; individual Chimera labs do
 not need to pass `--opencode-command`, `--model`, `--variant`, or `--max-agents`
-again unless you want to change the target defaults.
+again unless you want to change the target defaults. Chimera defaults to
+`maxAgents: 5`.
 
 If OpenCode is installed outside `PATH`, pass the executable path:
 
@@ -237,7 +238,8 @@ Launch optional Chimera agents after OpenCode is configured:
 ```powershell
 proteus chimera config show --root C:\path\to\target
 proteus chimera doctor --root C:\path\to\target
-proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7"
+proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7" --run
+proteus chimera run --root C:\path\to\target --id CH-0001
 proteus chimera poll --root C:\path\to\target --unread
 proteus chimera send --root C:\path\to\target --id CH-0001 --message "Drop parser diffing and focus on policy side effects." --priority
 proteus chimera broadcast --root C:\path\to\target --message "Shared pivot: B7 only matters if it crosses the policy cache boundary." --priority
@@ -262,9 +264,22 @@ proteus chimera swarm --root C:\path\to\target --plan chimera-swarm.json
 
 Coordinator messages and broadcasts update each destination session's
 `notifications.json` as a lightweight signal. `--priority` marks the signal as
-urgent so running agents poll as soon as practical. Agents still use
-`proteus chimera poll --id <CH-ID> --unread --agent` as the source of truth,
-and the Chimera agent contract tells them to check periodically on their own.
+urgent. If Proteus has an attached OpenCode server URL and `opencodeSessionId`
+for that Chimera session, priority messages also send a direct OpenCode
+`delivery=steer` ping that tells the agent to poll Proteus immediately. Agents
+still use `proteus chimera poll --id <CH-ID> --unread --agent` as the source of
+truth, and the Chimera agent contract tells them to check periodically on their
+own.
+
+Prefer reusing an existing relevant Chimera lab with `proteus chimera run --id
+CH-0001` instead of creating a new agent for every continuation. When Proteus
+launches OpenCode through Chimera, it starts or reuses a local OpenCode server,
+discovers the matching `ses_...` session by title/directory, and stores it on
+the `CH-...` record. If auto-discovery is not possible, attach manually:
+
+```powershell
+proteus chimera attach-opencode --root C:\path\to\target --id CH-0001 --server-url http://127.0.0.1:4096 --opencode-session-id ses_xxx
+```
 
 When exactly one campaign is active, Proteus automatically links new hypotheses,
 evidence, decisions, validation gates, and agent outputs back to that campaign.
@@ -435,10 +450,13 @@ proteus init [--root <path>] [--name <target>]
 proteus status [--root <path>]
 proteus migrate [--root <path>]
 proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
-proteus chimera config init|show|disable [--opencode-command <cmd>] [--model <provider/model>] [--variant <variant>]
+proteus chimera config init|show|disable [--opencode-command <cmd>] [--server-url <url>] [--model <provider/model>] [--variant <variant>]
 proteus chimera doctor [--root <path>]
+proteus chimera stop-server [--root <path>]
 proteus chimera start --role <role> --goal <text> [--access lab|inherit] [--access-notes <text>] [--run]
 proteus chimera swarm --plan <json>
+proteus chimera run --id <CH-ID>
+proteus chimera attach-opencode --id <CH-ID> --server-url <url> --opencode-session-id <ses-id>
 proteus chimera send|broadcast|post|snapshot|heartbeat|poll|list|kill|close
 proteus ingest [--root <path>] [paths...]
 proteus observe [--root <path>]

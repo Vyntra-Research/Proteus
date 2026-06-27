@@ -87,7 +87,7 @@ validation, or anti-slop gates.
 
 Chimera is optional. Use it only when the target benefits from one or more
 bounded secondary agents working under Proteus coordination. Normal Proteus
-research must still work without Chimera or Goose.
+research must still work without Chimera or OpenCode.
 
 Before launching Chimera agents:
 
@@ -96,6 +96,10 @@ Before launching Chimera agents:
 - run `proteus chimera doctor` or MCP `proteus_chimera_doctor`;
 - confirm the active campaign/round state;
 - define a narrow role, goal, expected artifact, and stop conditions;
+- make the goal and stop conditions explicit enough that the agent can keep
+  working until completion or a real blocker without guessing when to stop;
+- check `proteus chimera list` before creating new agents and prefer reusing an
+  existing relevant `CH-...` lab with `proteus chimera run --id <CH-ID>`;
 - choose the access mode deliberately.
 
 Access modes:
@@ -112,13 +116,15 @@ Launch examples:
 ```text
 proteus chimera start --role chaining --goal "Develop non-obvious chains from the upload parser branch"
 proteus chimera start --role cicada --goal "Try bypass/chaining on branch B7" --access inherit --access-notes "Coordinator grants edit/run access for isolated exploit lab work"
+proteus chimera run --id CH-0001
 proteus chimera swarm --plan chimera-swarm.json
 ```
 
 Coordinator duties:
 
 - poll unread messages with `proteus chimera poll --unread`;
-- send redirects with `proteus chimera send`;
+- send redirects with `proteus chimera send`; use `--priority` when the message
+  should steer an active OpenCode session immediately;
 - kill looping or low-ROI sessions with `proteus chimera kill`;
 - close sessions with a verdict and summary;
 - independently validate any agent claim before recording it as a finding.
@@ -198,7 +204,7 @@ Use the dedicated skills for tactical execution:
 - `poc-exploit`: realistic PoC/lab design, manual blackbox reproduction,
   negative controls, reliability notes, and impact evidence.
 - `checkpoint`: compact campaign state compression after meaningful progress.
-- `chimera-agent`: instructions for Goose-backed secondary agents operating
+- `chimera-agent`: instructions for OpenCode-backed secondary agents operating
   inside Chimera sessions.
 
 Use role contracts for delegated fronts:

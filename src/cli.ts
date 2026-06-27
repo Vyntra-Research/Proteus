@@ -13,13 +13,16 @@ import {
   heartbeatChimeraSession,
   initChimeraConfig,
   killChimeraSession,
+  attachOpenCodeSession,
   pollChimeraMessages,
   postChimeraMessage,
+  runChimeraSession,
   saveChimeraConfig,
   sendChimeraMessage,
   snapshotChimeraSession,
   startChimeraSession,
   startChimeraSwarm,
+  stopOpenCodeServer,
   DEFAULT_CHIMERA_CONFIG,
   type ChimeraSwarmPlan
 } from "./chimera";
@@ -209,6 +212,9 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
     case "doctor":
       console.log(JSON.stringify(chimeraDoctor(db), null, 2));
       return;
+    case "stop-server":
+      console.log(JSON.stringify({ ok: true, ...stopOpenCodeServer(db) }, null, 2));
+      return;
     case "start":
       console.log(JSON.stringify(startChimeraSession(db, {
         role: requiredString(parsed, "role"),
@@ -233,7 +239,7 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
     case "send":
       console.log(JSON.stringify({
         ok: true,
-        message: sendChimeraMessage(
+        ...sendChimeraMessage(
           db,
           requiredString(parsed, "id"),
           requiredString(parsed, "message"),
@@ -262,6 +268,22 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
       return;
     case "heartbeat":
       console.log(JSON.stringify(heartbeatChimeraSession(db, requiredString(parsed, "id")), null, 2));
+      return;
+    case "run":
+      {
+        const id = requiredString(parsed, "id");
+        const run = runChimeraSession(db, id, getNumber(parsed, "timeout"));
+        console.log(JSON.stringify({ ok: true, run, session: db.getChimeraSession(id) }, null, 2));
+      }
+      return;
+    case "attach-opencode":
+      console.log(JSON.stringify({
+        ok: true,
+        session: attachOpenCodeSession(db, requiredString(parsed, "id"), {
+          serverUrl: getString(parsed, "server-url"),
+          opencodeSessionId: getString(parsed, "opencode-session-id")
+        })
+      }, null, 2));
       return;
     case "poll":
       console.log(JSON.stringify(pollChimeraMessages(db, {
@@ -299,7 +321,7 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
       ), null, 2));
       return;
     default:
-      throw new Error("Usage: proteus chimera <config|doctor|start|swarm|send|broadcast|post|snapshot|heartbeat|poll|list|kill|close>");
+      throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|send|broadcast|post|snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
   }
 }
 
@@ -310,6 +332,8 @@ function cmdChimeraConfig(db: ProteusDb, subcommand: string | undefined, parsed:
         enabled: !getBoolean(parsed, "disabled"),
         runtime: "opencode",
         opencodeCommand: getString(parsed, "opencode-command") ?? DEFAULT_CHIMERA_CONFIG.opencodeCommand,
+        opencodeServerUrl: getString(parsed, "server-url") ?? undefined,
+        opencodeServerPid: getNumber(parsed, "server-pid") ?? undefined,
         defaultModel: getString(parsed, "model") ?? undefined,
         defaultVariant: getString(parsed, "variant") ?? getString(parsed, "provider") ?? undefined,
         defaultAgent: getString(parsed, "agent") ?? undefined,

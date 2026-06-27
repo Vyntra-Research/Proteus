@@ -8,6 +8,7 @@ exports.initChimeraConfig = initChimeraConfig;
 exports.saveChimeraConfig = saveChimeraConfig;
 exports.getChimeraConfig = getChimeraConfig;
 exports.chimeraDoctor = chimeraDoctor;
+exports.stopOpenCodeServer = stopOpenCodeServer;
 exports.startChimeraSession = startChimeraSession;
 exports.sendChimeraMessage = sendChimeraMessage;
 exports.broadcastChimeraMessage = broadcastChimeraMessage;
@@ -18,6 +19,8 @@ exports.pollChimeraMessages = pollChimeraMessages;
 exports.killChimeraSession = killChimeraSession;
 exports.closeChimeraSession = closeChimeraSession;
 exports.startChimeraSwarm = startChimeraSwarm;
+exports.runChimeraSession = runChimeraSession;
+exports.attachOpenCodeSession = attachOpenCodeSession;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_child_process_1 = require("node:child_process");
@@ -26,10 +29,12 @@ exports.DEFAULT_CHIMERA_CONFIG = {
     enabled: false,
     runtime: "opencode",
     opencodeCommand: "opencode",
+    opencodeServerUrl: null,
+    opencodeServerPid: null,
     defaultModel: null,
     defaultVariant: null,
     defaultAgent: "proteus-chimera",
-    maxAgents: 4,
+    maxAgents: 5,
     defaultTimeoutSec: 900,
     defaultNetwork: false,
     skipPermissions: true
@@ -40,6 +45,8 @@ function initChimeraConfig(db, input = {}) {
         enabled: input.enabled ?? true,
         runtime: "opencode",
         opencodeCommand: stringOr(input.opencodeCommand, current.opencodeCommand),
+        opencodeServerUrl: nullableString(input.opencodeServerUrl, current.opencodeServerUrl),
+        opencodeServerPid: nullableNumber(input.opencodeServerPid, current.opencodeServerPid),
         defaultModel: nullableString(input.defaultModel, current.defaultModel),
         defaultVariant: nullableString(input.defaultVariant, current.defaultVariant),
         defaultAgent: nullableString(input.defaultAgent, current.defaultAgent),
@@ -83,6 +90,23 @@ function chimeraDoctor(db) {
     ];
     return { ok: checks.every((check) => check.ok), config, checks };
 }
+function stopOpenCodeServer(db) {
+    const config = getChimeraConfig(db);
+    let stopped = false;
+    let detail = "no managed OpenCode server PID is recorded";
+    if (config.opencodeServerPid) {
+        try {
+            process.kill(config.opencodeServerPid);
+            stopped = true;
+            detail = "managed OpenCode server process was signaled";
+        }
+        catch (error) {
+            detail = error instanceof Error ? error.message : String(error);
+        }
+    }
+    saveChimeraConfig(db, { ...config, opencodeServerUrl: null, opencodeServerPid: null });
+    return { stopped, pid: config.opencodeServerPid, url: config.opencodeServerUrl, detail };
+}
 function startChimeraSession(db, input) {
     if (!input.role?.trim())
         throw new Error("Missing Chimera role.");
@@ -107,7 +131,8 @@ function startChimeraSession(db, input) {
         provider: normalizeOpenCodeVariant(input.variant, input.provider, config.defaultVariant),
         sessionDir,
         labDir,
-        opencodeCommand: config.opencodeCommand
+        opencodeCommand: config.opencodeCommand,
+        opencodeServerUrl: config.opencodeServerUrl
     });
     const paths = createSessionFiles(db, session, config);
     db.addChimeraMessage({
@@ -124,7 +149,7 @@ function startChimeraSession(db, input) {
     writeStatusFile(db, updated, { linked });
     let run;
     if (input.run) {
-        run = runOpenCodeOnce(db, updated, paths.promptPath, config, input.timeoutSec ?? config.defaultTimeoutSec);
+        run = runChimeraSession(db, updated.publicId, input.timeoutSec ?? config.defaultTimeoutSec);
         updated = db.updateChimeraSession({
             publicId: session.publicId,
             status: run.exitCode === 0 ? "waiting" : run.timedOut ? "timeout" : "failed"
@@ -143,6 +168,7 @@ function startChimeraSession(db, input) {
     };
 }
 function sendChimeraMessage(db, publicId, body, kind = "message", options = {}) {
+    const session = requireChimeraSession(db, publicId);
     const message = db.addChimeraMessage({
         publicId,
         direction: "coordinator_to_agent",
@@ -154,12 +180,16 @@ function sendChimeraMessage(db, publicId, body, kind = "message", options = {}) 
     });
     appendJsonl(inboxPath(db, publicId), message);
     writeNotificationFile(db, publicId, message);
-    return message;
+    const directDelivery = options.priority === true
+        ? steerOpenCodeSession(db, session, message)
+        : { attempted: false, ok: false, mode: "none", detail: "priority is false; stored in Proteus inbox only" };
+    return { message, directDelivery };
 }
 function broadcastChimeraMessage(db, input) {
     const fromId = input.fromId?.trim();
     const sessions = db.listChimeraSessions({ limit: 500 });
     const delivered = [];
+    const directDeliveries = [];
     const skipped = [];
     for (const session of sessions.reverse()) {
         if (fromId && session.publicId === fromId) {
@@ -181,6 +211,9 @@ function broadcastChimeraMessage(db, input) {
         });
         appendJsonl(inboxPath(db, session.publicId), message);
         writeNotificationFile(db, session.publicId, message);
+        if (input.priority === true) {
+            directDeliveries.push({ publicId: session.publicId, result: steerOpenCodeSession(db, session, message) });
+        }
         delivered.push(message);
     }
     if (fromId) {
@@ -190,7 +223,7 @@ function broadcastChimeraMessage(db, input) {
             skipped
         });
     }
-    return { delivered, skipped };
+    return { delivered, directDeliveries, skipped };
 }
 function postChimeraMessage(db, publicId, kind, body, metadata) {
     const message = db.addChimeraMessage({
@@ -336,6 +369,38 @@ function startChimeraSwarm(db, plan) {
     }));
     return { sessions, maxAgents: config.maxAgents };
 }
+function runChimeraSession(db, publicId, timeoutSec) {
+    const config = getChimeraConfig(db);
+    const session = requireChimeraSession(db, publicId);
+    const promptPath = node_path_1.default.join(session.sessionDir, "opencode", "prompt.md");
+    if (!node_fs_1.default.existsSync(promptPath))
+        throw new Error(`Missing Chimera prompt: ${promptPath}`);
+    const running = db.updateChimeraSession({ publicId, status: "running" });
+    writeStatusFile(db, running, { runStartedAt: new Date().toISOString() });
+    const run = runOpenCodeOnce(db, running, promptPath, config, timeoutSec ?? config.defaultTimeoutSec);
+    const updated = db.updateChimeraSession({
+        publicId,
+        status: run.exitCode === 0 ? "waiting" : run.timedOut ? "timeout" : "failed"
+    });
+    writeStatusFile(db, updated, { lastRun: run });
+    return run;
+}
+function attachOpenCodeSession(db, publicId, input) {
+    const current = requireChimeraSession(db, publicId);
+    const config = getChimeraConfig(db);
+    const serverUrl = nullableString(input.serverUrl, current.opencodeServerUrl ?? config.opencodeServerUrl);
+    const opencodeSessionId = nullableString(input.opencodeSessionId, current.opencodeSessionId);
+    const updated = db.updateChimeraSession({
+        publicId,
+        opencodeServerUrl: serverUrl,
+        opencodeSessionId
+    });
+    if (serverUrl && serverUrl !== config.opencodeServerUrl) {
+        saveChimeraConfig(db, { ...config, opencodeServerUrl: serverUrl });
+    }
+    writeStatusFile(db, updated, { opencodeAttached: true });
+    return updated;
+}
 function createSessionFiles(db, session, config) {
     (0, paths_1.ensureDir)((0, paths_1.chimeraSessionsDir)(db.targetRoot));
     (0, paths_1.ensureDir)(session.sessionDir);
@@ -381,6 +446,8 @@ function createSessionFiles(db, session, config) {
     return paths;
 }
 function runOpenCodeOnce(db, session, promptPath, config, timeoutSec) {
+    const server = ensureOpenCodeServer(db, config);
+    const current = requireChimeraSession(db, session.publicId);
     const opencodeDir = node_path_1.default.join(session.sessionDir, "opencode");
     const stdoutPath = node_path_1.default.join(opencodeDir, "stdout.log");
     const stderrPath = node_path_1.default.join(opencodeDir, "stderr.log");
@@ -390,15 +457,21 @@ function runOpenCodeOnce(db, session, promptPath, config, timeoutSec) {
         "--format",
         "json",
         "--thinking",
+        "--attach",
+        server.url,
         "--dir",
         session.sessionDir,
         "--file",
         promptPath,
-        "--title",
-        `proteus-${session.publicId}`,
         "--agent",
         config.defaultAgent ?? "proteus-chimera"
     ];
+    if (current.opencodeSessionId) {
+        args.push("--session", current.opencodeSessionId);
+    }
+    else {
+        args.push("--title", `proteus-${session.publicId}`);
+    }
     if (session.model)
         args.push("--model", session.model);
     if (session.provider)
@@ -437,6 +510,13 @@ function runOpenCodeOnce(db, session, promptPath, config, timeoutSec) {
     };
     node_fs_1.default.writeFileSync(runPath, JSON.stringify(run, null, 2) + "\n");
     appendJsonl(node_path_1.default.join(session.sessionDir, "transcript.jsonl"), { type: "opencode_run", ...run });
+    const discovered = discoverOpenCodeSession(server.url, session);
+    const updated = db.updateChimeraSession({
+        publicId: session.publicId,
+        opencodeServerUrl: server.url,
+        opencodeSessionId: discovered ?? current.opencodeSessionId
+    });
+    writeStatusFile(db, updated, { lastOpenCodeDiscovery: { serverUrl: server.url, opencodeSessionId: discovered ?? current.opencodeSessionId } });
     if (stdout.trim()) {
         const agentText = extractOpenCodeAssistantText(stdout.trim());
         db.addChimeraMessage({
@@ -493,6 +573,8 @@ ${activeCampaigns.map((item) => `- C${item.id} [${item.status}] ${item.title}: $
 
 Stop conditions:
 - You see kill.flag in the session directory.
+- You completed the assigned goal and wrote a final snapshot.
+- You hit a concrete blocker and posted it to the coordinator.
 - The branch becomes repetitive, speculative, or lacks testable signal.
 - You need coordinator input to avoid unsafe or out-of-scope work.
 `;
@@ -511,9 +593,10 @@ Required behavior:
 - If you accidentally find or create a stray base, report it. The coordinator can merge it with proteus merge.
 - Use concise snapshots and message the coordinator through Proteus.
 - Coordinator messages and broadcasts update notifications.json in this session directory. Treat it as a lightweight signal to poll, not as the source of truth.
-- Priority messages set priority: true in notifications.json. Treat priority as a request to poll as soon as you can do so without corrupting an in-flight command or losing evidence.
+- Priority messages may also arrive as direct OpenCode steer notifications telling you to poll Proteus. Treat those notifications as a request to poll as soon as you can do so without corrupting an in-flight command or losing evidence.
 - Poll your inbox periodically on your own initiative: before long work, after completing a branch, after meaningful pivots, before finalizing, and whenever you notice notifications.json changed.
 - Heartbeat before long work and after meaningful pivots.
+- Continue until the assigned goal is fulfilled, a concrete blocker prevents meaningful progress, or a stop condition is reached. Do not stop merely because one command or one reasoning round completed.
 - Do not invent evidence, ignore duplicate checks, or turn brainstorms into findings.
 - Shared Chimera chat is advisory context. You do not need to answer every broadcast. Respond only when it changes your branch, asks you a direct question, or can help another active agent.
 - Coordinator questions should be answered unless doing so would exceed scope or interrupt a higher-priority safety stop.
@@ -534,6 +617,8 @@ function renderAgentInstructions(db, session) {
 Start with the highest-ROI path for this exact goal. Avoid broad repo review unless it directly supports the assignment.
 
 For creative offensive work, generate several distinct branches, kill weak ones quickly, and preserve why they died. For fuzzing, learn how inputs change behavior instead of spraying generic payloads. For PoC work, prefer realistic manual blackbox reproduction and clear negative controls.
+
+Keep working until the assigned goal is complete or blocked. If blocked, post the blocker and the next decision needed from the coordinator.
 
 Before stopping, write a snapshot:
 
@@ -678,6 +763,175 @@ function appendJsonl(filePath, value) {
     (0, paths_1.ensureDir)(node_path_1.default.dirname(filePath));
     node_fs_1.default.appendFileSync(filePath, JSON.stringify(value) + "\n");
 }
+function steerOpenCodeSession(db, session, message) {
+    const config = getChimeraConfig(db);
+    if (!session.opencodeSessionId) {
+        return { attempted: false, ok: false, mode: "none", detail: "no OpenCode session id is attached to this Chimera session" };
+    }
+    let serverUrl = session.opencodeServerUrl ?? config.opencodeServerUrl;
+    if (!serverUrl || !openCodeServerHealthy(serverUrl)) {
+        try {
+            const server = ensureOpenCodeServer(db, config);
+            serverUrl = server.url;
+            db.updateChimeraSession({ publicId: session.publicId, opencodeServerUrl: server.url });
+        }
+        catch (error) {
+            return {
+                attempted: false,
+                ok: false,
+                mode: "none",
+                ...(serverUrl ? { serverUrl } : {}),
+                opencodeSessionId: session.opencodeSessionId,
+                detail: error instanceof Error ? error.message : String(error)
+            };
+        }
+    }
+    const prompt = [
+        `Priority Proteus coordinator message for ${session.publicId}.`,
+        "Do not answer this notification directly unless the coordinator asked a direct question.",
+        `Run: ${proteusCliCommand()} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent`,
+        "",
+        "Coordinator message:",
+        message.body
+    ].join("\n");
+    const response = httpJson(`${trimSlash(serverUrl)}/api/session/${encodeURIComponent(session.opencodeSessionId)}/prompt`, {
+        method: "POST",
+        body: {
+            prompt: { text: prompt },
+            delivery: "steer",
+            resume: true
+        },
+        timeoutMs: 10000
+    });
+    appendJsonl(node_path_1.default.join(session.sessionDir, "transcript.jsonl"), {
+        type: "opencode_direct_steer",
+        messageId: message.id,
+        serverUrl,
+        opencodeSessionId: session.opencodeSessionId,
+        status: response.status ?? null,
+        ok: response.ok,
+        error: response.error ?? null
+    });
+    return {
+        attempted: true,
+        ok: response.ok,
+        mode: "steer",
+        serverUrl,
+        opencodeSessionId: session.opencodeSessionId,
+        status: response.status,
+        detail: response.ok ? "sent via OpenCode delivery=steer" : response.error ?? `HTTP ${response.status ?? "unknown"}`
+    };
+}
+function ensureOpenCodeServer(db, config) {
+    if (config.opencodeServerUrl && openCodeServerHealthy(config.opencodeServerUrl)) {
+        return { url: config.opencodeServerUrl, pid: config.opencodeServerPid, started: false };
+    }
+    for (let port = 4096; port <= 4115; port++) {
+        const url = `http://127.0.0.1:${port}`;
+        if (openCodeServerHealthy(url)) {
+            const next = { ...config, opencodeServerUrl: url, opencodeServerPid: null };
+            saveChimeraConfig(db, next);
+            return { url, pid: null, started: false };
+        }
+        const started = startOpenCodeServerProcess(db, config, port);
+        for (let attempt = 0; attempt < 20; attempt++) {
+            sleepMs(250);
+            if (openCodeServerHealthy(url)) {
+                const next = { ...config, opencodeServerUrl: url, opencodeServerPid: started.pid };
+                saveChimeraConfig(db, next);
+                return { url, pid: started.pid, started: true };
+            }
+        }
+        if (started.pid) {
+            try {
+                process.kill(started.pid);
+            }
+            catch {
+                // Try the next port if this spawned server did not come up.
+            }
+        }
+    }
+    throw new Error("Could not start or find an OpenCode server on 127.0.0.1:4096-4115.");
+}
+function startOpenCodeServerProcess(db, config, port) {
+    (0, paths_1.ensureDir)((0, paths_1.chimeraDir)(db.targetRoot));
+    const stdout = node_fs_1.default.openSync(node_path_1.default.join((0, paths_1.chimeraDir)(db.targetRoot), "opencode-server.stdout.log"), "a");
+    const stderr = node_fs_1.default.openSync(node_path_1.default.join((0, paths_1.chimeraDir)(db.targetRoot), "opencode-server.stderr.log"), "a");
+    const command = commandParts(config.opencodeCommand);
+    const child = (0, node_child_process_1.spawn)(command.file, [...command.args, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
+        cwd: db.targetRoot,
+        detached: true,
+        stdio: ["ignore", stdout, stderr],
+        shell: needsWindowsShell(command.file),
+        windowsHide: true
+    });
+    child.unref();
+    return { pid: child.pid ?? null };
+}
+function openCodeServerHealthy(url) {
+    const response = httpJson(`${trimSlash(url)}/session`, { method: "GET", timeoutMs: 3000 });
+    return response.ok;
+}
+function discoverOpenCodeSession(serverUrl, session) {
+    const response = httpJson(`${trimSlash(serverUrl)}/session`, { method: "GET", timeoutMs: 10000 });
+    if (!response.ok || !Array.isArray(response.body))
+        return null;
+    const title = `proteus-${session.publicId}`;
+    const normalizedSessionDir = normalizeFsPath(session.sessionDir);
+    const candidates = response.body
+        .filter((item) => typeof item === "object" && item !== null && !Array.isArray(item))
+        .filter((item) => item.title === title || normalizeFsPath(String(item.directory ?? "")) === normalizedSessionDir)
+        .sort((a, b) => Number(b.time?.updated ?? 0) - Number(a.time?.updated ?? 0));
+    const id = candidates[0]?.id;
+    return typeof id === "string" && id.startsWith("ses") ? id : null;
+}
+function httpJson(url, options = {}) {
+    const script = `
+const url = process.argv[1];
+const method = process.argv[2];
+const body = process.argv[3] ? JSON.parse(process.argv[3]) : undefined;
+const timeoutMs = Number(process.argv[4] || 10000);
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), timeoutMs);
+fetch(url, {
+  method,
+  headers: body === undefined ? undefined : { "content-type": "application/json" },
+  body: body === undefined ? undefined : JSON.stringify(body),
+  signal: controller.signal
+}).then(async (response) => {
+  clearTimeout(timer);
+  const text = await response.text();
+  let parsed = text;
+  try { parsed = text ? JSON.parse(text) : null; } catch {}
+  process.stdout.write(JSON.stringify({ ok: response.ok, status: response.status, body: parsed }));
+}).catch((error) => {
+  clearTimeout(timer);
+  process.stdout.write(JSON.stringify({ ok: false, error: String(error && error.message ? error.message : error) }));
+});
+`;
+    const result = (0, node_child_process_1.spawnSync)(process.execPath, ["-e", script, url, options.method ?? "GET", options.body === undefined ? "" : JSON.stringify(options.body), String(options.timeoutMs ?? 10000)], {
+        encoding: "utf8",
+        timeout: (options.timeoutMs ?? 10000) + 1000
+    });
+    if (result.status !== 0 || !String(result.stdout ?? "").trim()) {
+        return { ok: false, error: String(result.stderr || result.error?.message || `http helper exit ${result.status}`) };
+    }
+    try {
+        return JSON.parse(String(result.stdout));
+    }
+    catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+}
+function sleepMs(ms) {
+    (0, node_child_process_1.spawnSync)(process.execPath, ["-e", `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${Math.max(0, Math.floor(ms))})`]);
+}
+function trimSlash(value) {
+    return value.replace(/\/+$/, "");
+}
+function normalizeFsPath(value) {
+    return node_path_1.default.resolve(value).toLowerCase();
+}
 function commandCheck(name, command, args) {
     if (!command.trim())
         return { name, ok: false, detail: "empty command" };
@@ -801,6 +1055,12 @@ function nullableString(value, fallback) {
     if (value === null)
         return null;
     return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+function nullableNumber(value, fallback) {
+    if (value === null)
+        return null;
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? Math.floor(number) : fallback;
 }
 function positiveInteger(value, fallback) {
     const number = Number(value);

@@ -129,10 +129,12 @@ Minimal config:
   "enabled": true,
   "runtime": "opencode",
   "opencodeCommand": "opencode",
+  "opencodeServerUrl": null,
+  "opencodeServerPid": null,
   "defaultModel": "zai/glm-5.2",
   "defaultVariant": "high",
   "defaultAgent": "proteus-chimera",
-  "maxAgents": 4,
+  "maxAgents": 5,
   "defaultTimeoutSec": 900,
   "defaultNetwork": false,
   "skipPermissions": true
@@ -340,6 +342,20 @@ messages through `poll`. Priority messages are a nudge to poll as soon as
 practical, while normal messages are recovered through the agent's periodic
 polling contract.
 
+When Proteus has an attached OpenCode server URL and `opencodeSessionId` for a
+session, priority messages should also send a direct OpenCode v2 prompt:
+
+```text
+POST /api/session/{sessionID}/prompt
+delivery: steer
+resume: true
+prompt.text: "Priority Proteus coordinator message... poll Proteus now"
+```
+
+This direct steer is only a notification path. Proteus remains the broker and
+audit source. The agent still retrieves the actual canonical message with
+`proteus chimera poll --id <CH-ID> --unread --agent`.
+
 ## Agent Contract
 
 Add a new skill:
@@ -438,6 +454,8 @@ proteus chimera close
 ```text
 proteus chimera start --role chaining --goal "Explore non-obvious upload pipeline chains"
 proteus chimera start --role cicada --goal "Try bypass/chaining on B7" --access inherit --access-notes "Coordinator grants inherited access for exploit lab work"
+proteus chimera run --id CH-0001
+proteus chimera attach-opencode --id CH-0001 --server-url http://127.0.0.1:4096 --opencode-session-id ses_xxx
 ```
 
 Useful optional flags:
@@ -463,6 +481,21 @@ Default behavior:
 - record coordinator start message;
 - launch OpenCode if `--background` or configured start mode asks for execution;
 - return `sessionId`, paths, and next coordinator action.
+- when `--run` is used, start or reuse a local OpenCode server, run OpenCode
+  against the existing session directory, discover the matching `ses_...`
+  session from the server by title/directory, and persist it on the Chimera
+  session.
+
+### run
+
+```text
+proteus chimera run --id CH-0001
+```
+
+Reuses an existing Chimera lab/session directory instead of creating another
+agent. If an OpenCode `ses_...` id is already attached, use it. Otherwise run
+OpenCode with title `proteus-CH-0001`, discover the resulting OpenCode session,
+and persist it.
 
 ### send
 
@@ -472,7 +505,9 @@ proteus chimera send --id CH-0001 --message "Drop the cache angle and focus on p
 
 Writes a coordinator message for the agent. `--priority` updates the
 destination notification marker so a running agent knows to poll as soon as
-practical.
+practical. If the session has an attached OpenCode server and `ses_...` id,
+`--priority` also sends `delivery=steer` so the running OpenCode agent receives
+an immediate ping to poll Proteus.
 
 ### post
 
@@ -596,12 +631,15 @@ Expose the practical coordinator and agent operations:
 ```text
 proteus_chimera_config
 proteus_chimera_doctor
+proteus_chimera_stop_server
 proteus_chimera_start
 proteus_chimera_swarm
 proteus_chimera_send
 proteus_chimera_post
 proteus_chimera_snapshot
 proteus_chimera_heartbeat
+proteus_chimera_run
+proteus_chimera_attach_opencode
 proteus_chimera_poll
 proteus_chimera_list
 proteus_chimera_kill
@@ -628,11 +666,16 @@ Poll should return unread messages in a compact form and include
 
 ## OpenCode Invocation
 
-Initial simple path:
+Managed server path:
 
 ```text
-opencode run --format json --thinking --dir .vros/chimera/sessions/CH-0001 --file .vros/chimera/sessions/CH-0001/opencode/prompt.md --title proteus-CH-0001 --agent proteus-chimera --model zai/glm-5.2 --variant high --dangerously-skip-permissions
+opencode serve --hostname 127.0.0.1 --port <managed-port>
+opencode run --attach http://127.0.0.1:<managed-port> --format json --thinking --dir .vros/chimera/sessions/CH-0001 --file .vros/chimera/sessions/CH-0001/opencode/prompt.md --title proteus-CH-0001 --agent proteus-chimera --model zai/glm-5.2 --variant high --dangerously-skip-permissions
 ```
+
+After run, query `GET /session` and persist the matching OpenCode session id on
+the Chimera session. Match by title `proteus-CH-0001`, session directory, and
+most recent update time.
 
 The coordinator can omit `--dangerously-skip-permissions` only if the generated
 OpenCode agent permissions are sufficient for the task and will not ask for
@@ -651,6 +694,18 @@ OpenCode JSON events are parsed for a compact final assistant message, but
 Proteus does not depend on the transcript as the primary communication channel.
 Agents are instructed to communicate via `proteus chimera
 post/broadcast/snapshot/heartbeat/poll`.
+
+History semantics:
+
+- `proteus chimera poll` returns the Proteus message history: coordinator
+  messages, agent posts, snapshots, heartbeats, kill/close events, and latest
+  snapshots from SQLite.
+- `.vros/chimera/sessions/<id>/inbox.jsonl` and `outbox.jsonl` mirror Proteus
+  broker traffic.
+- `transcript.jsonl` records OpenCode run/direct-steer metadata.
+- OpenCode's own full chat history remains in the OpenCode session store and is
+  addressable through the persisted `opencodeSessionId`; a future sync/export
+  command can import it when deeper forensic history is needed.
 
 ## Permissions And Safety
 

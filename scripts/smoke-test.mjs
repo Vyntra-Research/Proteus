@@ -247,8 +247,20 @@ try {
     "--timeout",
     "10"
   ]);
-  if (!chimeraRun.includes('"publicId": "CH-0002"') || !chimeraRun.includes("mock-opencode") || !chimeraRun.includes('"provider": "high"')) {
+  if (!chimeraRun.includes('"publicId": "CH-0002"') || !chimeraRun.includes("mock-opencode") || !chimeraRun.includes('"provider": "high"') || !chimeraRun.includes('"opencodeSessionId": "ses_mock_CH-0002"')) {
     throw new Error("chimera --run did not capture mock OpenCode output");
+  }
+  const chimeraRunExisting = run(["chimera", "run", "--id", "CH-0002", "--timeout", "10"]);
+  if (!chimeraRunExisting.includes('"ok": true') || !chimeraRunExisting.includes('"ses_mock_CH-0002"')) {
+    throw new Error("chimera run did not reuse existing OpenCode session/lab");
+  }
+  const chimeraDirectSend = run(["chimera", "send", "--id", "CH-0002", "--message", "Smoke direct steer", "--priority"]);
+  if (!chimeraDirectSend.includes('"mode": "steer"') || !chimeraDirectSend.includes('"ok": true')) {
+    throw new Error("chimera priority send did not steer active OpenCode session");
+  }
+  const steerLog = fs.readFileSync(path.join(tmpRoot, ".vros/chimera/mock-opencode-steer.jsonl"), "utf8");
+  if (!steerLog.includes("Smoke direct steer") || !steerLog.includes('"delivery":"steer"')) {
+    throw new Error("mock OpenCode server did not receive delivery=steer prompt");
   }
   const swarmPlan = path.join(tmpRoot, "chimera-swarm.json");
   fs.writeFileSync(swarmPlan, JSON.stringify({
@@ -676,6 +688,11 @@ try {
 
   console.log(`Proteus smoke test passed: ${tmpRoot}`);
 } finally {
+  try {
+    run(["chimera", "stop-server"]);
+  } catch {
+    // Best-effort cleanup; the temp directory cleanup below is the final guard.
+  }
   fs.rmSync(tmpRoot, { recursive: true, force: true });
   fs.rmSync(globalRoot, { recursive: true, force: true });
   fs.rmSync(legacyRoot, { recursive: true, force: true });

@@ -107,6 +107,8 @@ export interface ChimeraConfig {
   enabled: boolean;
   runtime: "opencode";
   opencodeCommand: string;
+  opencodeServerUrl: string | null;
+  opencodeServerPid: number | null;
   defaultModel: string | null;
   defaultVariant: string | null;
   defaultAgent: string | null;

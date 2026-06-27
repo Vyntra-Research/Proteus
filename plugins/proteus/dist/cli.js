@@ -183,6 +183,9 @@ function cmdChimera(db, subcommand, parsed) {
         case "doctor":
             console.log(JSON.stringify((0, chimera_1.chimeraDoctor)(db), null, 2));
             return;
+        case "stop-server":
+            console.log(JSON.stringify({ ok: true, ...(0, chimera_1.stopOpenCodeServer)(db) }, null, 2));
+            return;
         case "start":
             console.log(JSON.stringify((0, chimera_1.startChimeraSession)(db, {
                 role: requiredString(parsed, "role"),
@@ -207,7 +210,7 @@ function cmdChimera(db, subcommand, parsed) {
         case "send":
             console.log(JSON.stringify({
                 ok: true,
-                message: (0, chimera_1.sendChimeraMessage)(db, requiredString(parsed, "id"), requiredString(parsed, "message"), chimeraMessageKind(parsed, "kind", "message"), { priority: getBoolean(parsed, "priority") })
+                ...(0, chimera_1.sendChimeraMessage)(db, requiredString(parsed, "id"), requiredString(parsed, "message"), chimeraMessageKind(parsed, "kind", "message"), { priority: getBoolean(parsed, "priority") })
             }, null, 2));
             return;
         case "post":
@@ -224,6 +227,22 @@ function cmdChimera(db, subcommand, parsed) {
             return;
         case "heartbeat":
             console.log(JSON.stringify((0, chimera_1.heartbeatChimeraSession)(db, requiredString(parsed, "id")), null, 2));
+            return;
+        case "run":
+            {
+                const id = requiredString(parsed, "id");
+                const run = (0, chimera_1.runChimeraSession)(db, id, getNumber(parsed, "timeout"));
+                console.log(JSON.stringify({ ok: true, run, session: db.getChimeraSession(id) }, null, 2));
+            }
+            return;
+        case "attach-opencode":
+            console.log(JSON.stringify({
+                ok: true,
+                session: (0, chimera_1.attachOpenCodeSession)(db, requiredString(parsed, "id"), {
+                    serverUrl: getString(parsed, "server-url"),
+                    opencodeSessionId: getString(parsed, "opencode-session-id")
+                })
+            }, null, 2));
             return;
         case "poll":
             console.log(JSON.stringify((0, chimera_1.pollChimeraMessages)(db, {
@@ -256,7 +275,7 @@ function cmdChimera(db, subcommand, parsed) {
             console.log(JSON.stringify((0, chimera_1.closeChimeraSession)(db, requiredString(parsed, "id"), getString(parsed, "verdict") ?? "useful", requiredString(parsed, "summary")), null, 2));
             return;
         default:
-            throw new Error("Usage: proteus chimera <config|doctor|start|swarm|send|broadcast|post|snapshot|heartbeat|poll|list|kill|close>");
+            throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|send|broadcast|post|snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
     }
 }
 function cmdChimeraConfig(db, subcommand, parsed) {
@@ -266,6 +285,8 @@ function cmdChimeraConfig(db, subcommand, parsed) {
                 enabled: !getBoolean(parsed, "disabled"),
                 runtime: "opencode",
                 opencodeCommand: getString(parsed, "opencode-command") ?? chimera_1.DEFAULT_CHIMERA_CONFIG.opencodeCommand,
+                opencodeServerUrl: getString(parsed, "server-url") ?? undefined,
+                opencodeServerPid: getNumber(parsed, "server-pid") ?? undefined,
                 defaultModel: getString(parsed, "model") ?? undefined,
                 defaultVariant: getString(parsed, "variant") ?? getString(parsed, "provider") ?? undefined,
                 defaultAgent: getString(parsed, "agent") ?? undefined,
