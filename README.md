@@ -272,7 +272,7 @@ Coordinator messages and broadcasts update each destination session's
 urgent. If Proteus has an attached OpenCode server URL and `opencodeSessionId`
 for that Chimera session, priority messages also send a direct OpenCode
 `delivery=steer` ping that tells the agent to poll Proteus immediately. Agents
-still use `proteus chimera poll --root C:\path\to\target --id <CH-ID> --unread --agent` as the source of
+still use `proteus chimera poll --root C:\path\to\target --unread --agent` as the source of
 truth, and the Chimera agent contract tells them to check periodically on their
 own.
 

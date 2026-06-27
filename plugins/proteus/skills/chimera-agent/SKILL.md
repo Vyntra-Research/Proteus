@@ -71,7 +71,7 @@ truth. When it says `pending: true`, run `proteus chimera poll`.
 
 If the coordinator sends a priority message, OpenCode may steer you directly
 with a short notification to poll Proteus. Treat that as a request to run
-`proteus chimera poll --root <workspace-root> --id <CH-ID> --unread --agent` as soon as practical. Do
+`proteus chimera poll --root <workspace-root> --unread --agent` as soon as practical. Do
 not corrupt an in-flight command or lose evidence just to poll, but check before
 the next substantial step.
 
@@ -80,32 +80,32 @@ after a meaningful branch completes, after pivots, before finalizing, and after
 a heartbeat if the coordinator may have redirected you:
 
 ```text
-proteus chimera poll --root <workspace-root> --id <CH-ID> --unread --agent
+proteus chimera poll --root <workspace-root> --unread --agent
 ```
 
 Post progress:
 
 ```text
-proteus chimera post --root <workspace-root> --id <CH-ID> --kind message --body "..."
+proteus chimera post --root <workspace-root> --kind message --body "..."
 ```
 
 Post findings or blockers:
 
 ```text
-proteus chimera post --root <workspace-root> --id <CH-ID> --kind finding --body "..."
-proteus chimera post --root <workspace-root> --id <CH-ID> --kind blocker --body "..."
+proteus chimera post --root <workspace-root> --kind finding --body "..."
+proteus chimera post --root <workspace-root> --kind blocker --body "..."
 ```
 
 Write a compact state snapshot:
 
 ```text
-proteus chimera snapshot --root <workspace-root> --id <CH-ID> --body "Confirmed / killed / open / next move"
+proteus chimera snapshot --root <workspace-root> --body "Confirmed / killed / open / next move"
 ```
 
 Heartbeat during longer work:
 
 ```text
-proteus chimera heartbeat --root <workspace-root> --id <CH-ID>
+proteus chimera heartbeat --root <workspace-root>
 ```
 
 If heartbeat reports killed, stop and preserve current notes.
@@ -114,7 +114,16 @@ Broadcast to other Chimera agents only when the message may change their
 research direction or save duplicate work:
 
 ```text
-proteus chimera broadcast --root <workspace-root> --from-id <CH-ID> --message "..."
+proteus chimera broadcast --root <workspace-root> --message "..."
+```
+
+Send a direct relay to another Chimera agent when the message is specifically
+for that peer. When running inside your Chimera session, Proteus infers your
+own session id, so do not add `--from-id` unless the coordinator explicitly
+asks you to debug from outside the lab:
+
+```text
+proteus chimera relay --root <workspace-root> --to-id <CH-ID> --message "..." --priority
 ```
 
 Treat shared chat as normal collaborative context, not a queue that must be
@@ -136,7 +145,7 @@ important evidence or running a fragile command, finish that safe point first.
 Then accept:
 
 ```text
-proteus chimera council accept --root <workspace-root> --id <CH-ID> --council-id <CO-ID> --body "ready"
+proteus chimera council accept --root <workspace-root> --council-id <CO-ID> --body "ready"
 ```
 
 When the coordinator starts turns, remember your identity: your `CH-ID`, role,
@@ -147,7 +156,7 @@ Run the required command and send exactly one concise turn for the current
 round:
 
 ```text
-proteus chimera council turn --root <workspace-root> --id <CH-ID> --council-id <CO-ID> --round 1 --body "..."
+proteus chimera council turn --root <workspace-root> --council-id <CO-ID> --round 1 --body "..."
 ```
 
 Your council turn should be useful without becoming a report:

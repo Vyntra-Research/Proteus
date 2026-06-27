@@ -145,15 +145,26 @@ proteus chimera broadcast --root C:\path\to\target --message "Shared pivot: B7 m
 Agent to coordinator:
 
 ```powershell
-proteus chimera post --root C:\path\to\target --id CH-0001 --kind message --body "Current state..."
+proteus chimera post --root C:\path\to\target --kind message --body "Current state..."
 ```
+
+Agent to agent from inside a Chimera lab:
+
+```powershell
+proteus chimera relay --root C:\path\to\target --to-id CH-0002 --message "This side effect may affect your branch." --priority
+```
+
+For commands executed by a Chimera agent inside its own lab, Proteus infers the
+current `CH-...` id from the session environment or session directory. `--id`
+and `--from-id` remain available for coordinator-side debugging and manual
+recovery, but agents should not include their own id in routine commands.
 
 Unread messages:
 
 ```powershell
 proteus chimera poll --root C:\path\to\target --unread
 proteus chimera poll --root C:\path\to\target --id CH-0001 --unread
-proteus chimera poll --root C:\path\to\target --id CH-0001 --unread --agent
+proteus chimera poll --root C:\path\to\target --unread --agent
 ```
 
 `--peek` returns unread messages without marking them read.
@@ -172,7 +183,7 @@ proteus chimera send --root C:\path\to\target --id CH-0001 --message "Poll now a
 Agent-authored research snapshot:
 
 ```powershell
-proteus chimera snapshot --root C:\path\to\target --id CH-0001 --body "Confirmed / killed / open / next move"
+proteus chimera snapshot --root C:\path\to\target --body "Confirmed / killed / open / next move"
 ```
 
 Coordinator snapshot of recent OpenCode assistant messages:
@@ -200,14 +211,14 @@ proteus chimera council close --root C:\path\to\target --council-id CO-... --sum
 Agents accept when they are free or at a safe pause point:
 
 ```powershell
-proteus chimera council accept --root C:\path\to\target --id CH-0001 --council-id CO-... --body "ready"
+proteus chimera council accept --root C:\path\to\target --council-id CO-... --body "ready"
 ```
 
 When a round is opened, Proteus cues accepted participants in order. Each agent
 posts exactly one turn for that round:
 
 ```powershell
-proteus chimera council turn --root C:\path\to\target --id CH-0001 --council-id CO-... --round 1 --body "..."
+proteus chimera council turn --root C:\path\to\target --council-id CO-... --round 1 --body "..."
 ```
 
 After each turn, Proteus automatically cues the next accepted participant. When
@@ -245,7 +256,7 @@ proteus chimera swarm --root C:\path\to\target --plan chimera-swarm.json --run
 ## Lifecycle
 
 ```powershell
-proteus chimera heartbeat --root C:\path\to\target --id CH-0001
+proteus chimera heartbeat --root C:\path\to\target
 proteus chimera list --root C:\path\to\target
 proteus chimera attach-opencode --root C:\path\to\target --id CH-0001 --server-url http://127.0.0.1:4096 --opencode-session-id ses_xxx
 proteus chimera stop-server --root C:\path\to\target

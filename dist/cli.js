@@ -223,13 +223,13 @@ function cmdChimera(db, subcommand, parsed) {
         case "post":
             console.log(JSON.stringify({
                 ok: true,
-                message: (0, chimera_1.postChimeraMessage)(db, requiredString(parsed, "id"), chimeraMessageKind(parsed, "kind", "message"), requiredString(parsed, "body"), parseJsonFlag(getString(parsed, "metadata")))
+                message: (0, chimera_1.postChimeraMessage)(db, currentChimeraSessionId(db, parsed, "id"), chimeraMessageKind(parsed, "kind", "message"), requiredString(parsed, "body"), parseJsonFlag(getString(parsed, "metadata")))
             }, null, 2));
             return;
         case "snapshot":
             console.log(JSON.stringify({
                 ok: true,
-                message: (0, chimera_1.snapshotChimeraSession)(db, requiredString(parsed, "id"), requiredString(parsed, "body"))
+                message: (0, chimera_1.snapshotChimeraSession)(db, currentChimeraSessionId(db, parsed, "id"), requiredString(parsed, "body"))
             }, null, 2));
             return;
         case "workflow-snapshot":
@@ -243,12 +243,22 @@ function cmdChimera(db, subcommand, parsed) {
             }, null, 2));
             return;
         case "heartbeat":
-            console.log(JSON.stringify((0, chimera_1.heartbeatChimeraSession)(db, requiredString(parsed, "id")), null, 2));
+            console.log(JSON.stringify((0, chimera_1.heartbeatChimeraSession)(db, currentChimeraSessionId(db, parsed, "id")), null, 2));
             return;
         case "run":
             {
                 const id = requiredString(parsed, "id");
                 const run = (0, chimera_1.runChimeraSession)(db, id, getNumber(parsed, "timeout"));
+                console.log(JSON.stringify({ ok: true, run, session: db.getChimeraSession(id) }, null, 2));
+            }
+            return;
+        case "wake":
+            {
+                const id = requiredString(parsed, "id");
+                const run = (0, chimera_1.wakeChimeraSession)(db, id, {
+                    messageId: getNumber(parsed, "message-id"),
+                    timeoutSec: getNumber(parsed, "timeout")
+                });
                 console.log(JSON.stringify({ ok: true, run, session: db.getChimeraSession(id) }, null, 2));
             }
             return;
@@ -263,7 +273,7 @@ function cmdChimera(db, subcommand, parsed) {
             return;
         case "poll":
             console.log(JSON.stringify((0, chimera_1.pollChimeraMessages)(db, {
-                publicId: getString(parsed, "id"),
+                publicId: getString(parsed, "id") ?? (getBoolean(parsed, "agent") ? currentChimeraSessionId(db, parsed, "id") : undefined),
                 unreadOnly: getBoolean(parsed, "unread"),
                 forAgent: getBoolean(parsed, "agent"),
                 peek: getBoolean(parsed, "peek"),
@@ -276,14 +286,26 @@ function cmdChimera(db, subcommand, parsed) {
                 ...(0, chimera_1.broadcastChimeraMessage)(db, {
                     body: requiredString(parsed, "message"),
                     kind: chimeraMessageKind(parsed, "kind", "message"),
-                    fromId: getString(parsed, "from-id"),
+                    fromId: optionalCurrentChimeraSessionId(db, parsed, "from-id"),
                     includeClosed: getBoolean(parsed, "include-closed"),
                     priority: getBoolean(parsed, "priority")
                 })
             }, null, 2));
             return;
+        case "relay":
+            console.log(JSON.stringify({
+                ok: true,
+                ...(0, chimera_1.relayChimeraMessage)(db, {
+                    fromId: currentChimeraSessionId(db, parsed, "from-id"),
+                    toId: requiredString(parsed, "to-id"),
+                    body: requiredString(parsed, "message"),
+                    kind: chimeraMessageKind(parsed, "kind", "message"),
+                    priority: getBoolean(parsed, "priority")
+                })
+            }, null, 2));
+            return;
         case "list":
-            console.log(JSON.stringify(db.listChimeraSessions({ limit: getNumber(parsed, "limit") }), null, 2));
+            console.log(JSON.stringify((0, chimera_1.listChimeraSessions)(db, { limit: getNumber(parsed, "limit") }), null, 2));
             return;
         case "kill":
             console.log(JSON.stringify((0, chimera_1.killChimeraSession)(db, requiredString(parsed, "id"), requiredString(parsed, "reason")), null, 2));
@@ -292,7 +314,7 @@ function cmdChimera(db, subcommand, parsed) {
             console.log(JSON.stringify((0, chimera_1.closeChimeraSession)(db, requiredString(parsed, "id"), getString(parsed, "verdict") ?? "useful", requiredString(parsed, "summary")), null, 2));
             return;
         default:
-            throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|council|send|broadcast|post|snapshot|workflow-snapshot|heartbeat|run|attach-opencode|poll|list|kill|close>");
+            throw new Error("Usage: proteus chimera <config|doctor|stop-server|start|swarm|council|send|broadcast|relay|post|snapshot|workflow-snapshot|heartbeat|run|wake|attach-opencode|poll|list|kill|close>");
     }
 }
 function cmdChimeraCouncil(db, subcommand, parsed) {
@@ -308,7 +330,7 @@ function cmdChimeraCouncil(db, subcommand, parsed) {
         case "accept":
             console.log(JSON.stringify({
                 ok: true,
-                message: (0, chimera_1.acceptChimeraCouncil)(db, requiredString(parsed, "id"), requiredString(parsed, "council-id"), getString(parsed, "body"))
+                message: (0, chimera_1.acceptChimeraCouncil)(db, currentChimeraSessionId(db, parsed, "id"), requiredString(parsed, "council-id"), getString(parsed, "body"))
             }, null, 2));
             return;
         case "open-round":
@@ -320,7 +342,7 @@ function cmdChimeraCouncil(db, subcommand, parsed) {
         case "turn":
             console.log(JSON.stringify({
                 ok: true,
-                ...(0, chimera_1.postChimeraCouncilTurn)(db, requiredString(parsed, "id"), requiredString(parsed, "council-id"), requiredString(parsed, "body"), getNumber(parsed, "round"), !getBoolean(parsed, "no-advance"))
+                ...(0, chimera_1.postChimeraCouncilTurn)(db, currentChimeraSessionId(db, parsed, "id"), requiredString(parsed, "council-id"), requiredString(parsed, "body"), getNumber(parsed, "round"), !getBoolean(parsed, "no-advance"))
             }, null, 2));
             return;
         case "cue-turn":
@@ -1243,6 +1265,35 @@ function chimeraMessageKind(parsed, key, fallback) {
     }
     throw new Error("Chimera message kind must be one of: message, redirect, finding, blocker, snapshot, heartbeat, council, kill, close, error");
 }
+function optionalCurrentChimeraSessionId(db, parsed, key) {
+    const explicit = getString(parsed, key);
+    if (explicit)
+        return explicit;
+    return inferCurrentChimeraSessionId(db);
+}
+function currentChimeraSessionId(db, parsed, key) {
+    const explicit = getString(parsed, key);
+    if (explicit)
+        return explicit;
+    const inferred = inferCurrentChimeraSessionId(db);
+    if (inferred)
+        return inferred;
+    throw new Error(`Missing --${key}. Chimera agents can omit it only when PROTEUS_CHIMERA_SESSION_ID is set or the command runs inside a registered Chimera session directory.`);
+}
+function inferCurrentChimeraSessionId(db) {
+    const envId = process.env.PROTEUS_CHIMERA_SESSION_ID?.trim();
+    if (envId && db.getChimeraSession(envId))
+        return envId;
+    const envDir = process.env.PROTEUS_CHIMERA_SESSION_DIR?.trim();
+    const cwd = process.cwd();
+    const candidates = db.listChimeraSessions({ limit: 500 });
+    const match = candidates.find((session) => pathContains(session.sessionDir, cwd) || (envDir ? pathContains(session.sessionDir, envDir) : false));
+    return match?.publicId;
+}
+function pathContains(parent, child) {
+    const relative = node_path_1.default.relative(node_path_1.default.resolve(parent), node_path_1.default.resolve(child));
+    return relative === "" || (!!relative && !relative.startsWith("..") && !node_path_1.default.isAbsolute(relative));
+}
 function isHelpRequested(parsed) {
     return (parsed.flags.help === true ||
         parsed.flags.h === true ||
@@ -1282,10 +1333,13 @@ Usage:
   proteus chimera config init|show|disable [--opencode-command <cmd>] [--server-url <url>] [--model <provider/model>] [--variant <variant>]
   proteus chimera doctor [--root <path>]
   proteus chimera stop-server [--root <path>]
-  proteus chimera start --root <path> --role <role> --goal <text> [--access explorer|editor] [--access-notes <text>] [--run]
+  proteus chimera start --root <path> --role <role> --goal <text> [--campaign-id <id>] [--round-id <id>] [--access explorer|editor] [--access-notes <text>] [--run]
   proteus chimera swarm --root <path> --plan <json> [--run]
   proteus chimera council start|accept|open-round|cue-turn|turn|status|close --root <path>
-  proteus chimera send|broadcast|post|snapshot|workflow-snapshot|heartbeat|poll|list|kill|close --root <path>
+  proteus chimera send|broadcast|relay|post|snapshot|workflow-snapshot|heartbeat|run|wake|poll|list|kill|close --root <path>
+  proteus chimera relay --root <path> --to-id <CH-ID> --message <text> [--from-id <CH-ID>] [--priority]
+  proteus chimera post|snapshot|heartbeat --root <path> [--id <CH-ID>]
+  proteus chimera poll --root <path> --unread --agent [--id <CH-ID>]
   proteus ingest [--root <path>] [paths...]
   proteus observe [--root <path>]
   proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
