@@ -142,16 +142,18 @@ function startChimeraSession(db, input) {
         ]
     };
 }
-function sendChimeraMessage(db, publicId, body, kind = "message") {
+function sendChimeraMessage(db, publicId, body, kind = "message", options = {}) {
     const message = db.addChimeraMessage({
         publicId,
         direction: "coordinator_to_agent",
         kind,
         body,
+        metadata: { priority: options.priority === true },
         readByCoordinator: true,
         readByAgent: false
     });
     appendJsonl(inboxPath(db, publicId), message);
+    writeNotificationFile(db, publicId, message);
     return message;
 }
 function broadcastChimeraMessage(db, input) {
@@ -173,11 +175,12 @@ function broadcastChimeraMessage(db, input) {
             direction: "coordinator_to_agent",
             kind: input.kind ?? "message",
             body: input.body,
-            metadata: { broadcast: true, fromId: fromId ?? "coordinator" },
+            metadata: { broadcast: true, fromId: fromId ?? "coordinator", priority: input.priority === true },
             readByCoordinator: true,
             readByAgent: false
         });
         appendJsonl(inboxPath(db, session.publicId), message);
+        writeNotificationFile(db, session.publicId, message);
         delivered.push(message);
     }
     if (fromId) {
@@ -240,6 +243,11 @@ function pollChimeraMessages(db, input) {
     });
     if (input.unreadOnly && !input.peek) {
         db.markChimeraMessagesRead(messages.map((message) => message.id), input.forAgent ? "agent" : "coordinator");
+        if (input.forAgent) {
+            const publicIds = new Set(messages.map((message) => message.publicId));
+            for (const publicId of publicIds)
+                refreshNotificationFile(db, publicId);
+        }
     }
     const sessions = input.publicId
         ? [requireChimeraSession(db, input.publicId)]
@@ -253,13 +261,17 @@ function pollChimeraMessages(db, input) {
 function killChimeraSession(db, publicId, reason) {
     const session = requireChimeraSession(db, publicId);
     node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "kill.flag"), reason.trimEnd() + "\n");
-    db.addChimeraMessage({
+    const message = db.addChimeraMessage({
         publicId,
         direction: "coordinator_to_agent",
         kind: "kill",
         body: reason,
-        readByCoordinator: true
+        metadata: { priority: true },
+        readByCoordinator: true,
+        readByAgent: false
     });
+    appendJsonl(inboxPath(db, publicId), message);
+    writeNotificationFile(db, publicId, message);
     if (session.opencodePid) {
         try {
             process.kill(session.opencodePid);
@@ -356,6 +368,14 @@ function createSessionFiles(db, session, config) {
     node_fs_1.default.writeFileSync(node_path_1.default.join(session.labDir, "notes.md"), `# ${session.publicId} Notes\n\n`);
     for (const jsonl of ["inbox.jsonl", "outbox.jsonl", "transcript.jsonl"])
         node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, jsonl), "");
+    node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "notifications.json"), JSON.stringify({
+        pending: false,
+        priority: false,
+        unreadForAgent: 0,
+        updatedAt: null,
+        latestMessageId: null,
+        latestKind: null
+    }, null, 2) + "\n");
     copySkillFiles(session);
     writeOpenCodeAgentFile(session, config);
     return paths;
@@ -490,7 +510,9 @@ Required behavior:
 - Prefer the workspace root as the Proteus base. Do not create stray .vros directories in subfolders.
 - If you accidentally find or create a stray base, report it. The coordinator can merge it with proteus merge.
 - Use concise snapshots and message the coordinator through Proteus.
-- Poll your inbox before long work, after completing a branch, and before finalizing.
+- Coordinator messages and broadcasts update notifications.json in this session directory. Treat it as a lightweight signal to poll, not as the source of truth.
+- Priority messages set priority: true in notifications.json. Treat priority as a request to poll as soon as you can do so without corrupting an in-flight command or losing evidence.
+- Poll your inbox periodically on your own initiative: before long work, after completing a branch, after meaningful pivots, before finalizing, and whenever you notice notifications.json changed.
 - Heartbeat before long work and after meaningful pivots.
 - Do not invent evidence, ignore duplicate checks, or turn brainstorms into findings.
 - Shared Chimera chat is advisory context. You do not need to answer every broadcast. Respond only when it changes your branch, asks you a direct question, or can help another active agent.
@@ -500,7 +522,7 @@ Required behavior:
 Communication commands:
 - ${proteusCommand} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent
 - ${proteusCommand} --root "${db.targetRoot}" chimera post --id ${session.publicId} --kind message --body "..."
-- ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --from-id ${session.publicId} --message "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --from-id ${session.publicId} --message "..." --priority
 - ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "..."
 - ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
 `;
@@ -628,6 +650,29 @@ function inboxPath(db, publicId) {
 }
 function outboxPath(db, publicId) {
     return node_path_1.default.join(requireChimeraSession(db, publicId).sessionDir, "outbox.jsonl");
+}
+function writeNotificationFile(db, publicId, message) {
+    refreshNotificationFile(db, publicId, message);
+}
+function refreshNotificationFile(db, publicId, latestMessage) {
+    const session = requireChimeraSession(db, publicId);
+    const unreadMessages = db.listChimeraMessages({ publicId, unreadFor: "agent", limit: 500 });
+    const latestUnread = unreadMessages[unreadMessages.length - 1];
+    const markerMessage = latestMessage ?? latestUnread;
+    node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "notifications.json"), JSON.stringify({
+        pending: unreadMessages.length > 0,
+        priority: unreadMessages.some(isPriorityMessage),
+        unreadForAgent: unreadMessages.length,
+        updatedAt: new Date().toISOString(),
+        latestMessageId: markerMessage?.id ?? null,
+        latestKind: markerMessage?.kind ?? null
+    }, null, 2) + "\n");
+}
+function isPriorityMessage(message) {
+    return typeof message.metadata === "object" &&
+        message.metadata !== null &&
+        !Array.isArray(message.metadata) &&
+        message.metadata.priority === true;
 }
 function appendJsonl(filePath, value) {
     (0, paths_1.ensureDir)(node_path_1.default.dirname(filePath));

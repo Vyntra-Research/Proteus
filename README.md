@@ -125,6 +125,11 @@ proteus chimera config init --root C:\path\to\target --opencode-command opencode
 proteus chimera doctor --root C:\path\to\target
 ```
 
+This configuration is persistent for that Proteus target. It is stored in target
+memory and mirrored to `.vros/chimera/config.json`; individual Chimera labs do
+not need to pass `--opencode-command`, `--model`, `--variant`, or `--max-agents`
+again unless you want to change the target defaults.
+
 If OpenCode is installed outside `PATH`, pass the executable path:
 
 ```powershell
@@ -234,8 +239,8 @@ proteus chimera config show --root C:\path\to\target
 proteus chimera doctor --root C:\path\to\target
 proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7"
 proteus chimera poll --root C:\path\to\target --unread
-proteus chimera send --root C:\path\to\target --id CH-0001 --message "Drop parser diffing and focus on policy side effects."
-proteus chimera broadcast --root C:\path\to\target --message "Shared pivot: B7 only matters if it crosses the policy cache boundary."
+proteus chimera send --root C:\path\to\target --id CH-0001 --message "Drop parser diffing and focus on policy side effects." --priority
+proteus chimera broadcast --root C:\path\to\target --message "Shared pivot: B7 only matters if it crosses the policy cache boundary." --priority
 proteus chimera kill --root C:\path\to\target --id CH-0001 --reason "Looping without new testable signal"
 proteus chimera close --root C:\path\to\target --id CH-0001 --verdict watchlist --summary "Useful ideas, no validated PoC yet"
 ```
@@ -254,6 +259,12 @@ Swarm mode starts multiple independent agents from a small JSON plan:
 ```powershell
 proteus chimera swarm --root C:\path\to\target --plan chimera-swarm.json
 ```
+
+Coordinator messages and broadcasts update each destination session's
+`notifications.json` as a lightweight signal. `--priority` marks the signal as
+urgent so running agents poll as soon as practical. Agents still use
+`proteus chimera poll --id <CH-ID> --unread --agent` as the source of truth,
+and the Chimera agent contract tells them to check periodically on their own.
 
 When exactly one campaign is active, Proteus automatically links new hypotheses,
 evidence, decisions, validation gates, and agent outputs back to that campaign.

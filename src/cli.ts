@@ -237,7 +237,8 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
           db,
           requiredString(parsed, "id"),
           requiredString(parsed, "message"),
-          chimeraMessageKind(parsed, "kind", "message")
+          chimeraMessageKind(parsed, "kind", "message"),
+          { priority: getBoolean(parsed, "priority") }
         )
       }, null, 2));
       return;
@@ -278,7 +279,8 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
           body: requiredString(parsed, "message"),
           kind: chimeraMessageKind(parsed, "kind", "message"),
           fromId: getString(parsed, "from-id"),
-          includeClosed: getBoolean(parsed, "include-closed")
+          includeClosed: getBoolean(parsed, "include-closed"),
+          priority: getBoolean(parsed, "priority")
         })
       }, null, 2));
       return;

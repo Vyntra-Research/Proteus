@@ -184,6 +184,7 @@ try {
     ".vros/chimera/sessions/CH-0001/dossier.md",
     ".vros/chimera/sessions/CH-0001/contract.md",
     ".vros/chimera/sessions/CH-0001/agent-instructions.md",
+    ".vros/chimera/sessions/CH-0001/notifications.json",
     ".vros/chimera/sessions/CH-0001/skills/chimera-agent.md",
     ".vros/chimera/sessions/CH-0001/.opencode/agents/proteus-chimera.md",
     ".vros/chimera/sessions/CH-0001/.opencode/skills/chimera-agent/SKILL.md",
@@ -202,14 +203,26 @@ try {
   if (chimeraUnreadAgain.includes("Smoke Chimera finding")) {
     throw new Error("chimera poll unread did not mark message read");
   }
-  run(["chimera", "send", "--id", "CH-0001", "--kind", "redirect", "--message", "Smoke coordinator redirect"]);
+  run(["chimera", "send", "--id", "CH-0001", "--kind", "redirect", "--message", "Smoke coordinator redirect", "--priority"]);
+  const notificationAfterSend = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
+  if (notificationAfterSend.pending !== true || notificationAfterSend.priority !== true || notificationAfterSend.unreadForAgent < 1) {
+    throw new Error("chimera send did not update priority notifications.json");
+  }
   const chimeraAgentUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread", "--agent"]);
   if (!chimeraAgentUnread.includes("Smoke coordinator redirect")) {
     throw new Error("chimera agent poll did not return coordinator message");
   }
-  const chimeraBroadcast = run(["chimera", "broadcast", "--message", "Smoke shared chat message"]);
+  const notificationAfterAgentPoll = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
+  if (notificationAfterAgentPoll.pending !== false || notificationAfterAgentPoll.priority !== false || notificationAfterAgentPoll.unreadForAgent !== 0) {
+    throw new Error("chimera agent poll did not clear notifications.json");
+  }
+  const chimeraBroadcast = run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]);
   if (!chimeraBroadcast.includes('"delivered"') || !chimeraBroadcast.includes("Smoke shared chat message")) {
     throw new Error("chimera broadcast did not deliver shared chat message");
+  }
+  const notificationAfterBroadcast = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
+  if (notificationAfterBroadcast.pending !== true || notificationAfterBroadcast.priority !== true || notificationAfterBroadcast.latestKind !== "message") {
+    throw new Error("chimera broadcast did not update priority notifications.json");
   }
   const chimeraBroadcastUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread", "--agent"]);
   if (!chimeraBroadcastUnread.includes("Smoke shared chat message")) {

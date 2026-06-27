@@ -174,16 +174,24 @@ export function startChimeraSession(db: ProteusDb, input: ChimeraStartInput): {
   };
 }
 
-export function sendChimeraMessage(db: ProteusDb, publicId: string, body: string, kind: ChimeraMessageKind = "message"): ChimeraMessageRow {
+export function sendChimeraMessage(
+  db: ProteusDb,
+  publicId: string,
+  body: string,
+  kind: ChimeraMessageKind = "message",
+  options: { priority?: boolean } = {}
+): ChimeraMessageRow {
   const message = db.addChimeraMessage({
     publicId,
     direction: "coordinator_to_agent",
     kind,
     body,
+    metadata: { priority: options.priority === true },
     readByCoordinator: true,
     readByAgent: false
   });
   appendJsonl(inboxPath(db, publicId), message);
+  writeNotificationFile(db, publicId, message);
   return message;
 }
 
@@ -192,6 +200,7 @@ export function broadcastChimeraMessage(db: ProteusDb, input: {
   kind?: ChimeraMessageKind;
   fromId?: string;
   includeClosed?: boolean;
+  priority?: boolean;
 }): {
   delivered: ChimeraMessageRow[];
   skipped: Array<{ publicId: string; reason: string }>;
@@ -214,11 +223,12 @@ export function broadcastChimeraMessage(db: ProteusDb, input: {
       direction: "coordinator_to_agent",
       kind: input.kind ?? "message",
       body: input.body,
-      metadata: { broadcast: true, fromId: fromId ?? "coordinator" },
+      metadata: { broadcast: true, fromId: fromId ?? "coordinator", priority: input.priority === true },
       readByCoordinator: true,
       readByAgent: false
     });
     appendJsonl(inboxPath(db, session.publicId), message);
+    writeNotificationFile(db, session.publicId, message);
     delivered.push(message);
   }
   if (fromId) {
@@ -300,6 +310,10 @@ export function pollChimeraMessages(db: ProteusDb, input: {
   });
   if (input.unreadOnly && !input.peek) {
     db.markChimeraMessagesRead(messages.map((message) => message.id), input.forAgent ? "agent" : "coordinator");
+    if (input.forAgent) {
+      const publicIds = new Set(messages.map((message) => message.publicId));
+      for (const publicId of publicIds) refreshNotificationFile(db, publicId);
+    }
   }
   const sessions = input.publicId
     ? [requireChimeraSession(db, input.publicId)]
@@ -314,13 +328,17 @@ export function pollChimeraMessages(db: ProteusDb, input: {
 export function killChimeraSession(db: ProteusDb, publicId: string, reason: string): ChimeraSessionRow {
   const session = requireChimeraSession(db, publicId);
   fs.writeFileSync(path.join(session.sessionDir, "kill.flag"), reason.trimEnd() + "\n");
-  db.addChimeraMessage({
+  const message = db.addChimeraMessage({
     publicId,
     direction: "coordinator_to_agent",
     kind: "kill",
     body: reason,
-    readByCoordinator: true
+    metadata: { priority: true },
+    readByCoordinator: true,
+    readByAgent: false
   });
+  appendJsonl(inboxPath(db, publicId), message);
+  writeNotificationFile(db, publicId, message);
   if (session.opencodePid) {
     try {
       process.kill(session.opencodePid);
@@ -443,6 +461,14 @@ function createSessionFiles(db: ProteusDb, session: ChimeraSessionRow, config: C
   fs.writeFileSync(path.join(session.labDir, "README.md"), renderLabReadme(session));
   fs.writeFileSync(path.join(session.labDir, "notes.md"), `# ${session.publicId} Notes\n\n`);
   for (const jsonl of ["inbox.jsonl", "outbox.jsonl", "transcript.jsonl"]) fs.writeFileSync(path.join(session.sessionDir, jsonl), "");
+  fs.writeFileSync(path.join(session.sessionDir, "notifications.json"), JSON.stringify({
+    pending: false,
+    priority: false,
+    unreadForAgent: 0,
+    updatedAt: null,
+    latestMessageId: null,
+    latestKind: null
+  }, null, 2) + "\n");
   copySkillFiles(session);
   writeOpenCodeAgentFile(session, config);
   return paths;
@@ -577,7 +603,9 @@ Required behavior:
 - Prefer the workspace root as the Proteus base. Do not create stray .vros directories in subfolders.
 - If you accidentally find or create a stray base, report it. The coordinator can merge it with proteus merge.
 - Use concise snapshots and message the coordinator through Proteus.
-- Poll your inbox before long work, after completing a branch, and before finalizing.
+- Coordinator messages and broadcasts update notifications.json in this session directory. Treat it as a lightweight signal to poll, not as the source of truth.
+- Priority messages set priority: true in notifications.json. Treat priority as a request to poll as soon as you can do so without corrupting an in-flight command or losing evidence.
+- Poll your inbox periodically on your own initiative: before long work, after completing a branch, after meaningful pivots, before finalizing, and whenever you notice notifications.json changed.
 - Heartbeat before long work and after meaningful pivots.
 - Do not invent evidence, ignore duplicate checks, or turn brainstorms into findings.
 - Shared Chimera chat is advisory context. You do not need to answer every broadcast. Respond only when it changes your branch, asks you a direct question, or can help another active agent.
@@ -587,7 +615,7 @@ Required behavior:
 Communication commands:
 - ${proteusCommand} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent
 - ${proteusCommand} --root "${db.targetRoot}" chimera post --id ${session.publicId} --kind message --body "..."
-- ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --from-id ${session.publicId} --message "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --from-id ${session.publicId} --message "..." --priority
 - ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "..."
 - ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
 `;
@@ -721,6 +749,32 @@ function inboxPath(db: ProteusDb, publicId: string): string {
 
 function outboxPath(db: ProteusDb, publicId: string): string {
   return path.join(requireChimeraSession(db, publicId).sessionDir, "outbox.jsonl");
+}
+
+function writeNotificationFile(db: ProteusDb, publicId: string, message: ChimeraMessageRow): void {
+  refreshNotificationFile(db, publicId, message);
+}
+
+function refreshNotificationFile(db: ProteusDb, publicId: string, latestMessage?: ChimeraMessageRow): void {
+  const session = requireChimeraSession(db, publicId);
+  const unreadMessages = db.listChimeraMessages({ publicId, unreadFor: "agent", limit: 500 });
+  const latestUnread = unreadMessages[unreadMessages.length - 1];
+  const markerMessage = latestMessage ?? latestUnread;
+  fs.writeFileSync(path.join(session.sessionDir, "notifications.json"), JSON.stringify({
+    pending: unreadMessages.length > 0,
+    priority: unreadMessages.some(isPriorityMessage),
+    unreadForAgent: unreadMessages.length,
+    updatedAt: new Date().toISOString(),
+    latestMessageId: markerMessage?.id ?? null,
+    latestKind: markerMessage?.kind ?? null
+  }, null, 2) + "\n");
+}
+
+function isPriorityMessage(message: ChimeraMessageRow): boolean {
+  return typeof message.metadata === "object" &&
+    message.metadata !== null &&
+    !Array.isArray(message.metadata) &&
+    (message.metadata as Record<string, unknown>).priority === true;
 }
 
 function appendJsonl(filePath: string, value: unknown): void {

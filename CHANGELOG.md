@@ -11,6 +11,7 @@
 - Added coordinator-controlled Chimera access modes: default `lab` isolation and explicit `inherit` permission inheritance per launched agent.
 - Added `chimera-agent` skill for secondary agents, including communication commands, shared-chat broadcast, inbox polling, access-mode discipline, snapshots, heartbeat, and stop conditions.
 - Added OpenCode doctor checks and mock-OpenCode smoke coverage so CI validates Chimera without requiring an API key.
+- Added priority Chimera notifications for coordinator messages and broadcasts, plus a session-local `notifications.json` signal that running agents check periodically before polling Proteus.
 
 ### Changed
 

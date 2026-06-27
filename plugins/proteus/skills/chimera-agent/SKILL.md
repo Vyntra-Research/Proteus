@@ -47,8 +47,17 @@ If the access mode is unclear, act as `lab` and ask the coordinator.
 Use Proteus for coordination. Do not rely on ad-hoc files as the primary
 message channel.
 
-Poll your inbox before long work, after a meaningful branch completes, before
-finalizing, and after a heartbeat if the coordinator may have redirected you:
+`notifications.json` in your Chimera session directory is a lightweight signal
+that the coordinator or another agent sent something. It is not the source of
+truth. When it says `pending: true`, run `proteus chimera poll`.
+
+If it says `priority: true`, treat that as a request to poll as soon as
+practical. Do not corrupt an in-flight command or lose evidence just to poll,
+but check before the next substantial step.
+
+Poll your inbox periodically on your own initiative. Do it before long work,
+after a meaningful branch completes, after pivots, before finalizing, and after
+a heartbeat if the coordinator may have redirected you:
 
 ```text
 proteus chimera poll --id <CH-ID> --unread --agent

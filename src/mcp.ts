@@ -235,7 +235,8 @@ const tools: ToolDefinition[] = [
         message: stringProp("Message body."),
         kind: stringProp("Message kind, usually message or redirect."),
         fromId: stringProp("Optional source Chimera session id when an agent broadcasts to peers."),
-        includeClosed: booleanProp("Also deliver to closed, failed, killed, or timed-out sessions.")
+        includeClosed: booleanProp("Also deliver to closed, failed, killed, or timed-out sessions."),
+        priority: booleanProp("Mark destination notifications as priority so agents poll as soon as practical.")
       },
       ["root", "message"]
     ),
@@ -245,7 +246,8 @@ const tools: ToolDefinition[] = [
           body: str(input.message),
           kind: chimeraKind(input.kind, "message"),
           fromId: maybeStr(input.fromId),
-          includeClosed: input.includeClosed === true
+          includeClosed: input.includeClosed === true,
+          priority: input.priority === true
         }))
       )
   },
@@ -254,11 +256,21 @@ const tools: ToolDefinition[] = [
     title: "Send Chimera Message",
     description: "Send a coordinator-to-agent message or redirect.",
     inputSchema: schema(
-      { root: stringProp("Target root path."), id: stringProp("Chimera session id."), message: stringProp("Message body."), kind: stringProp("message or redirect.") },
+      {
+        root: stringProp("Target root path."),
+        id: stringProp("Chimera session id."),
+        message: stringProp("Message body."),
+        kind: stringProp("message or redirect."),
+        priority: booleanProp("Mark the destination notification as priority so the agent polls as soon as practical.")
+      },
       ["root", "id", "message"]
     ),
     handler: (input) =>
-      withDb(str(input.root), (db) => toolEnvelope(sendChimeraMessage(db, str(input.id), str(input.message), chimeraKind(input.kind, "message"))))
+      withDb(str(input.root), (db) =>
+        toolEnvelope(sendChimeraMessage(db, str(input.id), str(input.message), chimeraKind(input.kind, "message"), {
+          priority: input.priority === true
+        }))
+      )
   },
   {
     name: "proteus_chimera_post",

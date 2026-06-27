@@ -116,6 +116,12 @@ human-editable file:
 .vros/chimera/config.json
 ```
 
+This is target-level configuration, not session/lab configuration. The
+coordinator configures OpenCode command, default model, variant, agent name,
+timeouts, and `maxAgents` once for the Proteus target. New Chimera sessions and
+labs inherit these defaults unless the coordinator passes a per-session model or
+variant override.
+
 Minimal config:
 
 ```json
@@ -169,6 +175,7 @@ Use one directory per Chimera session:
       inbox.jsonl
       outbox.jsonl
       transcript.jsonl
+      notifications.json
       snapshot.md
       kill.flag
       opencode/
@@ -325,6 +332,14 @@ to peek:
 proteus chimera poll --unread --peek
 ```
 
+`send` and `broadcast` also update each destination session's
+`notifications.json` with `pending`, `priority`, `unreadForAgent`,
+`updatedAt`, and the latest message id/kind. This is a lightweight notification
+marker for running agents. It is not the source of truth; agents still recover
+messages through `poll`. Priority messages are a nudge to poll as soon as
+practical, while normal messages are recovered through the agent's periodic
+polling contract.
+
 ## Agent Contract
 
 Add a new skill:
@@ -345,6 +360,10 @@ It should include:
   - `proteus chimera post`
   - `proteus chimera snapshot`
   - `proteus chimera heartbeat`
+- Poll coordinator and peer messages periodically with `proteus chimera poll`.
+  Check before long work, after completing a branch, after meaningful pivots,
+  before finalizing, after heartbeat, and whenever `notifications.json` changes.
+  Treat `priority: true` as a request to poll as soon as practical.
 - Use Proteus CLI for research state when allowed:
   - `proteus status`
   - `proteus query similar`
@@ -448,10 +467,12 @@ Default behavior:
 ### send
 
 ```text
-proteus chimera send --id CH-0001 --message "Drop the cache angle and focus on parser side effects."
+proteus chimera send --id CH-0001 --message "Drop the cache angle and focus on parser side effects." --priority
 ```
 
-Writes a coordinator message for the agent.
+Writes a coordinator message for the agent. `--priority` updates the
+destination notification marker so a running agent knows to poll as soon as
+practical.
 
 ### post
 

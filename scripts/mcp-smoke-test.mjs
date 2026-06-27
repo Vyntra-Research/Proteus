@@ -246,7 +246,7 @@ try {
   }
   await request("tools/call", {
     name: "proteus_chimera_send",
-    arguments: { root: tmpRoot, id: "CH-0001", kind: "redirect", message: "MCP coordinator redirect" }
+    arguments: { root: tmpRoot, id: "CH-0001", kind: "redirect", message: "MCP coordinator redirect", priority: true }
   });
   const chimeraAgentPoll = await request("tools/call", {
     name: "proteus_chimera_poll",
@@ -255,9 +255,12 @@ try {
   if (!String(chimeraAgentPoll.content?.[0]?.text ?? "").includes("MCP coordinator redirect")) {
     throw new Error("proteus_chimera_poll did not return coordinator-to-agent message");
   }
+  if (!String(chimeraAgentPoll.content?.[0]?.text ?? "").includes('"priority": true')) {
+    throw new Error("proteus_chimera_send did not preserve priority metadata");
+  }
   await request("tools/call", {
     name: "proteus_chimera_broadcast",
-    arguments: { root: tmpRoot, message: "MCP shared chat" }
+    arguments: { root: tmpRoot, message: "MCP shared chat", priority: true }
   });
   const chimeraBroadcastPoll = await request("tools/call", {
     name: "proteus_chimera_poll",
@@ -265,6 +268,9 @@ try {
   });
   if (!String(chimeraBroadcastPoll.content?.[0]?.text ?? "").includes("MCP shared chat")) {
     throw new Error("proteus_chimera_broadcast did not deliver shared chat to agent");
+  }
+  if (!String(chimeraBroadcastPoll.content?.[0]?.text ?? "").includes('"priority": true')) {
+    throw new Error("proteus_chimera_broadcast did not preserve priority metadata");
   }
   await request("tools/call", {
     name: "proteus_chimera_snapshot",

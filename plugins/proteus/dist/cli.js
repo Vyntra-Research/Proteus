@@ -207,7 +207,7 @@ function cmdChimera(db, subcommand, parsed) {
         case "send":
             console.log(JSON.stringify({
                 ok: true,
-                message: (0, chimera_1.sendChimeraMessage)(db, requiredString(parsed, "id"), requiredString(parsed, "message"), chimeraMessageKind(parsed, "kind", "message"))
+                message: (0, chimera_1.sendChimeraMessage)(db, requiredString(parsed, "id"), requiredString(parsed, "message"), chimeraMessageKind(parsed, "kind", "message"), { priority: getBoolean(parsed, "priority") })
             }, null, 2));
             return;
         case "post":
@@ -241,7 +241,8 @@ function cmdChimera(db, subcommand, parsed) {
                     body: requiredString(parsed, "message"),
                     kind: chimeraMessageKind(parsed, "kind", "message"),
                     fromId: getString(parsed, "from-id"),
-                    includeClosed: getBoolean(parsed, "include-closed")
+                    includeClosed: getBoolean(parsed, "include-closed"),
+                    priority: getBoolean(parsed, "priority")
                 })
             }, null, 2));
             return;
