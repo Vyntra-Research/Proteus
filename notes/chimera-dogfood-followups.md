@@ -11,6 +11,24 @@ Temporary scratchpad for non-critical Proteus improvements observed during the p
 
 ## Remaining non-critical follow-ups
 
+- During the one-agent CH-0012 dogfood, editor mode correctly allowed the agent
+  to write only the explicitly permitted outside-lab sentinel file, and
+  `defaultNetwork: true` correctly generated OpenCode `webfetch`/`websearch`
+  permissions and allowed a real `https://example.com` webfetch. Keep this as a
+  regression scenario.
+- One-agent council `CO-20260628005316-ikyq` passed a 65s coordinator pause
+  between round 1 and round 2: the accepted waiting agent received the second
+  cue by auto-wake and did not hit timeout/watchdog drift. Keep this as a
+  regression scenario.
+- Two concurrent coordinator-side CLI writes can still produce a transient
+  SQLite `database is locked` error, observed when closing two Chimera sessions
+  in parallel. Add a small busy timeout/retry wrapper around write transactions
+  or serialize Chimera coordinator writes.
+- Chimera agents running Proteus commands from the workspace root need explicit
+  `--id` for `poll`/`heartbeat`; cwd-based session detection only works from the
+  session directory. This is correct but easy for agents to stumble over. Make
+  the generated instructions more explicit: from workspace root, always pass
+  `--id <CH-ID>`.
 - `chimera list --json` currently prints `provider: "high"` for sessions launched with `--variant high`. This appears to be the OpenCode variant being exposed under a confusing field name. Prefer explicit `variant` in JSON output, and only expose `provider` when it is a real provider value.
 - Each Chimera session currently creates a local `.opencode/node_modules` tree. Recursive inspection of a session directory becomes extremely noisy and can flood the coordinator context. Add an ignore/exclude helper, a concise `chimera inspect` command, or make workflow snapshots/listing skip `.opencode/node_modules` by default.
 - Priority `chimera send` records coordinator messages correctly, but direct delivery reports `attempted: false` when `opencodeSessionId` is missing. This means live steering silently degrades to inbox polling. Make the missing session id highly visible in `chimera list/poll`, and recover/attach it automatically when possible.
