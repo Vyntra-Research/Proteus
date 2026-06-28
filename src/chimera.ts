@@ -21,10 +21,12 @@ export const DEFAULT_CHIMERA_CONFIG: ChimeraConfig = {
   defaultVariant: null,
   defaultAgent: "proteus-chimera",
   maxAgents: 5,
-  defaultTimeoutSec: 900,
+  defaultTimeoutSec: 0,
   defaultNetwork: false,
   skipPermissions: true
 };
+
+const LEGACY_DEFAULT_TIMEOUT_SEC = 900;
 
 export interface ChimeraStartInput {
   role: string;
@@ -115,7 +117,9 @@ export function initChimeraConfig(input: Partial<ChimeraConfig> = {}): ChimeraCo
     defaultVariant: nullableString(input.defaultVariant, current.defaultVariant),
     defaultAgent: nullableString(input.defaultAgent, current.defaultAgent),
     maxAgents: positiveInteger(input.maxAgents, current.maxAgents),
-    defaultTimeoutSec: positiveInteger(input.defaultTimeoutSec, current.defaultTimeoutSec),
+    defaultTimeoutSec: input.defaultTimeoutSec === undefined
+      ? current.defaultTimeoutSec
+      : normalizeTimeoutConfig(input.defaultTimeoutSec),
     defaultNetwork: input.defaultNetwork ?? current.defaultNetwork,
     skipPermissions: input.skipPermissions ?? current.skipPermissions
   };
@@ -830,7 +834,7 @@ export function runChimeraSession(db: ProteusDb, publicId: string, timeoutSec?: 
   if (!fs.existsSync(promptPath)) throw new Error(`Missing Chimera prompt: ${promptPath}`);
   const running = db.updateChimeraSession({ publicId, status: "running" });
   writeStatusFile(db, running, { runStartedAt: new Date().toISOString() });
-  const run = runOpenCodeOnce(db, running, promptPath, config, timeoutSec ?? config.defaultTimeoutSec);
+  const run = runOpenCodeOnce(db, running, promptPath, config, resolveRunTimeoutSec(config, timeoutSec));
   const updated = db.updateChimeraSession({
     publicId,
     status: run.exitCode === 0 ? "waiting" : run.killed ? "killed" : run.timedOut ? "timeout" : "failed",
@@ -857,7 +861,7 @@ export function wakeChimeraSession(db: ProteusDb, publicId: string, input: { mes
     running,
     promptPath,
     config,
-    input.timeoutSec ?? Math.min(config.defaultTimeoutSec, 300),
+    resolveRunTimeoutSec(config, input.timeoutSec),
     `Priority Proteus wake for ${session.publicId}. Read the attached wake instructions, poll Proteus unread messages immediately, perform only the requested communication/control action, then stop.`
   );
   const updated = db.updateChimeraSession({
@@ -892,7 +896,6 @@ export function attachOpenCodeSession(db: ProteusDb, publicId: string, input: { 
 export function snapshotChimeraWorkflow(db: ProteusDb, publicId: string, input: {
   limit?: number;
   maxMessageChars?: number;
-  sanitize?: boolean;
 } = {}): ChimeraWorkflowSnapshotResult {
   const session = requireChimeraSession(db, publicId);
   if (!session.opencodeSessionId) {
@@ -900,15 +903,8 @@ export function snapshotChimeraWorkflow(db: ProteusDb, publicId: string, input: 
   }
   const limit = Math.max(1, Math.min(50, positiveInteger(input.limit, 8)));
   const maxMessageChars = Math.max(80, Math.min(8000, positiveInteger(input.maxMessageChars, 1200)));
-  const sanitize = input.sanitize !== false;
   const command = commandParts(session.opencodeCommand || getChimeraConfig().opencodeCommand);
-  const args = ["export", session.opencodeSessionId];
-  if (sanitize) args.push("--sanitize");
-  const result = spawnExternalSync(command, args, {
-    cwd: session.sessionDir,
-    encoding: "utf8",
-    timeout: 30000
-  });
+  const result = exportOpenCodeSession(command, session);
   const stdout = String(result.stdout ?? "");
   const stderr = String(result.stderr ?? "");
   if (result.status !== 0) {
@@ -920,8 +916,9 @@ export function snapshotChimeraWorkflow(db: ProteusDb, publicId: string, input: 
   } catch (error) {
     throw new Error(`OpenCode export did not return JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
+  const extracted = extractWorkflowMessages(exported);
   const generatedAt = new Date().toISOString();
-  const messages = extractWorkflowMessages(exported)
+  const messages = extracted
     .slice(-limit)
     .map((message, index) => {
       const text = compactWhitespace(message.text);
@@ -944,7 +941,6 @@ export function snapshotChimeraWorkflow(db: ProteusDb, publicId: string, input: 
     generatedAt,
     limit,
     maxMessageChars,
-    sanitize,
     messages,
     files: { jsonPath, markdownPath },
     export: {
@@ -991,7 +987,6 @@ export interface ChimeraWorkflowSnapshotResult {
   generatedAt: string;
   limit: number;
   maxMessageChars: number;
-  sanitize: boolean;
   messages: Array<{
     ordinal: number;
     createdAt: string | null;
@@ -1008,6 +1003,14 @@ export interface ChimeraWorkflowSnapshotResult {
   };
 }
 
+function exportOpenCodeSession(command: { file: string; args: string[] }, session: ChimeraSessionRow): ReturnType<typeof spawnExternalSync> {
+  return spawnExternalSync(command, ["export", String(session.opencodeSessionId)], {
+    cwd: session.sessionDir,
+    encoding: "utf8",
+    timeout: 30000
+  });
+}
+
 interface OpenCodeServerState {
   url: string;
   pid: number | null;
@@ -1017,7 +1020,7 @@ interface OpenCodeServerState {
 interface ControlledRunOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
-  timeoutMs: number;
+  timeoutMs: number | null;
   killPath: string;
   pidPath: string;
   sessionIdPath: string;
@@ -1086,7 +1089,7 @@ function runOpenCodeOnce(
   session: ChimeraSessionRow,
   promptPath: string,
   config: ChimeraConfig,
-  timeoutSec: number,
+  timeoutSec: number | null,
   finalInstruction?: string
 ): ChimeraRunResult {
   const server = ensureOpenCodeServer(db, config);
@@ -1136,7 +1139,7 @@ function runOpenCodeOnce(
   const result = runExternalControlled(command, args, {
     cwd: session.sessionDir,
     env: runEnv,
-    timeoutMs: timeoutSec * 1000,
+    timeoutMs: timeoutSec === null ? null : timeoutSec * 1000,
     killPath,
     pidPath,
     sessionIdPath,
@@ -1924,10 +1927,10 @@ function maybeWakeChimeraSession(db: ProteusDb, session: ChimeraSessionRow, mess
     "--id",
     session.publicId,
     "--message-id",
-    String(message.id),
-    "--timeout",
-    String(Math.min(config.defaultTimeoutSec, 300))
+    String(message.id)
   ];
+  const timeoutSec = resolveRunTimeoutSec(config);
+  if (timeoutSec !== null) wakeArgs.push("--timeout", String(timeoutSec));
   const child = spawnHiddenBackground(process.execPath, wakeArgs, {
     cwd: session.sessionDir,
     stdoutPath: wakeLogPath,
@@ -2242,6 +2245,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn, spawnSync } = require("node:child_process");
 const input = JSON.parse(process.argv[1]);
+const timeoutMs = Number(input.timeoutMs);
+const hasTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
 fs.mkdirSync(path.dirname(input.stdoutPath), { recursive: true });
 fs.mkdirSync(path.dirname(input.stderrPath), { recursive: true });
 const stdout = fs.createWriteStream(input.stdoutPath, { flags: "w" });
@@ -2292,7 +2297,7 @@ function finish() {
   try {
     if (fs.existsSync(input.killPath)) killed = true;
   } catch {}
-  clearTimeout(timeoutTimer);
+  if (timeoutTimer) clearTimeout(timeoutTimer);
   clearInterval(killPoll);
   clearInterval(sessionPoll);
   try { fs.rmSync(input.pidPath, { force: true }); } catch {}
@@ -2326,10 +2331,10 @@ child.on("close", (code, sig) => {
   signal = sig || null;
   discoverSession().finally(finish);
 });
-const timeoutTimer = setTimeout(() => {
+const timeoutTimer = hasTimeout ? setTimeout(() => {
   timedOut = true;
   terminateChild();
-}, Math.max(1, Number(input.timeoutMs) || 1));
+}, Math.max(1, timeoutMs)) : null;
 const killPoll = setInterval(() => {
   try {
     if (fs.existsSync(input.killPath)) {
@@ -2343,12 +2348,15 @@ const sessionPoll = setInterval(() => {
 }, 1000);
 discoverSession();
 `;
-  const result = spawnSync(process.execPath, ["-e", script, JSON.stringify(input)], {
+  const spawnOptions: Parameters<typeof spawnSync>[2] = {
     cwd: options.cwd,
     env: options.env,
-    encoding: "utf8",
-    timeout: Math.max(1000, options.timeoutMs + 5000)
-  });
+    encoding: "utf8"
+  };
+  if (options.timeoutMs !== null) {
+    spawnOptions.timeout = Math.max(1000, options.timeoutMs + 5000);
+  }
+  const result = spawnSync(process.execPath, ["-e", script, JSON.stringify(input)], spawnOptions);
   const stdout = String(result.stdout ?? "").trim();
   if (stdout) {
     try {
@@ -2536,12 +2544,25 @@ function normalizeChimeraConfig(input: Partial<ChimeraConfig>): ChimeraConfig {
     defaultVariant: typeof input.defaultVariant === "string" && input.defaultVariant.trim() ? input.defaultVariant.trim() : null,
     defaultAgent: typeof input.defaultAgent === "string" && input.defaultAgent.trim() ? input.defaultAgent.trim() : DEFAULT_CHIMERA_CONFIG.defaultAgent,
     maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : DEFAULT_CHIMERA_CONFIG.maxAgents,
-    defaultTimeoutSec: Number.isFinite(input.defaultTimeoutSec) && Number(input.defaultTimeoutSec) > 0
-      ? Math.floor(Number(input.defaultTimeoutSec))
-      : DEFAULT_CHIMERA_CONFIG.defaultTimeoutSec,
+    defaultTimeoutSec: normalizeTimeoutConfig(input.defaultTimeoutSec),
     defaultNetwork: input.defaultNetwork === true,
     skipPermissions: input.skipPermissions !== false
   };
+}
+
+function normalizeTimeoutConfig(value: unknown): number {
+  if (!Number.isFinite(value)) return DEFAULT_CHIMERA_CONFIG.defaultTimeoutSec;
+  const seconds = Math.floor(Number(value));
+  if (seconds <= 0 || seconds === LEGACY_DEFAULT_TIMEOUT_SEC) return 0;
+  return seconds;
+}
+
+function resolveRunTimeoutSec(config: ChimeraConfig, override?: number): number | null {
+  if (Number.isFinite(override)) {
+    const seconds = Math.floor(Number(override));
+    return seconds > 0 ? seconds : null;
+  }
+  return config.defaultTimeoutSec > 0 ? config.defaultTimeoutSec : null;
 }
 
 function stringOr(value: unknown, fallback: string): string {

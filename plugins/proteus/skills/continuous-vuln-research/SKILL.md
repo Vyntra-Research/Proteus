@@ -108,6 +108,10 @@ Before launching Chimera agents:
   the co-agent to understand the target, current campaign state, active
   hypothesis, relevant prior findings, killed paths, constraints, intended
   strategy, and applicable Proteus heuristics/gates;
+- include the local dedupe and intel baseline the agent must check before deep
+  work: `proteus query similar`, `proteus query duplicates`, active branches,
+  recent decisions, findings, reports, killed paths, and any public-known or
+  expected-behavior context already recovered;
 - make the goal and stop conditions explicit enough that the agent can keep
   working until completion or a real blocker without guessing when to stop;
 - check `proteus chimera list --root <workspace>` before creating new agents; inspect role, goal,
@@ -138,6 +142,11 @@ proteus chimera run --root <workspace> --id CH-0001
 proteus chimera swarm --root <workspace> --plan chimera-swarm.json
 ```
 
+Chimera run and wake operations have no default wall-clock timeout. Use
+`--timeout N` only for a deliberate smoke test or short bounded probe. For
+normal research, let the agent continue until its stop condition, blocker,
+kill, or close event.
+
 Coordinator duties:
 
 - lead the research strategy while allowing Chimera co-agents to operate as
@@ -162,8 +171,10 @@ Coordinator duties:
 - when you only need to inspect the co-agent's recent workflow without being
   flooded by context, use `proteus chimera workflow-snapshot --root <workspace> --id CH-...`.
   It returns only the latest agent text messages from the OpenCode session,
-  excluding tool calls and tool outputs, with bounded message count and bounded
-  size per message;
+  excluding user messages, tool calls, tool outputs, command output, diffs,
+  patches, and file payloads, with bounded message count and bounded size per
+  message. Proteus exports the raw OpenCode session and filters locally before
+  returning the compact snapshot;
 - kill looping or low-ROI sessions with `proteus chimera kill --root <workspace>`;
 - close sessions with a verdict and summary;
 - independently validate any agent claim before recording it as a finding.
@@ -259,6 +270,11 @@ Use the runtime for state, not for inventing reasoning:
 - `proteus query memory`, `list ...`, and `show ...` for broader state recovery.
 - `record surface|hypothesis|evidence|decision|gate|agent-output` when a fact,
   branch, validation result, or decision changes future work.
+- `branch update --id <B> --status open|testing|killed|promoted|blocked` when a
+  branch state changes without a new decision record. Recording a decision on
+  `entity-type hypothesis_branch` or `branch` also updates branch status when
+  the decision clearly says killed, promoted, blocked, testing, candidate,
+  watchlist, or open.
 - `campaign checkpoint` after meaningful progress.
 
 If exactly one campaign is active, Proteus auto-links new hypotheses, evidence,

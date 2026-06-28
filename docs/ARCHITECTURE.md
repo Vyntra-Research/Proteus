@@ -325,8 +325,10 @@ proteus plan-round
 proteus prompt
 proteus record <entity>
 proteus query duplicates
+proteus query similar
 proteus query memory
 proteus query revisit
+proteus branch add|list|update
 proteus export
 proteus lab create
 proteus chimera <command>

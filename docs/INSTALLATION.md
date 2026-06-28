@@ -170,6 +170,10 @@ proteus chimera config init --opencode-command opencode --model zai/glm-5.2 --va
 proteus chimera doctor --root C:\path\to\target
 ```
 
+Chimera config is global for the current user. Workspace commands still use
+`--root`. Runs have no default timeout; pass `--timeout N` only for deliberate
+smoke tests or short probes.
+
 ## Uninstall CLI
 
 ```powershell

@@ -247,6 +247,17 @@ try {
   if (!chimeraConfig.includes('"enabled": true') || !chimeraConfig.includes("mock/mock-model") || !chimeraConfig.includes('"defaultVariant": "high"')) {
     throw new Error("chimera config init did not persist enabled mock config");
   }
+  if (!chimeraConfig.includes('"defaultTimeoutSec": 0')) {
+    throw new Error("chimera config init should default to no run timeout");
+  }
+  const chimeraTimeoutConfig = run(["chimera", "config", "init", "--timeout", "5"]);
+  if (!chimeraTimeoutConfig.includes('"defaultTimeoutSec": 5')) {
+    throw new Error("chimera config init did not persist explicit timeout");
+  }
+  const chimeraNoTimeoutConfig = run(["chimera", "config", "init", "--timeout", "0"]);
+  if (!chimeraNoTimeoutConfig.includes('"defaultTimeoutSec": 0')) {
+    throw new Error("chimera config init --timeout 0 did not disable default timeout");
+  }
   const chimeraConfigPartial = JSON.parse(run(["chimera", "config", "init", "--model", "mock/other-model"]));
   if (
     chimeraConfigPartial.config?.opencodeCommand !== opencodeCommand ||
@@ -482,6 +493,10 @@ try {
   const workflowSnapshotText = JSON.stringify(chimeraWorkflowSnapshot);
   if (chimeraWorkflowSnapshot.messages.length !== 3 || !workflowSnapshotText.includes("First compact agent workflow message")) {
     throw new Error("chimera workflow-snapshot did not return compact agent messages");
+  }
+  const removedExportKeys = ["requested" + "San" + "itize", "fallbackFrom" + "San" + "itizedExport"];
+  if (removedExportKeys.some((key) => workflowSnapshotText.includes(key))) {
+    throw new Error("chimera workflow-snapshot should not expose removed export compatibility fields");
   }
   for (const forbidden of ["User prompt that must not appear", "TOOL CALL THAT MUST NOT APPEAR", "TOOL RESULT THAT MUST NOT APPEAR", "COMMAND OUTPUT THAT MUST NOT APPEAR"]) {
     if (workflowSnapshotText.includes(forbidden)) {
@@ -781,6 +796,11 @@ try {
   if (!branches.includes("B1 [open] Smoke branch")) {
     throw new Error("branch list did not return recorded branch");
   }
+  run(["branch", "update", "--id", "1", "--status", "testing"]);
+  const testingBranches = run(["branch", "list", "--campaign-id", "1", "--status", "testing"]);
+  if (!testingBranches.includes("B1 [testing] Smoke branch")) {
+    throw new Error("branch update did not move branch to testing");
+  }
   run([
     "campaign",
     "checkpoint",
@@ -912,6 +932,27 @@ try {
     "--evidence-ids",
     smokeEvidenceId
   ]);
+  const branchKillDecision = run([
+    "record",
+    "decision",
+    "--entity-type",
+    "hypothesis_branch",
+    "--entity-id",
+    "1",
+    "--decision",
+    "killed",
+    "--reason",
+    "Smoke branch killed by evidence-backed decision",
+    "--evidence-ids",
+    smokeEvidenceId
+  ]);
+  if (!branchKillDecision.includes("Updated branch B1 to killed")) {
+    throw new Error("record decision on branch did not update branch status");
+  }
+  const killedBranches = run(["branch", "list", "--campaign-id", "1", "--status", "killed"]);
+  if (!killedBranches.includes("B1 [killed] Smoke branch")) {
+    throw new Error("branch decision did not persist killed status");
+  }
   run([
     "record",
     "gate",

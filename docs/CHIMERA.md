@@ -35,7 +35,11 @@ proteus chimera doctor --root C:\path\to\target
 ```
 
 If OpenCode is outside `PATH`, pass the executable path as
-`--opencode-command`. `maxAgents` defaults to 5.
+`--opencode-command`. `maxAgents` defaults to 5. Chimera runs have no default
+wall-clock timeout. Use `--timeout N` only for an intentionally bounded smoke
+test or short probe, and use `chimera kill` or `chimera close` to stop normal
+research sessions. Passing `--timeout 0` stores the no-timeout behavior
+explicitly.
 
 `doctor`, `start`, `run`, messages, sessions, and labs still receive `--root`
 because they operate on a specific workspace. `config` does not need `--root`.
@@ -57,7 +61,9 @@ proteus chimera start --root C:\path\to\target --role chaining --goal "Develop n
 
 Create new co-agents only when there is a distinct research front, role, model,
 or lab need. For continuation of the same bounded front, run the existing
-session again with `chimera run --id <CH-ID>`.
+session again with `chimera run --id <CH-ID>`. `run` and priority `wake` do not
+time out by default, so an active OpenCode agent can keep working until it
+finishes, blocks, is killed, or is closed.
 
 Session state is stored under:
 
@@ -218,7 +224,8 @@ proteus chimera workflow-snapshot --root C:\path\to\target --id CH-0001 --limit 
 `workflow-snapshot` exports the attached OpenCode session and returns only
 recent assistant text messages. It excludes user messages, tool calls, tool
 outputs, command output, diffs, patches, and file payloads. Output is bounded by
-message count and max characters per message.
+message count and max characters per message. Proteus exports the session and
+filters the raw data locally before returning or writing the compact snapshot.
 
 ## Councils
 
@@ -308,6 +315,7 @@ proteus_chimera_poll
 proteus_chimera_list
 proteus_chimera_kill
 proteus_chimera_close
+proteus_update_branch
 ```
 
 ## Validation

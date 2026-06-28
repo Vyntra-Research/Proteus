@@ -67,6 +67,32 @@ command/output. If the coordinator asks for a registration test, record a
 clearly labeled test evidence item through Proteus and verify that it linked to
 the assigned campaign. Do not perform campaign mutations for this test.
 
+Before investing real time in a vector, run local dedupe and intelligence
+recovery. This is mandatory for high-signal research, not paperwork. Use the
+shared workspace root and compact candidate text:
+
+```text
+proteus query similar --root <workspace-root> "<primitive, impact, component, or branch>"
+proteus query duplicates --root <workspace-root> "<candidate finding/report wording>"
+proteus query memory --root <workspace-root> "<component, sink, killed path, or behavior>"
+proteus branch list --root <workspace-root> --campaign-id <campaign-id>
+proteus list decisions --root <workspace-root>
+proteus list evidence --root <workspace-root>
+proteus show --root <workspace-root> <entityType> <id>
+```
+
+Use `query similar` for the normal first pass because it returns both narrow
+finding/report duplicate coverage and broader memory matches. Use `query
+duplicates` only for finding/report dedupe. There is no `proteus finding list`
+command. Do not invent commands. If a command is missing, run `proteus --help`
+or post a blocker with the exact error.
+
+Prefer Proteus memory and scoped source inspection over broad recursive file
+scans. Avoid sweeping the whole target root unless the goal truly requires it;
+scope searches to relevant directories and exclude `.vros`, Chimera labs,
+`node_modules`, build output, fixtures, generated folders, and temporary labs
+unless those paths are explicitly the target.
+
 ## Access Mode
 
 Respect the session access mode.
@@ -253,6 +279,22 @@ If a gate is missing, record that as an evidence gap. Do not fill it with
 confidence language. Do not say "novel", "not known", "report-grade", or
 "confirmed impact" unless the coordinator has enough evidence to validate that
 separately.
+
+When a branch is killed, promoted, blocked, or moved to testing, preserve the
+reason. Prefer recording a decision on the branch when you have evidence:
+
+```text
+proteus record decision --root <workspace-root> --entity-type hypothesis_branch --entity-id <B> --decision killed --reason "..." --evidence-ids <ids>
+```
+
+If the coordinator explicitly asks only for a state correction, use:
+
+```text
+proteus branch update --root <workspace-root> --id <B> --status killed
+```
+
+Do not manually edit campaigns, rounds, or campaign links. Ask the coordinator
+when branch state affects campaign strategy.
 
 For chaining, produce non-obvious branches from concrete primitives, side
 effects, authority changes, state transitions, low-level behavior, and

@@ -167,7 +167,9 @@ proteus chimera doctor --root C:\path\to\target
 
 `chimera config` is global and does not need `--root`. Workspace-specific
 actions such as `doctor`, `start`, `run`, messages, sessions, and labs still
-use `--root`.
+use `--root`. Chimera has no default run timeout; use `--timeout N` only for
+short bounded probes or tests, and stop normal sessions with `chimera kill` or
+`chimera close`.
 
 Common operations:
 

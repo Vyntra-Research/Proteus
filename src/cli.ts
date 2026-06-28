@@ -294,8 +294,7 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
         ok: true,
         ...snapshotChimeraWorkflow(db, requiredString(parsed, "id"), {
           limit: getNumber(parsed, "limit"),
-          maxMessageChars: getNumber(parsed, "max-message-chars"),
-          sanitize: !getBoolean(parsed, "no-sanitize")
+          maxMessageChars: getNumber(parsed, "max-message-chars")
         })
       }, null, 2));
       return;
@@ -653,7 +652,16 @@ function cmdBranch(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
     return;
   }
 
-  throw new Error("branch requires one of: add, create, list");
+  if (subcommand === "update") {
+    const id = requiredNumber(parsed, "id");
+    const status = branchStatus(parsed);
+    if (!status) throw new Error("branch update requires --status open|testing|killed|promoted|blocked");
+    const updated = db.updateHypothesisBranch({ id, status });
+    console.log(`Updated branch B${updated.id} to ${updated.status}`);
+    return;
+  }
+
+  throw new Error("branch requires one of: add, create, list, update");
 }
 
 function cmdLink(db: ProteusDb, parsed: ParsedArgs): void {
@@ -762,16 +770,21 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
   }
 
   if (subcommand === "decision") {
+    const entityType = requiredString(parsed, "entity-type");
+    const entityId = requiredNumber(parsed, "entity-id");
+    const decision = requiredString(parsed, "decision");
     const id = db.addDecision({
-      entityType: requiredString(parsed, "entity-type"),
-      entityId: requiredNumber(parsed, "entity-id"),
-      decision: requiredString(parsed, "decision"),
+      entityType,
+      entityId,
+      decision,
       reason: requiredString(parsed, "reason"),
       evidenceIds: splitList(getString(parsed, "evidence-ids") ?? "").map((item) => Number(item)).filter(Boolean),
       actor: getString(parsed, "actor") ?? "coordinator"
     });
+    const updatedBranch = updateBranchStatusFromDecision(db, entityType, entityId, decision);
     autoLinkActiveCampaign(db, "decision", id, "has_decision", `Decision D${id} recorded in active campaign.`);
     console.log(`Recorded decision D${id}`);
+    if (updatedBranch) console.log(`Updated branch B${updatedBranch.id} to ${updatedBranch.status}`);
     return;
   }
 
@@ -1447,6 +1460,26 @@ function parseBranchStatus(status: string): BranchStatus {
   throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
 }
 
+function updateBranchStatusFromDecision(
+  db: ProteusDb,
+  entityType: string,
+  entityId: number,
+  decision: string
+): ReturnType<ProteusDb["updateHypothesisBranch"]> | null {
+  if (entityType !== "hypothesis_branch" && entityType !== "branch") return null;
+  const status = branchStatusFromDecision(decision);
+  return status ? db.updateHypothesisBranch({ id: entityId, status }) : null;
+}
+
+function branchStatusFromDecision(decision: string): BranchStatus | null {
+  const value = decision.toLowerCase();
+  if (/\b(kill|killed|discard|discarded|dead)\b/.test(value)) return "killed";
+  if (/\b(promote|promoted|report|reportable)\b/.test(value)) return "promoted";
+  if (/\b(block|blocked)\b/.test(value)) return "blocked";
+  if (/\b(test|testing|candidate|watch|watchlist|open)\b/.test(value)) return "testing";
+  return null;
+}
+
 function chimeraAccessMode(parsed: ParsedArgs): ChimeraAccessMode {
   const access = getString(parsed, "access") ?? "explorer";
   if (access === "explorer" || access === "editor") return access;
@@ -1541,13 +1574,14 @@ Usage:
   proteus status [--root <path>]
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
-  proteus chimera config init|show|disable [--opencode-command <cmd>] [--server-url <url>] [--model <provider/model>] [--variant <variant>]
+  proteus chimera config init|show|disable [--opencode-command <cmd>] [--server-url <url>] [--model <provider/model>] [--variant <variant>] [--timeout <seconds|0>]
   proteus chimera doctor [--root <path>]
   proteus chimera stop-server [--root <path>]
   proteus chimera start --root <path> --role <role> --goal <text> [--campaign-id <id>] [--round-id <id>] [--access explorer|editor] [--access-notes <text>] [--run]
   proteus chimera swarm --root <path> --plan <json> [--run]
   proteus chimera council start|accept|open-round|cue-turn|turn|status|close --root <path>
   proteus chimera send|broadcast|relay|post|snapshot|workflow-snapshot|heartbeat|run|wake|poll|list|kill|close --root <path>
+  proteus chimera run|wake --root <path> --id <CH-ID> [--timeout <seconds|0>]
   proteus chimera relay --root <path> --to-id <CH-ID> --message <text> [--from-id <CH-ID>] [--priority]
   proteus chimera post|snapshot|heartbeat --root <path> [--id <CH-ID>]
   proteus chimera poll --root <path> --unread --agent [--id <CH-ID>]
@@ -1559,6 +1593,7 @@ Usage:
   proteus campaign checkpoint --id <id> [--confirmed a,b] [--killed a,b] [--open a,b] [--next <text>]
   proteus branch add --title <text> [--campaign-id <id>] [--round-id <id>] [--primitive <text>]
   proteus branch list [--campaign-id <id>] [--status open|testing|killed|promoted|blocked]
+  proteus branch update --id <id> --status open|testing|killed|promoted|blocked
   proteus link --from-type <type> --from-id <id> --relation <text> --to-type <type> --to-id <id>
   proteus roles
   proteus prompt --role <argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text>

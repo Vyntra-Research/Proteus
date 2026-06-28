@@ -683,6 +683,38 @@ export class ProteusDb {
     return rows.slice(0, input.limit ?? 50);
   }
 
+  updateHypothesisBranch(input: { id: number; status?: BranchStatus }): HypothesisBranchRow {
+    const current = this.getHypothesisBranch(input.id);
+    if (!current) throw new Error(`Hypothesis branch not found: B${input.id}`);
+    const status = input.status ?? current.status;
+    const now = nowIso();
+    this.db
+      .prepare("UPDATE hypothesis_branches SET status = ?, updated_at = ? WHERE id = ?")
+      .run(status, now, input.id);
+    const updated = this.getHypothesisBranch(input.id);
+    if (!updated) throw new Error(`Hypothesis branch not found after update: B${input.id}`);
+    this.indexFts(
+      "hypothesis_branch",
+      updated.id,
+      `${updated.status}\n${updated.title}\n${updated.hypothesis}\n${updated.attackPrimitive}\n${updated.whyNonObvious}`
+    );
+    if (updated.campaignId) {
+      this.addCampaignEvent({
+        campaignId: updated.campaignId,
+        eventType: "branch_updated",
+        entityType: "hypothesis_branch",
+        entityId: updated.id,
+        summary: `Branch B${updated.id} status updated to ${updated.status}.`
+      });
+    }
+    return updated;
+  }
+
+  getHypothesisBranch(id: number): HypothesisBranchRow | null {
+    const row = this.db.prepare("SELECT * FROM hypothesis_branches WHERE id = ?").get(id);
+    return row ? toHypothesisBranchRow(row) : null;
+  }
+
   campaignDigest(campaignId: number): CampaignDigest {
     const campaign = this.getCampaign(campaignId);
     if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
@@ -2876,12 +2908,17 @@ function normalizeChimeraConfig(input: Partial<ChimeraConfig>): ChimeraConfig {
     defaultVariant: typeof input.defaultVariant === "string" && input.defaultVariant.trim() ? input.defaultVariant.trim() : null,
     defaultAgent: typeof input.defaultAgent === "string" && input.defaultAgent.trim() ? input.defaultAgent.trim() : null,
     maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : 5,
-    defaultTimeoutSec: Number.isFinite(input.defaultTimeoutSec) && Number(input.defaultTimeoutSec) > 0
-      ? Math.floor(Number(input.defaultTimeoutSec))
-      : 900,
+    defaultTimeoutSec: normalizeChimeraTimeout(input.defaultTimeoutSec),
     defaultNetwork: input.defaultNetwork === true,
     skipPermissions: input.skipPermissions !== false
   };
+}
+
+function normalizeChimeraTimeout(value: unknown): number {
+  if (!Number.isFinite(value)) return 0;
+  const seconds = Math.floor(Number(value));
+  if (seconds <= 0 || seconds === 900) return 0;
+  return seconds;
 }
 
 function normalizeChimeraStatus(value: string): ChimeraStatus {

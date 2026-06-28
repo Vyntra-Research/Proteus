@@ -112,6 +112,7 @@ try {
     "proteus_campaign_checkpoint",
     "proteus_campaign_close",
     "proteus_record_branch",
+    "proteus_update_branch",
     "proteus_link_entities",
     "proteus_roles",
     "proteus_prompt",
@@ -228,6 +229,23 @@ try {
   if (!chimeraConfigText.includes('"enabled": true') || !chimeraConfigText.includes("mock/mock-model") || !chimeraConfigText.includes('"defaultVariant": "high"')) {
     throw new Error("proteus_chimera_config did not enable mock Chimera config");
   }
+  if (!chimeraConfigText.includes('"defaultTimeoutSec": 0')) {
+    throw new Error("proteus_chimera_config should default to no run timeout");
+  }
+  const chimeraTimeoutConfig = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { action: "init", timeout: 5 }
+  });
+  if (!String(chimeraTimeoutConfig.content?.[0]?.text ?? "").includes('"defaultTimeoutSec": 5')) {
+    throw new Error("proteus_chimera_config did not persist explicit timeout");
+  }
+  const chimeraNoTimeoutConfig = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { action: "init", timeout: 0 }
+  });
+  if (!String(chimeraNoTimeoutConfig.content?.[0]?.text ?? "").includes('"defaultTimeoutSec": 0')) {
+    throw new Error("proteus_chimera_config timeout 0 did not disable default timeout");
+  }
   const chimeraConfigPartial = await request("tools/call", {
     name: "proteus_chimera_config",
     arguments: { action: "init", model: "mock/other-model" }
@@ -289,6 +307,10 @@ try {
   const workflowSnapshotText = String(chimeraWorkflowSnapshot.content?.[0]?.text ?? "");
   if (!workflowSnapshotText.includes("First compact agent workflow message") || workflowSnapshotText.includes("TOOL RESULT THAT MUST NOT APPEAR")) {
     throw new Error("proteus_chimera_workflow_snapshot did not return filtered compact agent messages");
+  }
+  const removedExportKeys = ["requested" + "San" + "itize", "fallbackFrom" + "San" + "itizedExport"];
+  if (removedExportKeys.some((key) => workflowSnapshotText.includes(key))) {
+    throw new Error("proteus_chimera_workflow_snapshot should not expose removed export compatibility fields");
   }
   await request("tools/call", {
     name: "proteus_chimera_post",
@@ -530,6 +552,13 @@ try {
   if (!String(branchRecords.content?.[0]?.text ?? "").includes("MCP smoke branch")) {
     throw new Error("proteus_list_records did not return recorded branches");
   }
+  const updateBranch = await request("tools/call", {
+    name: "proteus_update_branch",
+    arguments: { root: tmpRoot, id: 1, status: "testing" }
+  });
+  if (!String(updateBranch.content?.[0]?.text ?? "").includes('"status": "testing"')) {
+    throw new Error("proteus_update_branch did not move branch to testing");
+  }
   await request("tools/call", {
     name: "proteus_update_round",
     arguments: { root: tmpRoot, id: 2, status: "paused" }
@@ -630,6 +659,28 @@ try {
   });
   if (!String(decisionRecord.content?.[0]?.text ?? "").includes('"evidenceIds": [\n    1\n  ]')) {
     throw new Error("proteus_get_record did not preserve numeric-string decision evidenceIds");
+  }
+  const branchDecision = await request("tools/call", {
+    name: "proteus_record_decision",
+    arguments: {
+      root: tmpRoot,
+      entityType: "hypothesis_branch",
+      entityId: 1,
+      decision: "killed",
+      reason: "MCP smoke branch killed by evidence-backed decision",
+      evidenceIds: ["1"]
+    }
+  });
+  const branchDecisionText = String(branchDecision.content?.[0]?.text ?? "");
+  if (!branchDecisionText.includes('"entityType": "hypothesis_branch"') || !branchDecisionText.includes('"updated"')) {
+    throw new Error("proteus_record_decision did not report branch status update");
+  }
+  const killedBranch = await request("tools/call", {
+    name: "proteus_get_record",
+    arguments: { root: tmpRoot, entityType: "branch", entityId: 1 }
+  });
+  if (!String(killedBranch.content?.[0]?.text ?? "").includes('"status": "killed"')) {
+    throw new Error("proteus_record_decision on branch did not persist killed status");
   }
   const agentOutput = await request("tools/call", {
     name: "proteus_record_agent_output",
