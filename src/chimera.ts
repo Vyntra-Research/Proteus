@@ -1343,7 +1343,7 @@ function copySkillFiles(session: ChimeraSessionRow): void {
     fs.copyFileSync(source, path.join(opencodeSkillDir, "SKILL.md"));
     copied.push(name);
   }
-  const index = renderChimeraSkillsIndex(session, available, copied);
+  const index = renderChimeraSkillsIndex(session, skillsDir, available, copied);
   fs.writeFileSync(path.join(session.sessionDir, "skills", "README.md"), index);
   fs.writeFileSync(path.join(session.sessionDir, ".opencode", "skills", "README.md"), index);
 }
@@ -1364,7 +1364,7 @@ function skillsForRole(role: string, available: string[]): string[] {
   return available.includes(role) ? [role] : [];
 }
 
-function renderChimeraSkillsIndex(session: ChimeraSessionRow, available: string[], copied: string[]): string {
+function renderChimeraSkillsIndex(session: ChimeraSessionRow, skillsDir: string, available: string[], copied: string[]): string {
   const copiedSet = new Set(copied);
   const coordinatorOnly = new Set(["continuous-vuln-research"]);
   const lines = [
@@ -1372,15 +1372,17 @@ function renderChimeraSkillsIndex(session: ChimeraSessionRow, available: string[
     "",
     `Session: ${session.publicId}`,
     `Role: ${session.role}`,
+    `Proteus skill package root: ${skillsDir}`,
     "",
     "Injected skill files for this co-agent are copied into this directory and into `.opencode/skills/`.",
     "Read `chimera-agent.md` first. It is the primary Chimera co-agent contract.",
     "Do not load `continuous-vuln-research`; it is the coordinator contract and is intentionally not injected into Chimera sessions.",
+    "For non-injected specialist skills, use the package path only when the coordinator explicitly redirects you or asks you to consult that skill.",
     "",
     "## Injected",
     ""
   ];
-  for (const name of copied) lines.push(`- ${name}: skills/${name}.md`);
+  for (const name of copied) lines.push(`- ${name}: injected at skills/${name}.md`);
   if (copied.length === 0) lines.push("- none");
   lines.push("", "## Available In Proteus Package", "");
   for (const name of available) {
@@ -1389,7 +1391,7 @@ function renderChimeraSkillsIndex(session: ChimeraSessionRow, available: string[
     } else if (copiedSet.has(name)) {
       lines.push(`- ${name}: injected`);
     } else {
-      lines.push(`- ${name}: available specialist skill; ask the coordinator to launch or redirect a role-specific co-agent when this expertise is needed`);
+      lines.push(`- ${name}: ${path.join(skillsDir, name, "SKILL.md")}; ask the coordinator to launch or redirect a role-specific co-agent when this expertise is needed`);
     }
   }
   lines.push("");

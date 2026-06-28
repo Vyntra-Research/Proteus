@@ -91,7 +91,7 @@ Each co-agent receives:
 - the `chimera-agent` skill as the primary co-agent contract, including the
   Proteus gates and research discipline adapted to secondary agents;
 - a `skills/README.md` index showing injected skills and available specialist
-  skills;
+  skills, including the package path for coordinator-directed consultation;
 - the role-specific skill when available, or all non-coordinator specialist
   skills for `generalist` sessions;
 - a private lab for notes, evidence, scripts, and PoC material.

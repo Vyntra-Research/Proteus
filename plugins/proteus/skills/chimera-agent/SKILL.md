@@ -27,8 +27,10 @@ skills/*.md
 
 `skills/README.md` lists which skills were injected for your session and which
 specialist skills exist in the Proteus package. Read only the injected skills
-unless the coordinator redirects you. `continuous-vuln-research` is
-coordinator-only and must not be loaded as a Chimera co-agent contract.
+unless the coordinator redirects you. If redirected, use the package path shown
+in `skills/README.md` to consult the requested specialist skill.
+`continuous-vuln-research` is coordinator-only and must not be loaded as a
+Chimera co-agent contract.
 
 Use the target workspace root as the Proteus root unless the coordinator
 explicitly says otherwise. Do not create a new `.vros` in a package,
