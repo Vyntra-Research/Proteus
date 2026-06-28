@@ -18,6 +18,7 @@ const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
 const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
 const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
 const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
+const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
@@ -300,8 +301,10 @@ try {
     ".vros/chimera/sessions/CH-0001/contract.md",
     ".vros/chimera/sessions/CH-0001/agent-instructions.md",
     ".vros/chimera/sessions/CH-0001/notifications.json",
+    ".vros/chimera/sessions/CH-0001/skills/README.md",
     ".vros/chimera/sessions/CH-0001/skills/chimera-agent.md",
     ".vros/chimera/sessions/CH-0001/.opencode/agents/proteus-chimera.md",
+    ".vros/chimera/sessions/CH-0001/.opencode/skills/README.md",
     ".vros/chimera/sessions/CH-0001/.opencode/skills/chimera-agent/SKILL.md",
     ".vros/chimera/sessions/CH-0001/lab/README.md"
   ]) {
@@ -311,6 +314,21 @@ try {
   }
   if (fs.existsSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/skills/continuous-vuln-research.md"))) {
     throw new Error("Chimera sessions should not inject the coordinator continuous-vuln-research skill");
+  }
+  const specialistSkillsIndex = fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/skills/README.md"), "utf8");
+  if (!specialistSkillsIndex.includes("continuous-vuln-research: coordinator-only") || !specialistSkillsIndex.includes("chaining: injected")) {
+    throw new Error("Chimera skills index did not identify injected and coordinator-only skills");
+  }
+  run(["init", "--root", chimeraGeneralistRoot, "--name", "chimera-generalist-smoke"], chimeraGeneralistRoot);
+  run(["chimera", "start", "--root", chimeraGeneralistRoot, "--role", "generalist", "--goal", "Smoke generalist skills"], chimeraGeneralistRoot);
+  const generalistSkillsDir = path.join(chimeraGeneralistRoot, ".vros/chimera/sessions/CH-0001/skills");
+  for (const expected of ["chimera-agent.md", "chaining.md", "codebase-research.md", "fuzzing.md", "poc-exploit.md", "web-intel.md", "web-research.md"]) {
+    if (!fs.existsSync(path.join(generalistSkillsDir, expected))) {
+      throw new Error(`generalist Chimera session did not inject expected skill: ${expected}`);
+    }
+  }
+  if (fs.existsSync(path.join(generalistSkillsDir, "continuous-vuln-research.md"))) {
+    throw new Error("generalist Chimera session should not inject the coordinator skill");
   }
   run(["chimera", "post", "--id", "CH-0001", "--kind", "finding", "--body", "Smoke Chimera finding"]);
   const chimeraUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread"]);
@@ -1026,4 +1044,5 @@ try {
   fs.rmSync(mergeRoot, { recursive: true, force: true });
   fs.rmSync(killRoot, { recursive: true, force: true });
   fs.rmSync(chimeraScopeRoot, { recursive: true, force: true });
+  fs.rmSync(chimeraGeneralistRoot, { recursive: true, force: true });
 }

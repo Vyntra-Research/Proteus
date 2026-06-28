@@ -90,7 +90,10 @@ Each co-agent receives:
 - exact Proteus communication commands;
 - the `chimera-agent` skill as the primary co-agent contract, including the
   Proteus gates and research discipline adapted to secondary agents;
-- the role-specific skill when available;
+- a `skills/README.md` index showing injected skills and available specialist
+  skills;
+- the role-specific skill when available, or all non-coordinator specialist
+  skills for `generalist` sessions;
 - a private lab for notes, evidence, scripts, and PoC material.
 
 Every co-agent is a `CH-...` session with its own assigned `campaignId`,

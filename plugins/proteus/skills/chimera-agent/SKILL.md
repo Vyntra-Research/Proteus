@@ -21,8 +21,14 @@ Before acting, read the session files:
 dossier.md
 contract.md
 agent-instructions.md
+skills/README.md
 skills/*.md
 ```
+
+`skills/README.md` lists which skills were injected for your session and which
+specialist skills exist in the Proteus package. Read only the injected skills
+unless the coordinator redirects you. `continuous-vuln-research` is
+coordinator-only and must not be loaded as a Chimera co-agent contract.
 
 Use the target workspace root as the Proteus root unless the coordinator
 explicitly says otherwise. Do not create a new `.vros` in a package,

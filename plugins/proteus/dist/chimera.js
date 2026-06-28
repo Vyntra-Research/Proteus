@@ -1027,7 +1027,7 @@ function renderContract(db, session, config) {
 You are a secondary Proteus Chimera co-agent, not an ordinary lightweight subagent. The coordinator remains the final authority for strategy, validation gates, promotion, reporting, and campaign state. Your role is to run a complete, independent research front that brings a different angle while staying inside the assigned scope.
 
 Required behavior:
-- Read dossier.md, contract.md, agent-instructions.md, and skills/*.md before acting.
+- Read dossier.md, contract.md, agent-instructions.md, skills/README.md, and injected skills/*.md before acting.
 - Reconstruct the research context before substantial work: target, campaign/hypothesis, why this front exists, known killed paths, constraints, intended strategy, applicable Proteus heuristics, and expected output.
 - Confirm the assigned campaign and round before recording research state: campaign=${session.campaignId ? `C${session.campaignId}` : "none"}, round=${session.roundId ? `R${session.roundId}` : "none"}. Use ${proteusCommand} --root "${db.targetRoot}" campaign resume${session.campaignId ? ` --id ${session.campaignId}` : ""} for context when available.
 - Respect access mode ${session.accessMode}: ${accessLine(session)}
@@ -1110,7 +1110,9 @@ function copySkillFiles(session) {
     const skillsDir = resolveSkillsDir();
     if (!skillsDir)
         return;
-    const wanted = new Set(["chimera-agent", session.role]);
+    const available = listAvailableSkillNames(skillsDir);
+    const wanted = new Set(["chimera-agent", ...skillsForRole(session.role, available)]);
+    const copied = [];
     for (const name of wanted) {
         const source = node_path_1.default.join(skillsDir, name, "SKILL.md");
         if (!node_fs_1.default.existsSync(source))
@@ -1119,7 +1121,60 @@ function copySkillFiles(session) {
         const opencodeSkillDir = node_path_1.default.join(session.sessionDir, ".opencode", "skills", name);
         (0, paths_1.ensureDir)(opencodeSkillDir);
         node_fs_1.default.copyFileSync(source, node_path_1.default.join(opencodeSkillDir, "SKILL.md"));
+        copied.push(name);
     }
+    const index = renderChimeraSkillsIndex(session, available, copied);
+    node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "skills", "README.md"), index);
+    node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, ".opencode", "skills", "README.md"), index);
+}
+function listAvailableSkillNames(skillsDir) {
+    return node_fs_1.default
+        .readdirSync(skillsDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .filter((name) => node_fs_1.default.existsSync(node_path_1.default.join(skillsDir, name, "SKILL.md")))
+        .sort();
+}
+function skillsForRole(role, available) {
+    if (role === "generalist") {
+        return available.filter((name) => name !== "continuous-vuln-research" && name !== "chimera-agent");
+    }
+    return available.includes(role) ? [role] : [];
+}
+function renderChimeraSkillsIndex(session, available, copied) {
+    const copiedSet = new Set(copied);
+    const coordinatorOnly = new Set(["continuous-vuln-research"]);
+    const lines = [
+        "# Chimera Skills",
+        "",
+        `Session: ${session.publicId}`,
+        `Role: ${session.role}`,
+        "",
+        "Injected skill files for this co-agent are copied into this directory and into `.opencode/skills/`.",
+        "Read `chimera-agent.md` first. It is the primary Chimera co-agent contract.",
+        "Do not load `continuous-vuln-research`; it is the coordinator contract and is intentionally not injected into Chimera sessions.",
+        "",
+        "## Injected",
+        ""
+    ];
+    for (const name of copied)
+        lines.push(`- ${name}: skills/${name}.md`);
+    if (copied.length === 0)
+        lines.push("- none");
+    lines.push("", "## Available In Proteus Package", "");
+    for (const name of available) {
+        if (coordinatorOnly.has(name)) {
+            lines.push(`- ${name}: coordinator-only, not for Chimera co-agents`);
+        }
+        else if (copiedSet.has(name)) {
+            lines.push(`- ${name}: injected`);
+        }
+        else {
+            lines.push(`- ${name}: available specialist skill; ask the coordinator to launch or redirect a role-specific co-agent when this expertise is needed`);
+        }
+    }
+    lines.push("");
+    return `${lines.join("\n")}\n`;
 }
 function writeOpenCodeAgentFile(session, config) {
     const agentName = config.defaultAgent ?? "proteus-chimera";
@@ -1879,8 +1934,9 @@ function spawnHiddenBackground(file, args, options) {
     (0, paths_1.ensureDir)(node_path_1.default.dirname(options.stderrPath));
     if (process.platform === "win32") {
         const launchDir = node_path_1.default.dirname(options.stdoutPath);
-        const cmdPath = node_path_1.default.join(launchDir, "wake-launch.cmd");
-        const vbsPath = node_path_1.default.join(launchDir, "wake-launch.vbs");
+        const launchId = `${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+        const cmdPath = node_path_1.default.join(launchDir, `wake-launch-${launchId}.cmd`);
+        const vbsPath = node_path_1.default.join(launchDir, `wake-launch-${launchId}.vbs`);
         const commandLine = [cmdQuote(file), ...args.map(cmdQuote)].join(" ");
         node_fs_1.default.writeFileSync(cmdPath, [
             "@echo off",
