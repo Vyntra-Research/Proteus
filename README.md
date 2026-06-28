@@ -193,12 +193,14 @@ duplicate checks, and final kill/promote decisions.
 
 | Front | Focus |
 | --- | --- |
-| Codebase research | Architecture, dataflow, trust boundaries, invariants, side effects, and high-ROI surfaces. |
-| Chaining | Non-obvious chains across components, state transitions, side effects, and capability amplification. |
-| Fuzzing | Calibrated probes, harnesses, differential behavior, parser/state-machine learning, and edge cases. |
-| Web intel | Public-known status, advisories, changelogs, issues, docs, tests, timelines, and duplicate risk. |
-| Web research | Authorized live or local web-surface mapping, blackbox probes, endpoint behavior, and workflow validation. |
-| PoC/exploit | Realistic labs, manual blackbox reproduction, negative controls, exploitability evidence, and report support. |
+| Argus, codebase research | Architecture, dataflow, trust boundaries, invariants, side effects, and high-ROI surfaces. |
+| Loom, chaining | Non-obvious chains across components, state transitions, side effects, and capability amplification. |
+| Chaos, fuzzing | Calibrated probes, harnesses, differential behavior, parser/state-machine learning, and edge cases. |
+| Libris, web intel | Public-known status, advisories, changelogs, issues, docs, tests, timelines, and duplicate risk. |
+| Mimic, web research | Authorized live or local web-surface mapping, runtime divergence, endpoint behavior, and workflow validation. |
+| Artificer, PoC/exploit | Realistic labs, manual blackbox reproduction, negative controls, exploitability evidence, and report support. |
+| Skeptic, adversarial review | Refutation, downgrade pressure, anti-slop checks, and evidence-backed challenge of promoted candidates. |
+| Cicada, exploit chaining | Focused bypass/chaining work for promising branches that need deeper exploit development, side-effect discovery, or capability amplification. |
 | Checkpoint | Context compression, killed paths, pivots, branch scores, and the next high-ROI move. |
 | Chimera agent | OpenCode-backed secondary research fronts with coordinator-controlled scope and messaging. |
 
