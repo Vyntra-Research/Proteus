@@ -174,10 +174,13 @@ Agent to agent from inside a Chimera lab:
 proteus chimera relay --root C:\path\to\target --to-id CH-0002 --message "This side effect may affect your branch." --priority
 ```
 
-For commands executed by a Chimera agent inside its own lab, Proteus infers the
-current `CH-...` id from the session environment or session directory. `--id`
-and `--from-id` remain available for coordinator-side debugging and manual
-recovery, but agents should not include their own id in routine commands.
+For commands executed by a Chimera agent inside its own session directory,
+Proteus can infer the current `CH-...` id from the session environment or path.
+The `--id <CH-ID>` flag is only explicit routing: coordinator commands use it
+to target a session, and agent commands may use it as a portability fallback
+when run from the workspace root or another cwd. Agents should use the command
+Proteus provides and should not invent, swap, or manage ids manually. For
+`relay` from outside the session directory, pass `--from-id <CH-ID>`.
 
 Unread messages:
 

@@ -17,6 +17,7 @@ const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"
 const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
 const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
 const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
+const concurrencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-concurrency-smoke-"));
 const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
 const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
 
@@ -194,6 +195,36 @@ try {
   const status = run(["status"]);
   if (!status.includes("smoke-target") || !status.includes(`Proteus DB version: ${expectedVersion}`)) {
     throw new Error("status did not return initialized target");
+  }
+  run(["init", "--root", concurrencyRoot, "--name", "concurrency-smoke"], concurrencyRoot);
+  const concurrentWrites = await Promise.all(Array.from({ length: 8 }, (_, index) => waitForChild(spawn(process.execPath, [
+    cli,
+    "record",
+    "evidence",
+    "--root",
+    concurrencyRoot,
+    "--title",
+    `Concurrent evidence ${index + 1}`,
+    "--kind",
+    "note",
+    "--body",
+    `Concurrent body ${index + 1}`
+  ], {
+    cwd: concurrencyRoot,
+    env: smokeEnv(),
+    stdio: ["ignore", "pipe", "pipe"]
+  }), 20000)));
+  for (const [index, result] of concurrentWrites.entries()) {
+    const combined = `${result.stdout}\n${result.stderr}`;
+    if (result.code !== 0 || /database is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(combined)) {
+      throw new Error(`concurrent SQLite write ${index + 1} failed\nstdout=${result.stdout}\nstderr=${result.stderr}`);
+    }
+  }
+  const concurrentEvidence = run(["list", "evidence", "--root", concurrencyRoot], concurrencyRoot);
+  for (let index = 1; index <= 8; index += 1) {
+    if (!concurrentEvidence.includes(`Concurrent evidence ${index}`)) {
+      throw new Error(`concurrent SQLite write missing evidence ${index}`);
+    }
   }
   const disabledChimeraStart = runFail(["chimera", "start", "--role", "chaining", "--goal", "should fail while disabled"]);
   if (!disabledChimeraStart.includes("Chimera is disabled")) {
@@ -1043,6 +1074,7 @@ try {
   fs.rmSync(helpRoot, { recursive: true, force: true });
   fs.rmSync(mergeRoot, { recursive: true, force: true });
   fs.rmSync(killRoot, { recursive: true, force: true });
+  fs.rmSync(concurrencyRoot, { recursive: true, force: true });
   fs.rmSync(chimeraScopeRoot, { recursive: true, force: true });
   fs.rmSync(chimeraGeneralistRoot, { recursive: true, force: true });
 }

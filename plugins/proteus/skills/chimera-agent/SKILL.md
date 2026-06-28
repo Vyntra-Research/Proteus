@@ -41,6 +41,13 @@ run Proteus against your Chimera lab, session directory, package subdirectory,
 fixture, generated lab, or temp folder. If a Proteus command reports that the
 root differs from the shared target root, stop and rerun it with the root from
 `dossier.md` or `PROTEUS_TARGET_ROOT`.
+Proteus normally infers your Chimera session from the injected environment or
+your session directory. Some coordinator-provided commands include
+`--id <CH-ID>` only as an explicit routing fallback so the same command works
+from any cwd. Do not treat this as manual identity management, and do not invent
+or swap ids. Use the exact command Proteus gives you. If a command run from the
+workspace root says the session is missing, rerun that same command with your
+assigned `CH-ID` from `dossier.md`.
 
 Use the dossier, contract, injected skills, Proteus state, and coordinator
 messages to reconstruct the research context before acting. You should
@@ -94,14 +101,15 @@ that the coordinator or another agent sent something. It is not the source of
 truth. When it says `pending: true`, run `proteus chimera poll`.
 
 If the coordinator sends a priority message, OpenCode may steer you directly
-with a short notification to poll Proteus. Treat that as a request to run
-`proteus chimera poll --root <workspace-root> --unread --agent` as soon as practical. Do
-not corrupt an in-flight command or lose evidence just to poll, but check before
-the next substantial step.
+with a short notification to poll Proteus. Treat that as a request to run the
+poll command shown in the notification as soon as practical. Do not corrupt an
+in-flight command or lose evidence just to poll, but check before the next
+substantial step.
 
 Poll your inbox periodically on your own initiative. Do it before long work,
 after a meaningful branch completes, after pivots, before finalizing, and after
-a heartbeat if the coordinator may have redirected you:
+a heartbeat if the coordinator may have redirected you. From your own Chimera
+session directory, the id is inferred:
 
 ```text
 proteus chimera poll --root <workspace-root> --unread --agent
@@ -144,7 +152,8 @@ proteus chimera broadcast --root <workspace-root> --message "..."
 Send a direct relay to another Chimera agent when the message is specifically
 for that peer. When running inside your Chimera session, Proteus infers your
 own session id, so do not add `--from-id` unless the coordinator explicitly
-asks you to debug from outside the lab:
+asks you to debug from outside the lab. If you must relay from outside your
+session directory, use `--from-id <CH-ID>`:
 
 ```text
 proteus chimera relay --root <workspace-root> --to-id <CH-ID> --message "..." --priority
@@ -166,7 +175,8 @@ an ordered brainstorm meeting called by the coordinator.
 
 Accept only when you are free or at a safe pause point. If you are capturing
 important evidence or running a fragile command, finish that safe point first.
-Then accept:
+Then accept. If the cue gives you a command with `--id`, use it exactly;
+otherwise the session directory can infer the id:
 
 ```text
 proteus chimera council accept --root <workspace-root> --council-id <CO-ID> --body "ready"

@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import os from "node:os";
 import { memoryPath, vrosDir, ensureDir } from "./paths";
+import { LockedSqliteDatabase } from "./locked-sqlite";
 import {
   decisionInputSchema,
   evidenceInputSchema,
@@ -30,27 +31,18 @@ import type {
   ChimeraStatus
 } from "./types";
 
-const emitWarning = process.emitWarning;
-process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
-  const message = typeof warning === "string" ? warning : warning.message;
-  const warningType = typeof args[0] === "string" ? args[0] : undefined;
-  if (warningType === "ExperimentalWarning" && message.includes("SQLite")) return;
-  return emitWarning.call(process, warning as never, ...(args as never[]));
-}) as typeof process.emitWarning;
-const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
-process.emitWarning = emitWarning;
 const CURRENT_PROTEUS_VERSION = packageVersion();
 
 export class ProteusDb {
   readonly targetRoot: string;
   readonly dbPath: string;
-  private readonly db: InstanceType<typeof DatabaseSync>;
+  private readonly db: LockedSqliteDatabase;
 
   constructor(targetRoot: string) {
     this.targetRoot = targetRoot;
     ensureDir(vrosDir(targetRoot));
     this.dbPath = memoryPath(targetRoot);
-    this.db = new DatabaseSync(this.dbPath);
+    this.db = new LockedSqliteDatabase(this.dbPath);
     this.db.exec("PRAGMA foreign_keys = ON;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA busy_timeout = 60000;");

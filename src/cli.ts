@@ -69,6 +69,10 @@ function main(): void {
     cmdChimeraConfig(parsed.command[2], parsed);
     return;
   }
+  if (command === "chimera" && subcommand === "stop-server") {
+    console.log(JSON.stringify({ ok: true, ...stopOpenCodeServer() }, null, 2));
+    return;
+  }
 
   const targetRoot = resolveTargetRoot(getString(parsed, "root") ?? process.cwd());
   const db = new ProteusDb(targetRoot);
@@ -229,7 +233,7 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
       console.log(JSON.stringify(chimeraDoctor(db), null, 2));
       return;
     case "stop-server":
-      console.log(JSON.stringify({ ok: true, ...stopOpenCodeServer(db) }, null, 2));
+      console.log(JSON.stringify({ ok: true, ...stopOpenCodeServer() }, null, 2));
       return;
     case "start":
       console.log(JSON.stringify(startChimeraSession(db, {

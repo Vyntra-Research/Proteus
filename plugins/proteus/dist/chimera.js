@@ -109,7 +109,7 @@ function chimeraDoctor(db) {
     ];
     return { ok: checks.every((check) => check.ok), config, checks };
 }
-function stopOpenCodeServer(db) {
+function stopOpenCodeServer() {
     const config = getChimeraConfig();
     let stopped = false;
     let detail = "no managed OpenCode server PID is recorded";
@@ -1056,15 +1056,15 @@ Required behavior:
 - Network use is ${config.defaultNetwork ? "authorized only within the target scope and coordinator restrictions" : "not authorized by default. Proteus omits OpenCode web permissions unless the coordinator enables network, but shell is not an OS sandbox; do not use network from shell unless explicitly authorized."}
 
 Communication commands:
-- ${proteusCommand} --root "${db.targetRoot}" chimera poll --unread --agent
-- ${proteusCommand} --root "${db.targetRoot}" chimera post --kind message --body "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent
+- ${proteusCommand} --root "${db.targetRoot}" chimera post --id ${session.publicId} --kind message --body "..."
 - ${session.campaignId ? `${proteusCommand} --root "${db.targetRoot}" campaign resume --id ${session.campaignId}` : `${proteusCommand} --root "${db.targetRoot}" campaign resume`}
 - ${proteusCommand} --root "${db.targetRoot}" chimera broadcast --message "..." --priority
 - ${proteusCommand} --root "${db.targetRoot}" chimera relay --to-id CH-0000 --message "..." --priority
-- ${proteusCommand} --root "${db.targetRoot}" chimera council accept --council-id CO-... --body "ready"
-- ${proteusCommand} --root "${db.targetRoot}" chimera council turn --council-id CO-... --round 1 --body "..."
-- ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --body "..."
-- ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat
+- ${proteusCommand} --root "${db.targetRoot}" chimera council accept --id ${session.publicId} --council-id CO-... --body "ready"
+- ${proteusCommand} --root "${db.targetRoot}" chimera council turn --id ${session.publicId} --council-id CO-... --round 1 --body "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --id ${session.publicId} --body "..."
+- ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
 `;
 }
 function renderAgentInstructions(db, session) {
@@ -1729,7 +1729,7 @@ function maybeWakeChimeraSession(db, session, message) {
 }
 function renderSteerPrompt(db, session, message) {
     const metadata = metadataObject(message.metadata) ?? {};
-    const pollCommand = `${proteusCliCommand()} --root "${db.targetRoot}" chimera poll --unread --agent`;
+    const pollCommand = `${proteusCliCommand()} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent`;
     if (message.kind === "council" && metadata.councilState === "turn_cued") {
         return [
             `Priority Proteus brainstorm council turn cue for ${session.publicId}.`,
@@ -1752,7 +1752,7 @@ function renderSteerPrompt(db, session, message) {
 }
 function renderWakePrompt(db, session, messageId) {
     const message = messageId ? db.getChimeraMessage(messageId) : null;
-    const pollCommand = `${proteusCliCommand()} --root "${db.targetRoot}" chimera poll --unread --agent`;
+    const pollCommand = `${proteusCliCommand()} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent`;
     const councilTurn = message && message.kind === "council" && metadataObject(message.metadata)?.councilState === "turn_cued";
     return `# Proteus Chimera Priority Wake
 

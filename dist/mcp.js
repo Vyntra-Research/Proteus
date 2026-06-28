@@ -124,7 +124,7 @@ const tools = [
         title: "Stop Chimera OpenCode Server",
         description: "Stop the managed OpenCode server recorded for this target and clear its URL/PID.",
         inputSchema: schema({ root: stringProp("Target root path.") }, ["root"]),
-        handler: ({ root }) => withDb(str(root), (db) => toolEnvelope((0, chimera_1.stopOpenCodeServer)(db)))
+        handler: () => toolEnvelope((0, chimera_1.stopOpenCodeServer)())
     },
     {
         name: "proteus_chimera_start",

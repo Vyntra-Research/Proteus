@@ -11,17 +11,8 @@ const node_path_1 = __importDefault(require("node:path"));
 const node_crypto_1 = __importDefault(require("node:crypto"));
 const node_os_1 = __importDefault(require("node:os"));
 const paths_1 = require("./paths");
+const locked_sqlite_1 = require("./locked-sqlite");
 const schemas_1 = require("./schemas");
-const emitWarning = process.emitWarning;
-process.emitWarning = ((warning, ...args) => {
-    const message = typeof warning === "string" ? warning : warning.message;
-    const warningType = typeof args[0] === "string" ? args[0] : undefined;
-    if (warningType === "ExperimentalWarning" && message.includes("SQLite"))
-        return;
-    return emitWarning.call(process, warning, ...args);
-});
-const { DatabaseSync } = require("node:sqlite");
-process.emitWarning = emitWarning;
 const CURRENT_PROTEUS_VERSION = packageVersion();
 class ProteusDb {
     targetRoot;
@@ -31,7 +22,7 @@ class ProteusDb {
         this.targetRoot = targetRoot;
         (0, paths_1.ensureDir)((0, paths_1.vrosDir)(targetRoot));
         this.dbPath = (0, paths_1.memoryPath)(targetRoot);
-        this.db = new DatabaseSync(this.dbPath);
+        this.db = new locked_sqlite_1.LockedSqliteDatabase(this.dbPath);
         this.db.exec("PRAGMA foreign_keys = ON;");
         this.db.exec("PRAGMA journal_mode = WAL;");
         this.db.exec("PRAGMA busy_timeout = 60000;");
