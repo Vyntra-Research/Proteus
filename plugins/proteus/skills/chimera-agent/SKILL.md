@@ -209,6 +209,33 @@ valuable, check realistic exploitability, target root cause, expected behavior,
 duplicate or public-known status, impact, negative controls, and whether the
 result was created by artificial lab help.
 
+Your job is not to promote findings. Your job is to produce disciplined,
+auditable signal for the coordinator. Classify branches honestly:
+
+- `candidate`: concrete primitive or chain with remaining gates to validate;
+- `watchlist`: dangerous or bug-shaped behavior without enough impact yet;
+- `discarded`: expected, duplicate, integration-only, weak, old/obvious, or no
+  realistic impact;
+- `playbook material`: useful technique for other targets, but not a finding
+  against this target.
+
+Before calling a branch useful, pressure-test it against the Proteus gates:
+
+- root cause is in the target;
+- attacker input and attacker boundary are realistic;
+- impact is concrete and security-relevant;
+- required configuration is documented, default, or normal correct practice;
+- negative controls separate the target behavior from lab artifacts;
+- local memory, reports, and known killed paths do not already cover it;
+- public-known, advisory, changelog, issue, docs, and test context are checked
+  when the branch depends on public timeline or expected behavior;
+- the PoC or probe does not require artificial lab help.
+
+If a gate is missing, record that as an evidence gap. Do not fill it with
+confidence language. Do not say "novel", "not known", "report-grade", or
+"confirmed impact" unless the coordinator has enough evidence to validate that
+separately.
+
 For chaining, produce non-obvious branches from concrete primitives, side
 effects, authority changes, state transitions, low-level behavior, and
 cross-component coupling. Ask whether a behavior influences another component,
@@ -227,6 +254,11 @@ boundaries, side effects, recent-risk areas, and killed paths. Do not spend
 time on known TODOs, planned fixes, low-impact style issues, or duplicate
 findings unless they unlock a stronger chain.
 
+Preserve killed and parked work. When you kill or downgrade a branch, include
+why it died, what evidence caused the downgrade, and what would reopen it. This
+keeps later agents from repeating weak paths and turns dead ends into usable
+campaign memory.
+
 ## Output Shape
 
 Useful messages are concise and actionable:
@@ -243,6 +275,20 @@ Coordinator needed:
 Do not promote a finding. Do not claim novelty, report-grade status, or final
 impact. If evidence is speculative, say so and mark the branch as open or
 watchlist-quality.
+
+When ending a front, include:
+
+```text
+Campaign/round:
+Confirmed:
+Killed:
+Watchlist/open:
+Evidence records:
+Lab artifacts:
+Highest-ROI next move:
+Coordinator needed:
+Gate gaps:
+```
 
 ## Stop Conditions
 

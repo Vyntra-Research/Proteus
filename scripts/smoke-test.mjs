@@ -309,6 +309,9 @@ try {
       throw new Error(`missing Chimera artifact: ${required}`);
     }
   }
+  if (fs.existsSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/skills/continuous-vuln-research.md"))) {
+    throw new Error("Chimera sessions should not inject the coordinator continuous-vuln-research skill");
+  }
   run(["chimera", "post", "--id", "CH-0001", "--kind", "finding", "--body", "Smoke Chimera finding"]);
   const chimeraUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread"]);
   if (!chimeraUnread.includes("Smoke Chimera finding")) {

@@ -1331,7 +1331,7 @@ function accessLine(session: ChimeraSessionRow): string {
 function copySkillFiles(session: ChimeraSessionRow): void {
   const skillsDir = resolveSkillsDir();
   if (!skillsDir) return;
-  const wanted = new Set(["continuous-vuln-research", "chimera-agent", session.role]);
+  const wanted = new Set(["chimera-agent", session.role]);
   for (const name of wanted) {
     const source = path.join(skillsDir, name, "SKILL.md");
     if (!fs.existsSync(source)) continue;

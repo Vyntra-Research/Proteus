@@ -88,8 +88,8 @@ Each co-agent receives:
 - the Chimera contract explaining that it is a co-agent, not a normal
   lightweight subagent;
 - exact Proteus communication commands;
-- the base Proteus skill;
-- the `chimera-agent` skill;
+- the `chimera-agent` skill as the primary co-agent contract, including the
+  Proteus gates and research discipline adapted to secondary agents;
 - the role-specific skill when available;
 - a private lab for notes, evidence, scripts, and PoC material.
 

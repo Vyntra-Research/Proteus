@@ -1110,7 +1110,7 @@ function copySkillFiles(session) {
     const skillsDir = resolveSkillsDir();
     if (!skillsDir)
         return;
-    const wanted = new Set(["continuous-vuln-research", "chimera-agent", session.role]);
+    const wanted = new Set(["chimera-agent", session.role]);
     for (const name of wanted) {
         const source = node_path_1.default.join(skillsDir, name, "SKILL.md");
         if (!node_fs_1.default.existsSync(source))
