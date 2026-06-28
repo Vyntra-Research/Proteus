@@ -8,10 +8,9 @@ codebase, select high-ROI security surfaces, develop non-obvious hypotheses,
 delegate bounded specialist fronts, validate candidates in realistic labs, and
 preserve memory so future rounds do not repeat weak or already-killed work.
 
-It is not a scanner and not a generic code review checklist. Proteus is built
-for professional bug bounty and offensive codebase research where findings must
-survive realistic attacker modeling, duplicate checks, expected-behavior checks,
-negative controls, and PoC validation without artificial lab help.
+Proteus is built for professional bug bounty and offensive codebase research:
+realistic attacker modeling, duplicate checks, expected-behavior checks,
+negative controls, and PoC validation under documented/default conditions.
 
 ## What Proteus Adds
 
@@ -108,7 +107,7 @@ Example prompts:
 
 @proteus validate this candidate with realistic PoC gates, negative controls, and no forced vulnerable config
 
-@proteus draft a triage-ready report without internal workflow references
+@proteus draft a triage-ready report for an external triager
 ```
 
 The intended flow is agent-led. The coordinator should initialize or resume
@@ -187,9 +186,9 @@ message flow, see [Chimera mode](docs/CHIMERA.md).
 ## Specialist Fronts
 
 Proteus can work serially, through host subagents, or through Chimera co-agents.
-Specialist fronts are bounded research roles, not autonomous evidence shortcuts.
-The coordinator remains responsible for strategy, memory, validation gates,
-duplicate checks, and final kill/promote decisions.
+Specialist fronts give the coordinator bounded research roles with clear
+outputs. The coordinator remains responsible for strategy, memory, validation
+gates, duplicate checks, and final kill/promote decisions.
 
 | Front | Focus |
 | --- | --- |
@@ -229,18 +228,18 @@ and no realistic attacker boundary.
 
 ## Report Drafts
 
-Proteus report drafts are written for external triagers, not for the internal
-research workflow. The default shape is Title, CWE, Summary, Root Cause when
+Report drafts should read like concise bug bounty submissions for a triager
+with no prior context. The default shape is Title, CWE, Summary, Root Cause when
 applicable, PoC Details when applicable, Steps To Reproduce, and Impact. Add
 other sections only when the program template requires them or the triage
 context specifically needs them.
 
-Reports should avoid internal references to Proteus, `.vros`, subagents,
-workspace paths, or research process. Prose should be natural, concise, and
-specific. Avoid defensive reframing, unnecessary caveats, em dashes, generic
-hype, and stock phrases such as "Why this matters" or "This is security
-relevant because". Impact should list concrete consequences; Steps should stay
-terse and put interpretation in PoC Details or a short note after the steps.
+Keep Proteus internals, `.vros`, subagents, workspace paths, and research
+process out of the report. Prose should be natural, concise, and specific. Cut
+defensive reframing, unnecessary caveats, em dashes, generic hype, and stock
+phrases such as "Why this matters" or "This is security relevant because".
+Impact should list concrete consequences; Steps should stay terse and put
+interpretation in PoC Details or a short note after the steps.
 
 ## Architecture
 
