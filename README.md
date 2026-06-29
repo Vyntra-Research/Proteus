@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="Proteus chimera mark" src="docs/assets/proteus-chimera-mark.png" width="160" />
+  <img alt="Proteus chimera mark" src="docs/assets/proteus-chimera-mark.png" width="180" />
 </p>
 <h1 align="center">Proteus</h1>
 
