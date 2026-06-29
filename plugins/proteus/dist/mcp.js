@@ -129,7 +129,7 @@ const tools = [
     {
         name: "proteus_chimera_start",
         title: "Start Chimera Agent",
-        description: "Create a bounded Chimera session and optionally launch OpenCode. MCP launches run=true in the background unless a positive timeout is provided.",
+        description: "Create a bounded Chimera session and start OpenCode bootstrap. A positive timeout plus run=true keeps the launch synchronous for short tests.",
         inputSchema: schema({
             root: stringProp("Target root path."),
             role: stringProp("Role such as chaining, fuzzing, codebase-research, cicada, explorer, or custom."),
@@ -146,7 +146,6 @@ const tools = [
         }, ["root", "role", "goal"]),
         handler: (input) => withDb(str(input.root), (db) => {
             const timeout = maybeNum(input.timeout);
-            const boundedRun = input.run === true && isPositiveTimeout(timeout);
             const started = (0, chimera_1.startChimeraSession)(db, {
                 role: str(input.role),
                 goal: str(input.goal),
@@ -158,15 +157,8 @@ const tools = [
                 provider: maybeStr(input.provider),
                 variant: maybeStr(input.variant),
                 timeoutSec: timeout,
-                run: boundedRun
+                run: input.run === true
             });
-            if (input.run === true && !boundedRun) {
-                return toolEnvelope({
-                    ...started,
-                    backgroundRun: (0, chimera_1.startChimeraRunBackground)(db, started.session.publicId, timeout),
-                    session: db.getChimeraSession(started.session.publicId)
-                });
-            }
             return toolEnvelope(started);
         })
     },
@@ -263,39 +255,19 @@ const tools = [
         })))
     },
     {
-        name: "proteus_chimera_relay",
-        title: "Relay Chimera Agent Message",
-        description: "Send a direct Chimera agent-to-agent message through Proteus. The sender and destination are recorded in message metadata.",
-        inputSchema: schema({
-            root: stringProp("Target root path."),
-            fromId: stringProp("Source Chimera session id."),
-            toId: stringProp("Destination Chimera session id."),
-            message: stringProp("Message body."),
-            kind: stringProp("Message kind, usually message or redirect."),
-            priority: booleanProp("Also send a direct OpenCode steer/wake notification when available.")
-        }, ["root", "fromId", "toId", "message"]),
-        handler: (input) => withDb(str(input.root), (db) => toolEnvelope((0, chimera_1.relayChimeraMessage)(db, {
-            fromId: str(input.fromId),
-            toId: str(input.toId),
-            body: str(input.message),
-            kind: chimeraKind(input.kind, "message"),
-            priority: input.priority === true
-        })))
-    },
-    {
         name: "proteus_chimera_send",
         title: "Send Chimera Message",
-        description: "Send a coordinator-to-agent message or redirect.",
+        description: "Send one direct Chimera message. Coordinator-to-agent uses id/toId; Chimera-to-Chimera uses fromId plus toId when needed.",
         inputSchema: schema({
             root: stringProp("Target root path."),
-            id: stringProp("Chimera session id."),
+            id: stringProp("Destination Chimera session id. Alias of toId."),
+            toId: stringProp("Destination Chimera session id."),
+            fromId: stringProp("Optional source Chimera session id for Chimera-to-Chimera messages."),
             message: stringProp("Message body."),
             kind: stringProp("message or redirect."),
             priority: booleanProp("Mark the destination notification as priority so the agent polls as soon as practical.")
-        }, ["root", "id", "message"]),
-        handler: (input) => withDb(str(input.root), (db) => toolEnvelope((0, chimera_1.sendChimeraMessage)(db, str(input.id), str(input.message), chimeraKind(input.kind, "message"), {
-            priority: input.priority === true
-        })))
+        }, ["root", "message"]),
+        handler: (input) => withDb(str(input.root), (db) => toolEnvelope(sendChimeraOutboundMcp(db, input)))
     },
     {
         name: "proteus_chimera_run",
@@ -389,7 +361,14 @@ const tools = [
         title: "List Chimera Sessions",
         description: "List Chimera sessions.",
         inputSchema: schema({ root: stringProp("Target root path."), limit: numberProp("Limit.") }, ["root"]),
-        handler: (input) => withDb(str(input.root), (db) => toolEnvelope(db.listChimeraSessions({ limit: maybeNum(input.limit) })))
+        handler: (input) => withDb(str(input.root), (db) => toolEnvelope((0, chimera_1.listChimeraSessions)(db, { limit: maybeNum(input.limit) })))
+    },
+    {
+        name: "proteus_chimera_recover",
+        title: "Recover Chimera Session State",
+        description: "Reconcile one Chimera session after interrupted runs, stale starting/running status, or missing OpenCode session attachment.",
+        inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id.") }, ["root", "id"]),
+        handler: (input) => withDb(str(input.root), (db) => toolEnvelope((0, chimera_1.recoverChimeraSession)(db, str(input.id))))
     },
     {
         name: "proteus_chimera_kill",
@@ -673,7 +652,7 @@ const tools = [
         description: "Update a hypothesis branch status after a kill, promote, block, or testing decision.",
         inputSchema: schema({
             root: stringProp("Target root path."),
-            id: numberProp("Branch id."),
+            id: stringProp("Branch id. Accepts 8 or B8."),
             status: stringProp("open, testing, killed, promoted, or blocked.")
         }, ["root", "id", "status"]),
         handler: (input) => withDb(str(input.root), (db) => {
@@ -1497,11 +1476,37 @@ function str(value) {
 function maybeStr(value) {
     return typeof value === "string" ? value : undefined;
 }
+function sendChimeraOutboundMcp(db, input) {
+    const toId = maybeStr(input.toId) ?? maybeStr(input.id);
+    if (!toId)
+        throw new Error("id or toId is required for proteus_chimera_send");
+    return (0, chimera_1.sendChimeraMessage)(db, toId, str(input.message), chimeraKind(input.kind, "message"), {
+        priority: input.priority === true,
+        fromId: maybeStr(input.fromId)
+    });
+}
 function num(value, fallback) {
-    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+    if (typeof value === "number" && Number.isFinite(value))
+        return value;
+    if (typeof value === "string") {
+        const parsed = parseNumericId(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    return fallback;
 }
 function maybeNum(value) {
-    return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+    if (typeof value === "number" && Number.isFinite(value))
+        return value;
+    if (typeof value === "string") {
+        const parsed = parseNumericId(value);
+        return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    return undefined;
+}
+function parseNumericId(value) {
+    const trimmed = value.trim();
+    const prefixed = /^([A-Za-z])(\d+)$/.exec(trimmed);
+    return Number(prefixed ? prefixed[2] : trimmed);
 }
 function isPositiveTimeout(value) {
     return typeof value === "number" && Number.isFinite(value) && value > 0;

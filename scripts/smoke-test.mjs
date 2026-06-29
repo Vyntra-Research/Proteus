@@ -331,8 +331,12 @@ try {
     "--access-notes",
     "Smoke editor grant: non-destructive shell only; edit generated lab files only."
   ]);
-  if (!chimeraStart.includes('"publicId": "CH-0001"') || !chimeraStart.includes('"accessMode": "editor"')) {
+  if (!chimeraStart.includes('"publicId": "CH-0001"') || !chimeraStart.includes('"accessMode": "editor"') || !chimeraStart.includes('"backgroundRun"') || !chimeraStart.includes('"status": "starting"')) {
     throw new Error("chimera start did not create CH-0001 with editor access");
+  }
+  const chimeraRecoverStart = JSON.parse(run(["chimera", "recover", "--id", "CH-0001"]));
+  if (chimeraRecoverStart.session?.publicId !== "CH-0001" || !chimeraRecoverStart.controlStatus) {
+    throw new Error("chimera recover did not return reconciled session and control status");
   }
   const attachWithoutSession = runFail(["chimera", "attach-opencode", "--id", "CH-0001", "--server-url", "http://127.0.0.1:4096"]);
   if (!attachWithoutSession.includes("Missing --opencode-session-id")) {
@@ -513,6 +517,15 @@ try {
   const chimeraDirectSend = JSON.parse(run(["chimera", "send", "--id", "CH-0002", "--message", "Smoke direct steer", "--priority"]));
   if (chimeraDirectSend.directDelivery?.mode !== "steer" || chimeraDirectSend.directDelivery?.ok !== true) {
     throw new Error(`chimera priority send did not steer active OpenCode session: ${JSON.stringify(chimeraDirectSend.directDelivery)}`);
+  }
+  run(
+    ["chimera", "send", "--root", tmpRoot, "--to-id", "CH-0002", "--message", "Smoke inferred source id"],
+    path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/lab"),
+    { PROTEUS_CHIMERA_SESSION_ID: "CH-0001", PROTEUS_TARGET_ROOT: tmpRoot }
+  );
+  const chimeraInferredSourcePoll = run(["chimera", "poll", "--id", "CH-0002", "--unread", "--agent"]);
+  if (!chimeraInferredSourcePoll.includes("Smoke inferred source id") || !chimeraInferredSourcePoll.includes('"fromId": "CH-0001"')) {
+    throw new Error("chimera send did not infer source id for agent-to-agent message from a Chimera lab");
   }
   const chimeraCouncilStart = JSON.parse(run([
     "chimera",
@@ -800,7 +813,7 @@ try {
   if (!branches.includes("B1 [open] Smoke branch")) {
     throw new Error("branch list did not return recorded branch");
   }
-  run(["branch", "update", "--id", "1", "--status", "testing"]);
+  run(["branch", "update", "--id", "B1", "--status", "testing"]);
   const testingBranches = run(["branch", "list", "--campaign-id", "1", "--status", "testing"]);
   if (!testingBranches.includes("B1 [testing] Smoke branch")) {
     throw new Error("branch update did not move branch to testing");
@@ -1108,18 +1121,62 @@ try {
 
   console.log(`Proteus smoke test passed: ${tmpRoot}`);
 } finally {
-  try {
-    run(["chimera", "stop-server"]);
-  } catch {
-    // Best-effort cleanup; the temp directory cleanup below is the final guard.
+  for (const root of [tmpRoot, killRoot, chimeraScopeRoot, chimeraGeneralistRoot]) {
+    stopChimeraServer(root);
   }
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-  fs.rmSync(globalRoot, { recursive: true, force: true });
-  fs.rmSync(legacyRoot, { recursive: true, force: true });
-  fs.rmSync(helpRoot, { recursive: true, force: true });
-  fs.rmSync(mergeRoot, { recursive: true, force: true });
-  fs.rmSync(killRoot, { recursive: true, force: true });
-  fs.rmSync(concurrencyRoot, { recursive: true, force: true });
-  fs.rmSync(chimeraScopeRoot, { recursive: true, force: true });
-  fs.rmSync(chimeraGeneralistRoot, { recursive: true, force: true });
+  killMockOpenCodeServers();
+  for (const root of [
+    tmpRoot,
+    globalRoot,
+    legacyRoot,
+    helpRoot,
+    mergeRoot,
+    killRoot,
+    concurrencyRoot,
+    chimeraScopeRoot,
+    chimeraGeneralistRoot
+  ]) {
+    rmTemp(root);
+  }
+}
+
+function stopChimeraServer(root) {
+  try {
+    run(["chimera", "stop-server", "--root", root], root);
+  } catch {
+    // Best-effort cleanup; rmTemp retries below are the final guard.
+  }
+}
+
+function rmTemp(target) {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
+    try {
+      fs.rmSync(target, { recursive: true, force: true, maxRetries: 10, retryDelay: 250 });
+    } catch (retryError) {
+      console.warn(`warning: could not remove temp path ${target}: ${retryError.message}`);
+    }
+  }
+}
+
+function killMockOpenCodeServers() {
+  if (process.platform !== "win32") return;
+  try {
+    execFileSync("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      "$mock=$env:PROTEUS_SMOKE_MOCK_OPENCODE; " +
+      "Get-CimInstance Win32_Process | " +
+      "Where-Object { $mock -and $_.CommandLine -like ('*' + $mock + '* serve *') } | " +
+      "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    ], {
+      env: { ...process.env, PROTEUS_SMOKE_MOCK_OPENCODE: mockOpenCode },
+      stdio: "ignore"
+    });
+  } catch {
+    // The regular stop-server path is authoritative; this only avoids leaked test mocks.
+  }
 }

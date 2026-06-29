@@ -50,20 +50,29 @@ A Chimera session has an id such as `CH-0001`.
 
 ```powershell
 proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7"
+```
+
+`start` creates the lab, writes the dossier and contract, and starts OpenCode
+bootstrap automatically. Use `run` only when intentionally resuming or
+recovering an existing non-running session:
+
+```powershell
 proteus chimera run --root C:\path\to\target --id CH-0001
 ```
 
-Create and run in one command:
+Create new co-agents only when there is a distinct research front, role, model,
+or lab need. For continuation of the same bounded front, inspect the existing
+session with `poll`, `workflow-snapshot`, and `heartbeat`, then use `send` for
+targeted steering or `run` only when the session is actually not running. `run`
+and priority `wake` do not time out by default, so an active OpenCode agent can
+keep working until it finishes, blocks, is killed, or is closed.
+
+If status, pid, or OpenCode session attachment looks stale, use `recover`
+before deciding to start a new session or run an existing one again:
 
 ```powershell
-proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7" --run
+proteus chimera recover --root C:\path\to\target --id CH-0001
 ```
-
-Create new co-agents only when there is a distinct research front, role, model,
-or lab need. For continuation of the same bounded front, run the existing
-session again with `chimera run --id <CH-ID>`. `run` and priority `wake` do not
-time out by default, so an active OpenCode agent can keep working until it
-finishes, blocks, is killed, or is closed.
 
 Chimera is for parallel co-agent fronts, not step-by-step supervision. The
 coordinator should launch a session with enough context, scope, access limits,
@@ -197,7 +206,7 @@ proteus chimera post --root C:\path\to\target --kind message --body "Current sta
 Agent to agent from inside a Chimera lab:
 
 ```powershell
-proteus chimera relay --root C:\path\to\target --to-id CH-0002 --message "This side effect may affect your branch." --priority
+proteus chimera send --root C:\path\to\target --to-id CH-0002 --message "This side effect may affect your branch." --priority
 ```
 
 For commands executed by a Chimera agent inside its own session directory,
@@ -206,7 +215,8 @@ The `--id <CH-ID>` flag is only explicit routing: coordinator commands use it
 to target a session, and agent commands may use it as a portability fallback
 when run from the workspace root or another cwd. Agents should use the command
 Proteus provides and should not invent, swap, or manage ids manually. For
-`relay` from outside the session directory, pass `--from-id <CH-ID>`.
+agent-to-agent `send` from outside the session directory, pass
+`--from-id <CH-ID>`.
 
 Unread messages:
 
@@ -340,6 +350,7 @@ proteus_chimera_run
 proteus_chimera_attach_opencode
 proteus_chimera_poll
 proteus_chimera_list
+proteus_chimera_recover
 proteus_chimera_kill
 proteus_chimera_close
 proteus_update_branch

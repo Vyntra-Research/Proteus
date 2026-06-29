@@ -123,8 +123,8 @@ Before launching Chimera agents:
   working until completion or a real blocker without guessing when to stop;
 - check `proteus chimera list --root <workspace>` before creating new agents; inspect role, goal,
   status, `labDir`, and `opencodeSessionId`; create a new co-agent only when
-  there is a distinct front, role, model, or lab need, otherwise continue the
-  existing `CH-...` with `proteus chimera run --root <workspace> --id <CH-ID>`;
+  there is a distinct front, role, model, or lab need, otherwise continue with
+  `poll`, `workflow-snapshot`, `heartbeat`, or a targeted `send`;
 - choose the access mode deliberately.
 
 Access modes:
@@ -145,26 +145,45 @@ Launch examples:
 ```text
 proteus chimera start --root <workspace> --role chaining --goal "Develop non-obvious chains from the upload parser branch"
 proteus chimera start --root <workspace> --role cicada --goal "Try bypass/chaining on branch B7" --access editor --access-notes "Allowed: edit only .vros/chimera lab and generated PoC harness files; shell may run targeted tests and non-destructive probes; ask before workspace source edits."
-proteus chimera run --root <workspace> --id CH-0001
 proteus chimera swarm --root <workspace> --plan chimera-swarm.json
 ```
 
-Chimera run and wake operations have no default wall-clock timeout. Use
-`--timeout N` only for a deliberate smoke test or short bounded probe. For
-normal research, let the agent continue until its stop condition, blocker,
-kill, or close event.
+`start` creates the lab, writes the dossier and contract, and starts OpenCode
+bootstrap automatically. Do not follow every `start` with `run`. Use
+`chimera run --id <CH-ID>` only when intentionally resuming or recovering an
+existing session that is not already `starting` or `running`. Run and wake
+operations have no default wall-clock timeout. Use `--timeout N` only for a
+deliberate smoke test or short bounded probe. For normal research, let the
+agent continue until its stop condition, blocker, kill, or close event.
 
 Coordinator duties:
 
 - lead the research strategy while allowing Chimera co-agents to operate as
   independent, rational research fronts that choose their own concrete next
   probes, labs, PoCs, payloads, and validation steps inside the assigned scope;
-- poll unread messages with `proteus chimera poll --root <workspace> --unread`;
-- send redirects with `proteus chimera send --root <workspace>`; use `--priority` when the message
-  should steer an active OpenCode session immediately;
-- understand that `--priority` can directly ping OpenCode with `delivery=steer`
-  only after the Chimera session has an attached `opencodeSessionId`; if missing,
-  run the existing `CH-...` once or attach the OpenCode session explicitly;
+- use `proteus chimera start` to create and auto-start a new co-agent front;
+- use `proteus chimera list` to recover existing sessions before creating new
+  ones;
+- use `proteus chimera poll` to read Proteus-brokered messages and session
+  control status;
+- use `proteus chimera workflow-snapshot` to inspect recent OpenCode assistant
+  messages without tool-output noise;
+- use `proteus chimera recover --id <CH-ID>` when status, pid, or OpenCode
+  session attachment looks stale or inconsistent;
+- use `proteus chimera send --id <CH-ID> --message "..."`
+  for one coordinator-to-agent message;
+- use `proteus chimera send --to-id <CH-ID> --message "..."` from inside a
+  Chimera session for one agent-to-agent message;
+- use `proteus chimera broadcast --message "..."` only when all active agents
+  should see the same shared context;
+- use `--priority` only when the destination should be nudged to poll soon.
+  Proteus stores the canonical message in the inbox, updates notifications,
+  and steers or wakes OpenCode when possible;
+- use `proteus chimera run --id <CH-ID>` only for intentional recovery or
+  resume of an existing non-running session. Do not use `run` just because a
+  new session id exists or because `opencodeSessionId` is still attaching;
+- use `proteus chimera kill` to stop a session and `proteus chimera close` to
+  preserve final useful/killed/watchlist outcome;
 - expect Proteus to reuse the saved/configured OpenCode server URL when it is
   healthy. If no configured server is healthy, Proteus starts a managed local
   server instead of attaching to an arbitrary process on the port range;
@@ -213,9 +232,10 @@ direct questions and messages that materially affect their branch.
 
 Before creating a new Chimera agent, prefer to reuse an active or waiting
 session with the same role/front/lab context. Use `proteus chimera list` to
-check existing sessions, then continue with `proteus chimera run --id CH-...`
-or send a redirect. Start a new co-agent only when the campaign needs a distinct
-front, model, access mode, or independent lab.
+check existing sessions, then continue with `poll`, `workflow-snapshot`,
+`heartbeat`, `send`, or a recovery `run` only when the session is actually not
+running. Start a new co-agent only when the campaign needs a distinct front,
+model, access mode, or independent lab.
 
 ### Chimera Brainstorm Council
 

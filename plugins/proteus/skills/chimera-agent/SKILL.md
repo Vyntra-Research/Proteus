@@ -175,14 +175,15 @@ research direction or save duplicate work:
 proteus chimera broadcast --root <workspace-root> --message "..."
 ```
 
-Send a direct relay to another Chimera agent when the message is specifically
-for that peer. When running inside your Chimera session, Proteus infers your
-own session id, so do not add `--from-id` unless the coordinator explicitly
-asks you to debug from outside the lab. If you must relay from outside your
-session directory, use `--from-id <CH-ID>`:
+Send a direct message to another Chimera agent when the message is specifically
+for that peer. Use `send`. When running inside your Chimera session, Proteus
+infers your own session id, so do not add
+`--from-id` unless the coordinator explicitly asks you to debug from outside
+the lab. If you must send from outside your session directory, use
+`--from-id <CH-ID>`:
 
 ```text
-proteus chimera relay --root <workspace-root> --to-id <CH-ID> --message "..." --priority
+proteus chimera send --root <workspace-root> --to-id <CH-ID> --message "..." --priority
 ```
 
 Treat shared chat as normal collaborative context, not a queue that must be
