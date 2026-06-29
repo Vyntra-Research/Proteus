@@ -204,6 +204,7 @@ conditions after work has happened; it is not a creation command.
 
 ```powershell
 node dist/cli.js query duplicates "tenant state reused"
+node dist/cli.js query similar "tenant state reused"
 node dist/cli.js query memory "tenant state reused"
 node dist/cli.js query surfaces "auth"
 node dist/cli.js list surfaces
@@ -222,10 +223,12 @@ and report source records for possible duplicate prior coverage. It does not
 search hypotheses, decisions, evidence, rounds, generic docs, watchlists,
 discarded paths, or candidate registers.
 
-Use `query memory` for broad FTS recall across hypotheses, decisions, evidence,
-gates, rounds, surfaces, reports, docs, watchlists, discarded paths, candidate
-registers, and agent outputs. Use `list` commands when the agent needs
-structured records by category, such as decisions, evidence, gates, and
+Use `query similar` as the normal first pass for a candidate, primitive, or
+impact claim because it returns both narrow duplicate coverage and broad memory
+matches. Use `query memory` for broad FTS recall across hypotheses, decisions,
+evidence, gates, rounds, surfaces, reports, docs, watchlists, discarded paths,
+candidate registers, and agent outputs. Use `list` commands when the agent
+needs structured records by category, such as decisions, evidence, gates, and
 surfaces. Use `show <entityType> <id>` to inspect the complete record.
 
 ## Record Global Learnings
@@ -309,12 +312,42 @@ proteus_init
 proteus_status
 proteus_migrate
 proteus_merge_memory
+proteus_chimera_config
+proteus_chimera_doctor
+proteus_chimera_stop_server
+proteus_chimera_start
+proteus_chimera_swarm
+proteus_chimera_council
+proteus_chimera_broadcast
+proteus_chimera_relay
+proteus_chimera_send
+proteus_chimera_post
+proteus_chimera_snapshot
+proteus_chimera_workflow_snapshot
+proteus_chimera_heartbeat
+proteus_chimera_run
+proteus_chimera_attach_opencode
+proteus_chimera_poll
+proteus_chimera_list
+proteus_chimera_kill
+proteus_chimera_close
 proteus_ingest
 proteus_observe
 proteus_plan_round
+proteus_campaign_create
+proteus_campaign_resume
+proteus_campaign_checkpoint
+proteus_campaign_close
+proteus_record_branch
+proteus_update_branch
+proteus_link_entities
+proteus_roles
+proteus_prompt
 proteus_query_duplicates
 proteus_query_memory
+proteus_query_similar
 proteus_query_surfaces
+proteus_query_revisit
 proteus_list_records
 proteus_get_record
 proteus_record_surface

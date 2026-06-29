@@ -53,9 +53,13 @@ proteus observe --root <target-root>
 proteus learn query --root <target-root> --target-scope
 proteus list rounds --root <target-root> --status active
 proteus plan-round --root <target-root> --objective "<objective>" --plan-json round-input.json --status active --write
+proteus query similar --root <target-root> "<candidate text>"
 proteus query duplicates --root <target-root> "<candidate text>"
+proteus query memory --root <target-root> "<component or behavior>"
 proteus show --root <target-root> <entityType> <id>
 proteus record hypothesis --root <target-root> --title "<title>" --impact "<impact>"
+proteus branch add --root <target-root> --campaign-id <id> --title "<title>" --primitive "<primitive>"
+proteus branch update --root <target-root> --id <id> --status killed
 proteus record agent-output --root <target-root> --round-id <id> --role argus --surface "<surface>"
 proteus update round --root <target-root> --id <id> --status completed
 proteus update rounds --root <target-root> --from planned --status superseded --keep-latest
@@ -64,6 +68,7 @@ proteus lab create --root <target-root> --candidate-id <id> --name <name>
 proteus export --root <target-root>
 ```
 
+Use `query similar` as the normal local dedupe and memory-recovery first pass.
 Use `query duplicates` only for compact finding/report duplicate checks. Use
 `query memory` for broad text search, and use structured lists such as
 `list decisions`, `list evidence`, `list gates`, `list surfaces`, and
@@ -209,4 +214,4 @@ must write the JSON first. The packaged template is
 ```
 
 Valid `codename` values are `argus`, `loom`, `chaos`, `libris`, `mimic`,
-`artificer`, and `skeptic`.
+`artificer`, `skeptic`, and `cicada`.

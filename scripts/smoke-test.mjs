@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -10,23 +10,75 @@ const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
 const cli = path.join(repoRoot, "dist", "cli.js");
+const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-global-smoke-"));
 const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"));
 const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
 const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
+const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
+const concurrencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-concurrency-smoke-"));
+const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
+const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
 
-function run(args, cwd = tmpRoot) {
+function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
     cwd,
-    env: {
-      ...process.env,
-      PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
-      PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports")
-    },
+    env: smokeEnv(extraEnv),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"]
   });
+}
+
+function smokeEnv(extra = {}) {
+  return {
+    ...process.env,
+    ...extra,
+    PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
+    PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
+    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
+  };
+}
+
+function waitForFile(filePath, timeoutMs = 5000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (fs.existsSync(filePath)) return;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  throw new Error(`timed out waiting for file: ${filePath}`);
+}
+
+function waitForChild(child, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`child did not exit in time\nstdout=${stdout}\nstderr=${stderr}`));
+    }, timeoutMs);
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+function runFail(args, cwd = tmpRoot, extraEnv = {}) {
+  try {
+    run(args, cwd, extraEnv);
+  } catch (error) {
+    return `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+  throw new Error(`command unexpectedly succeeded: ${args.join(" ")}`);
 }
 
 try {
@@ -91,6 +143,21 @@ try {
   if (!migratedVersions.includes(`Proteus DB version: ${expectedVersion}`) || !migratedVersions.includes(`previous ${expectedVersion}`)) {
     throw new Error("migrate did not report the stored Proteus database version");
   }
+  const partiallyMigratedDb = new DatabaseSync(path.join(legacyRoot, ".vros", "memory.sqlite"));
+  partiallyMigratedDb
+    .prepare("DELETE FROM schema_migrations WHERE version = ?")
+    .run("2026-06-27-chimera-access-modes");
+  partiallyMigratedDb
+    .prepare("DELETE FROM schema_migrations WHERE version = ?")
+    .run("2026-06-27-chimera-opencode-control");
+  partiallyMigratedDb
+    .prepare("UPDATE proteus_metadata SET value = ? WHERE key = 'proteus_version'")
+    .run(expectedVersion);
+  partiallyMigratedDb.close();
+  const repairedMigrations = run(["migrate", "--root", legacyRoot], legacyRoot);
+  if (!repairedMigrations.includes("2026-06-27-chimera-access-modes") || !repairedMigrations.includes("2026-06-27-chimera-opencode-control")) {
+    throw new Error("migration check skipped a missing migration when stored version already matched runtime");
+  }
   run([
     "record",
     "gate",
@@ -129,6 +196,452 @@ try {
   if (!status.includes("smoke-target") || !status.includes(`Proteus DB version: ${expectedVersion}`)) {
     throw new Error("status did not return initialized target");
   }
+  run(["init", "--root", concurrencyRoot, "--name", "concurrency-smoke"], concurrencyRoot);
+  const concurrentWrites = await Promise.all(Array.from({ length: 8 }, (_, index) => waitForChild(spawn(process.execPath, [
+    cli,
+    "record",
+    "evidence",
+    "--root",
+    concurrencyRoot,
+    "--title",
+    `Concurrent evidence ${index + 1}`,
+    "--kind",
+    "note",
+    "--body",
+    `Concurrent body ${index + 1}`
+  ], {
+    cwd: concurrencyRoot,
+    env: smokeEnv(),
+    stdio: ["ignore", "pipe", "pipe"]
+  }), 20000)));
+  for (const [index, result] of concurrentWrites.entries()) {
+    const combined = `${result.stdout}\n${result.stderr}`;
+    if (result.code !== 0 || /database is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(combined)) {
+      throw new Error(`concurrent SQLite write ${index + 1} failed\nstdout=${result.stdout}\nstderr=${result.stderr}`);
+    }
+  }
+  const concurrentEvidence = run(["list", "evidence", "--root", concurrencyRoot], concurrencyRoot);
+  for (let index = 1; index <= 8; index += 1) {
+    if (!concurrentEvidence.includes(`Concurrent evidence ${index}`)) {
+      throw new Error(`concurrent SQLite write missing evidence ${index}`);
+    }
+  }
+  const disabledChimeraStart = runFail(["chimera", "start", "--role", "chaining", "--goal", "should fail while disabled"]);
+  if (!disabledChimeraStart.includes("Chimera is disabled")) {
+    throw new Error("chimera start should fail clearly before config init");
+  }
+  const opencodeCommand = `"${process.execPath}" "${mockOpenCode}"`;
+  const chimeraConfig = run([
+    "chimera",
+    "config",
+    "init",
+    "--opencode-command",
+    opencodeCommand,
+    "--model",
+    "mock/mock-model",
+    "--variant",
+    "high",
+    "--max-agents",
+    "3"
+  ]);
+  if (!chimeraConfig.includes('"enabled": true') || !chimeraConfig.includes("mock/mock-model") || !chimeraConfig.includes('"defaultVariant": "high"')) {
+    throw new Error("chimera config init did not persist enabled mock config");
+  }
+  if (!chimeraConfig.includes('"defaultTimeoutSec": 0')) {
+    throw new Error("chimera config init should default to no run timeout");
+  }
+  const chimeraTimeoutConfig = run(["chimera", "config", "init", "--timeout", "5"]);
+  if (!chimeraTimeoutConfig.includes('"defaultTimeoutSec": 5')) {
+    throw new Error("chimera config init did not persist explicit timeout");
+  }
+  const chimeraNoTimeoutConfig = run(["chimera", "config", "init", "--timeout", "0"]);
+  if (!chimeraNoTimeoutConfig.includes('"defaultTimeoutSec": 0')) {
+    throw new Error("chimera config init --timeout 0 did not disable default timeout");
+  }
+  const chimeraConfigPartial = JSON.parse(run(["chimera", "config", "init", "--model", "mock/other-model"]));
+  if (
+    chimeraConfigPartial.config?.opencodeCommand !== opencodeCommand ||
+    chimeraConfigPartial.config?.defaultVariant !== "high" ||
+    chimeraConfigPartial.config?.defaultModel !== "mock/other-model"
+  ) {
+    throw new Error("chimera config init with partial flags did not preserve existing global config fields");
+  }
+  const chimeraDoctor = run(["chimera", "doctor"]);
+  if (!chimeraDoctor.includes('"ok": true') || !chimeraDoctor.includes("mock-opencode")) {
+    throw new Error("chimera doctor did not validate mock OpenCode runtime");
+  }
+  run(["init", "--root", killRoot, "--name", "kill-smoke-target"], killRoot);
+  const liveRun = spawn(process.execPath, [
+    cli,
+    "chimera",
+    "start",
+    "--root",
+    killRoot,
+    "--role",
+    "explorer",
+    "--goal",
+    "Long-running mock OpenCode kill validation",
+    "--run",
+    "--timeout",
+    "30"
+  ], {
+    cwd: killRoot,
+    env: smokeEnv({ MOCK_OPENCODE_SLEEP_MS: "30000" }),
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  waitForFile(path.join(killRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"));
+  run(["chimera", "kill", "--root", killRoot, "--id", "CH-0001", "--reason", "Live kill smoke"], killRoot);
+  const liveRunResult = await waitForChild(liveRun);
+  if (liveRunResult.code !== 0 || !liveRunResult.stdout.includes('"killed": true')) {
+    throw new Error(`live Chimera kill did not terminate the running OpenCode process cleanly\nstdout=${liveRunResult.stdout}\nstderr=${liveRunResult.stderr}`);
+  }
+  const killedSession = run(["chimera", "list", "--root", killRoot], killRoot);
+  if (!killedSession.includes('"status": "killed"') || fs.existsSync(path.join(killRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"))) {
+    throw new Error("live Chimera kill did not persist killed status and clear opencode.pid");
+  }
+  run(["chimera", "stop-server", "--root", killRoot], killRoot);
+  if (!fs.existsSync(path.join(globalRoot, "chimera", "config.json"))) {
+    throw new Error("chimera config init did not write global config");
+  }
+  if (fs.existsSync(path.join(tmpRoot, ".vros", "chimera", "config.json"))) {
+    throw new Error("chimera config init should not write workspace config");
+  }
+  const editorWithoutNotes = runFail([
+    "chimera",
+    "start",
+    "--role",
+    "cicada",
+    "--goal",
+    "Editor without restrictions must fail",
+    "--access",
+    "editor"
+  ]);
+  if (!editorWithoutNotes.includes("editor access requires --access-notes")) {
+    throw new Error("chimera editor access without restrictions did not fail clearly");
+  }
+  const chimeraStart = run([
+    "chimera",
+    "start",
+    "--role",
+    "chaining",
+    "--goal",
+    "Smoke non-obvious chain",
+    "--access",
+    "editor",
+    "--access-notes",
+    "Smoke editor grant: non-destructive shell only; edit generated lab files only."
+  ]);
+  if (!chimeraStart.includes('"publicId": "CH-0001"') || !chimeraStart.includes('"accessMode": "editor"')) {
+    throw new Error("chimera start did not create CH-0001 with editor access");
+  }
+  const attachWithoutSession = runFail(["chimera", "attach-opencode", "--id", "CH-0001", "--server-url", "http://127.0.0.1:4096"]);
+  if (!attachWithoutSession.includes("Missing --opencode-session-id")) {
+    throw new Error("chimera attach-opencode should require an OpenCode session id");
+  }
+  for (const required of [
+    ".vros/chimera/sessions/CH-0001/dossier.md",
+    ".vros/chimera/sessions/CH-0001/contract.md",
+    ".vros/chimera/sessions/CH-0001/agent-instructions.md",
+    ".vros/chimera/sessions/CH-0001/notifications.json",
+    ".vros/chimera/sessions/CH-0001/skills/README.md",
+    ".vros/chimera/sessions/CH-0001/skills/chimera-agent.md",
+    ".vros/chimera/sessions/CH-0001/.opencode/agents/proteus-chimera.md",
+    ".vros/chimera/sessions/CH-0001/.opencode/skills/README.md",
+    ".vros/chimera/sessions/CH-0001/.opencode/skills/chimera-agent/SKILL.md",
+    ".vros/chimera/sessions/CH-0001/lab/README.md"
+  ]) {
+    if (!fs.existsSync(path.join(tmpRoot, required))) {
+      throw new Error(`missing Chimera artifact: ${required}`);
+    }
+  }
+  if (fs.existsSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/skills/continuous-vuln-research.md"))) {
+    throw new Error("Chimera sessions should not inject the coordinator continuous-vuln-research skill");
+  }
+  const specialistSkillsIndex = fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/skills/README.md"), "utf8");
+  if (!specialistSkillsIndex.includes("continuous-vuln-research: coordinator-only") || !specialistSkillsIndex.includes("chaining: injected")) {
+    throw new Error("Chimera skills index did not identify injected and coordinator-only skills");
+  }
+  run(["init", "--root", chimeraGeneralistRoot, "--name", "chimera-generalist-smoke"], chimeraGeneralistRoot);
+  run(["chimera", "start", "--root", chimeraGeneralistRoot, "--role", "generalist", "--goal", "Smoke generalist skills"], chimeraGeneralistRoot);
+  const generalistSkillsDir = path.join(chimeraGeneralistRoot, ".vros/chimera/sessions/CH-0001/skills");
+  for (const expected of ["chimera-agent.md", "chaining.md", "codebase-research.md", "fuzzing.md", "poc-exploit.md", "web-intel.md", "web-research.md"]) {
+    if (!fs.existsSync(path.join(generalistSkillsDir, expected))) {
+      throw new Error(`generalist Chimera session did not inject expected skill: ${expected}`);
+    }
+  }
+  if (fs.existsSync(path.join(generalistSkillsDir, "continuous-vuln-research.md"))) {
+    throw new Error("generalist Chimera session should not inject the coordinator skill");
+  }
+  run(["chimera", "post", "--id", "CH-0001", "--kind", "finding", "--body", "Smoke Chimera finding"]);
+  const chimeraUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread"]);
+  if (!chimeraUnread.includes("Smoke Chimera finding")) {
+    throw new Error("chimera poll unread did not return agent message");
+  }
+  const chimeraUnreadAgain = run(["chimera", "poll", "--id", "CH-0001", "--unread"]);
+  if (chimeraUnreadAgain.includes("Smoke Chimera finding")) {
+    throw new Error("chimera poll unread did not mark message read");
+  }
+  run(["chimera", "send", "--id", "CH-0001", "--kind", "redirect", "--message", "Smoke coordinator redirect", "--priority"]);
+  const notificationAfterSend = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
+  if (notificationAfterSend.pending !== true || notificationAfterSend.priority !== true || notificationAfterSend.unreadForAgent < 1) {
+    throw new Error("chimera send did not update priority notifications.json");
+  }
+  const chimeraAgentUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread", "--agent"]);
+  if (!chimeraAgentUnread.includes("Smoke coordinator redirect")) {
+    throw new Error("chimera agent poll did not return coordinator message");
+  }
+  const notificationAfterAgentPoll = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
+  if (notificationAfterAgentPoll.pending !== false || notificationAfterAgentPoll.priority !== false || notificationAfterAgentPoll.unreadForAgent !== 0) {
+    throw new Error("chimera agent poll did not clear notifications.json");
+  }
+  const chimeraBroadcast = run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]);
+  if (!chimeraBroadcast.includes('"delivered"') || !chimeraBroadcast.includes("Smoke shared chat message")) {
+    throw new Error("chimera broadcast did not deliver shared chat message");
+  }
+  const notificationAfterBroadcast = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
+  if (notificationAfterBroadcast.pending !== true || notificationAfterBroadcast.priority !== true || notificationAfterBroadcast.latestKind !== "message") {
+    throw new Error("chimera broadcast did not update priority notifications.json");
+  }
+  const chimeraBroadcastUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread", "--agent"]);
+  if (!chimeraBroadcastUnread.includes("Smoke shared chat message")) {
+    throw new Error("chimera broadcast was not visible to the destination agent");
+  }
+  run(["chimera", "snapshot", "--id", "CH-0001", "--body", "Confirmed smoke snapshot"]);
+  if (!fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/snapshot.md"), "utf8").includes("Confirmed smoke snapshot")) {
+    throw new Error("chimera snapshot did not write snapshot.md");
+  }
+  const chimeraHeartbeat = run(["chimera", "heartbeat", "--id", "CH-0001"]);
+  if (!chimeraHeartbeat.includes('"alive": true')) {
+    throw new Error("chimera heartbeat did not report alive session");
+  }
+  run(["init", "--root", chimeraScopeRoot, "--name", "chimera-scope-smoke"], chimeraScopeRoot);
+  run(["campaign", "create", "--root", chimeraScopeRoot, "--title", "Chimera scoped campaign", "--objective", "Validate Chimera scoped records"], chimeraScopeRoot);
+  run(["plan-round", "--root", chimeraScopeRoot, "--objective", "Chimera scoped round"], chimeraScopeRoot);
+  run([
+    "chimera",
+    "start",
+    "--root",
+    chimeraScopeRoot,
+    "--role",
+    "codebase-research",
+    "--goal",
+    "Validate scoped Proteus records"
+  ], chimeraScopeRoot);
+  const chimeraScopeLab = path.join(chimeraScopeRoot, ".vros/chimera/sessions/CH-0001/lab");
+  const chimeraScopeEnv = {
+    PROTEUS_CHIMERA_SESSION_ID: "CH-0001",
+    PROTEUS_TARGET_ROOT: chimeraScopeRoot
+  };
+  const wrongRootOutput = runFail(["status"], chimeraScopeLab, chimeraScopeEnv);
+  if (!wrongRootOutput.includes("must use the shared Proteus target root")) {
+    throw new Error("Chimera session command without shared --root did not fail clearly");
+  }
+  const chimeraCampaignMutation = runFail(["campaign", "create", "--root", chimeraScopeRoot, "--title", "Should fail"], chimeraScopeLab, chimeraScopeEnv);
+  if (!chimeraCampaignMutation.includes("cannot mutate campaign state")) {
+    throw new Error("Chimera session was allowed to mutate campaign state");
+  }
+  const chimeraScopedEvidence = run([
+    "record",
+    "evidence",
+    "--root",
+    chimeraScopeRoot,
+    "--title",
+    "Chimera scoped evidence test",
+    "--body",
+    "Evidence recorded by Chimera scope smoke"
+  ], chimeraScopeLab, chimeraScopeEnv);
+  const chimeraScopedEvidenceId = Number(chimeraScopedEvidence.match(/E(\d+)/)?.[1]);
+  if (!chimeraScopedEvidenceId) {
+    throw new Error("Chimera scoped evidence test did not record evidence");
+  }
+  const chimeraScopedLinks = run(["list", "links", "--root", chimeraScopeRoot, "--entity-type", "campaign", "--entity-id", "1"], chimeraScopeRoot);
+  if (!chimeraScopedLinks.includes(`campaign#1 -[has_evidence]-> evidence#${chimeraScopedEvidenceId}`)) {
+    throw new Error("Chimera scoped evidence did not link to the session campaign");
+  }
+  const chimeraRun = JSON.parse(run([
+    "chimera",
+    "start",
+    "--role",
+    "explorer",
+    "--goal",
+    "Run mock OpenCode once",
+    "--run",
+    "--timeout",
+    "10"
+  ]));
+  if (
+    chimeraRun.session?.publicId !== "CH-0002" ||
+    chimeraRun.session?.provider !== "high" ||
+    chimeraRun.run?.exitCode !== 0 ||
+    !chimeraRun.run?.stdoutPreview?.includes("mock-opencode")
+  ) {
+    throw new Error(`chimera --run did not capture mock OpenCode output: ${JSON.stringify({ session: chimeraRun.session, run: chimeraRun.run })}`);
+  }
+  const chimeraRunList = run(["chimera", "list"]);
+  if (!chimeraRunList.includes('"opencodeSessionId": "ses_mock_CH-0002"')) {
+    throw new Error(`chimera --run did not persist discovered OpenCode session id: ${chimeraRunList}`);
+  }
+  const explorerAgentFile = fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0002/.opencode/agents/proteus-chimera.md"), "utf8");
+  if (!explorerAgentFile.includes("edit: deny") || !explorerAgentFile.includes("webfetch: deny") || !explorerAgentFile.includes("websearch: deny")) {
+    throw new Error("explorer Chimera agent file did not deny edit and web permissions by default");
+  }
+  const chimeraRunExisting = run(["chimera", "run", "--id", "CH-0002", "--timeout", "10"]);
+  if (!chimeraRunExisting.includes('"ok": true') || !chimeraRunExisting.includes('"ses_mock_CH-0002"')) {
+    throw new Error("chimera run did not reuse existing OpenCode session/lab");
+  }
+  const chimeraRunRecord = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0002/opencode/run.json"), "utf8"));
+  if (!Array.isArray(chimeraRunRecord.args) || !chimeraRunRecord.args.includes("--pure")) {
+    throw new Error("chimera run should invoke OpenCode with --pure to avoid per-session plugin dependency installs");
+  }
+  const chimeraWorkflowSnapshot = JSON.parse(run(["chimera", "workflow-snapshot", "--id", "CH-0002", "--limit", "3", "--max-message-chars", "80"]));
+  const workflowSnapshotText = JSON.stringify(chimeraWorkflowSnapshot);
+  if (chimeraWorkflowSnapshot.messages.length !== 3 || !workflowSnapshotText.includes("First compact agent workflow message")) {
+    throw new Error("chimera workflow-snapshot did not return compact agent messages");
+  }
+  const removedExportKeys = ["requested" + "San" + "itize", "fallbackFrom" + "San" + "itizedExport"];
+  if (removedExportKeys.some((key) => workflowSnapshotText.includes(key))) {
+    throw new Error("chimera workflow-snapshot should not expose removed export compatibility fields");
+  }
+  for (const forbidden of ["User prompt that must not appear", "TOOL CALL THAT MUST NOT APPEAR", "TOOL RESULT THAT MUST NOT APPEAR", "COMMAND OUTPUT THAT MUST NOT APPEAR"]) {
+    if (workflowSnapshotText.includes(forbidden)) {
+      throw new Error(`chimera workflow-snapshot leaked non-agent/tool content: ${forbidden}`);
+    }
+  }
+  if (!fs.existsSync(chimeraWorkflowSnapshot.files.jsonPath) || !fs.existsSync(chimeraWorkflowSnapshot.files.markdownPath)) {
+    throw new Error("chimera workflow-snapshot did not write compact snapshot files");
+  }
+  const chimeraDirectSend = JSON.parse(run(["chimera", "send", "--id", "CH-0002", "--message", "Smoke direct steer", "--priority"]));
+  if (chimeraDirectSend.directDelivery?.mode !== "steer" || chimeraDirectSend.directDelivery?.ok !== true) {
+    throw new Error(`chimera priority send did not steer active OpenCode session: ${JSON.stringify(chimeraDirectSend.directDelivery)}`);
+  }
+  const chimeraCouncilStart = JSON.parse(run([
+    "chimera",
+    "council",
+    "start",
+    "--topic",
+    "Smoke stalled branch brainstorm",
+    "--reason",
+    "Smoke checkpoint needs fresh angles",
+    "--ids",
+    "CH-0001,CH-0002",
+    "--max-rounds",
+    "1"
+  ]));
+  const councilId = chimeraCouncilStart.councilId;
+  if (!councilId || chimeraCouncilStart.participants.length !== 2) {
+    throw new Error("chimera council start did not invite the expected participants");
+  }
+  run(["chimera", "council", "accept", "--id", "CH-0001", "--council-id", councilId, "--body", "CH-0001 ready"]);
+  run(["chimera", "council", "accept", "--id", "CH-0002", "--council-id", councilId, "--body", "CH-0002 ready"]);
+  const cueBeforeRoundOpen = runFail(["chimera", "council", "cue-turn", "--id", "CH-0001", "--council-id", councilId, "--round", "1"]);
+  if (!cueBeforeRoundOpen.includes("Manual cue-turn is disabled")) {
+    throw new Error("chimera council allowed normal flow to use manual cue-turn directly");
+  }
+  const invalidStartId = runFail([
+    "chimera",
+    "council",
+    "open-round",
+    "--council-id",
+    councilId,
+    "--round",
+    "1",
+    "--message",
+    "This should not create a round.",
+    "--start-id",
+    "CH-9999"
+  ]);
+  if (!invalidStartId.includes("Council participant not found")) {
+    throw new Error("chimera council open-round should fail clearly for an invalid start-id");
+  }
+  const chimeraCouncilOpenRound = JSON.parse(run([
+    "chimera",
+    "council",
+    "open-round",
+    "--council-id",
+    councilId,
+    "--round",
+    "1",
+    "--message",
+    "Round 1: give one non-obvious pivot, one risk, and one next experiment."
+  ]));
+  if (!chimeraCouncilOpenRound.firstCue || !JSON.stringify(chimeraCouncilOpenRound.firstCue).includes("CH-0001") || !JSON.stringify(chimeraCouncilOpenRound.firstCue).includes("Council transcript so far")) {
+    throw new Error("chimera council open-round did not automatically cue the first accepted participant");
+  }
+  const duplicateRoundOpen = runFail([
+    "chimera",
+    "council",
+    "open-round",
+    "--council-id",
+    councilId,
+    "--round",
+    "1",
+    "--message",
+    "Duplicate open should fail."
+  ]);
+  if (!duplicateRoundOpen.includes("round 1 is already open")) {
+    throw new Error("chimera council allowed the same round to be opened twice");
+  }
+  const outOfOrderTurn = runFail(["chimera", "council", "turn", "--id", "CH-0002", "--council-id", councilId, "--round", "1", "--body", "out of order"]);
+  if (!outOfOrderTurn.includes("Expected CH-0001")) {
+    throw new Error("chimera council allowed an out-of-order turn");
+  }
+  const chimeraCouncilTurnOne = JSON.parse(run(["chimera", "council", "turn", "--id", "CH-0001", "--council-id", councilId, "--round", "1", "--body", "CH-0001 observation"]));
+  if (
+    !chimeraCouncilTurnOne.nextCue ||
+    chimeraCouncilTurnOne.roundComplete !== false ||
+    !JSON.stringify(chimeraCouncilTurnOne.nextCue).includes("CH-0002") ||
+    !JSON.stringify(chimeraCouncilTurnOne.nextCue).includes("Required command:")
+  ) {
+    throw new Error("chimera council turn did not automatically cue the next accepted participant");
+  }
+  const duplicateCouncilTurn = runFail(["chimera", "council", "turn", "--id", "CH-0001", "--council-id", councilId, "--round", "1", "--body", "duplicate observation"]);
+  if (!duplicateCouncilTurn.includes("already posted a council turn")) {
+    throw new Error("chimera council allowed a duplicate turn for the same agent and round");
+  }
+  if (chimeraCouncilTurnOne.nextCue.directDelivery?.mode !== "steer" || chimeraCouncilTurnOne.nextCue.directDelivery?.ok !== true) {
+    throw new Error(`chimera council automatic next cue did not steer attached OpenCode session: ${JSON.stringify(chimeraCouncilTurnOne.nextCue.directDelivery)}`);
+  }
+  const chimeraCouncilTurnTwo = JSON.parse(run(["chimera", "council", "turn", "--id", "CH-0002", "--council-id", councilId, "--round", "1", "--body", "CH-0002 observation"]));
+  if (chimeraCouncilTurnTwo.nextCue !== null || chimeraCouncilTurnTwo.roundComplete !== true) {
+    throw new Error("chimera council did not return to the coordinator after the last accepted participant");
+  }
+  const chimeraCouncilStatus = JSON.parse(run(["chimera", "council", "status", "--council-id", councilId]));
+  if (chimeraCouncilStatus.readyCount !== 2 || chimeraCouncilStatus.turns.length !== 2 || chimeraCouncilStatus.closed !== false) {
+    throw new Error("chimera council status did not recover ready participants and ordered turns");
+  }
+  const chimeraCouncilClose = JSON.parse(run([
+    "chimera",
+    "council",
+    "close",
+    "--council-id",
+    councilId,
+    "--summary",
+    "Smoke council final decision",
+    "--instruction",
+    "Resume prior smoke work"
+  ]));
+  if (!chimeraCouncilClose.council.closed || chimeraCouncilClose.deliveries.length !== 2) {
+    throw new Error("chimera council close did not notify all participants and mark the council closed");
+  }
+  const swarmPlan = path.join(tmpRoot, "chimera-swarm.json");
+  fs.writeFileSync(swarmPlan, JSON.stringify({
+    agents: [
+      { role: "codebase-research", goal: "Map smoke surface" },
+      { role: "fuzzing", goal: "Probe smoke parser", accessMode: "explorer" }
+    ]
+  }, null, 2));
+  const swarm = run(["chimera", "swarm", "--plan", swarmPlan]);
+  if (!swarm.includes('"publicId": "CH-0003"') || !swarm.includes('"publicId": "CH-0004"')) {
+    throw new Error("chimera swarm did not create independent sessions");
+  }
+  run(["chimera", "kill", "--id", "CH-0001", "--reason", "Smoke kill"]);
+  if (!fs.existsSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/kill.flag"))) {
+    throw new Error("chimera kill did not write kill.flag");
+  }
+  const chimeraClose = run(["chimera", "close", "--id", "CH-0001", "--verdict", "watchlist", "--summary", "Smoke close"]);
+  if (!chimeraClose.includes('"closeVerdict": "watchlist"')) {
+    throw new Error("chimera close did not persist final verdict");
+  }
   run(["init", "--root", mergeRoot, "--name", "stray-merge-target"], mergeRoot);
   run([
     "record",
@@ -154,17 +667,50 @@ try {
     "--description",
     "Surface created in the wrong Proteus base"
   ], mergeRoot);
+  run([
+    "chimera",
+    "start",
+    "--root",
+    mergeRoot,
+    "--role",
+    "explorer",
+    "--goal",
+    "Stray Chimera state"
+  ], mergeRoot);
+  run([
+    "chimera",
+    "post",
+    "--root",
+    mergeRoot,
+    "--id",
+    "CH-0001",
+    "--body",
+    "Stray Chimera message"
+  ], mergeRoot);
+  const sourceMigrationsBeforeDryRun = run(["migrate", "--root", mergeRoot], mergeRoot);
   const mergeDryRun = run(["merge", "--source", path.join(mergeRoot, ".vros", "memory.sqlite"), "--dry-run"]);
-  if (!mergeDryRun.includes('"dryRun": true') || !mergeDryRun.includes('"evidence": 1')) {
+  const sourceMigrationsAfterDryRun = run(["migrate", "--root", mergeRoot], mergeRoot);
+  if (sourceMigrationsAfterDryRun !== sourceMigrationsBeforeDryRun) {
+    throw new Error("merge dry-run modified source migration state");
+  }
+  if (!mergeDryRun.includes('"dryRun": true') || !mergeDryRun.includes('"evidence": 1') || !mergeDryRun.includes('"chimeraSessions": 1')) {
     throw new Error("merge dry-run did not preview source evidence");
   }
   const mergeResult = run(["merge", "--source", path.join(mergeRoot, ".vros")]);
-  if (!mergeResult.includes('"dryRun": false') || !mergeResult.includes('"surfaces": 1')) {
+  if (!mergeResult.includes('"dryRun": false') || !mergeResult.includes('"surfaces": 1') || !mergeResult.includes('"chimeraMessages": 2')) {
     throw new Error("merge did not copy source records into destination memory");
   }
   const mergedMemory = run(["query", "memory", "Stray merge evidence body"]);
   if (!mergedMemory.includes("evidence#")) {
     throw new Error("merged evidence was not searchable in destination memory");
+  }
+  const mergedChimera = run(["chimera", "list"]);
+  if (!mergedChimera.includes("Stray Chimera state")) {
+    throw new Error("merge did not copy Chimera session state");
+  }
+  const mergedChimeraMessages = run(["chimera", "poll", "--id", "CH-0005", "--peek"]);
+  if (!mergedChimeraMessages.includes("Stray Chimera message")) {
+    throw new Error("merge did not copy Chimera messages");
   }
   run(["ingest", "docs"]);
   run(["observe"]);
@@ -253,6 +799,11 @@ try {
   const branches = run(["branch", "list", "--campaign-id", "1"]);
   if (!branches.includes("B1 [open] Smoke branch")) {
     throw new Error("branch list did not return recorded branch");
+  }
+  run(["branch", "update", "--id", "1", "--status", "testing"]);
+  const testingBranches = run(["branch", "list", "--campaign-id", "1", "--status", "testing"]);
+  if (!testingBranches.includes("B1 [testing] Smoke branch")) {
+    throw new Error("branch update did not move branch to testing");
   }
   run([
     "campaign",
@@ -385,6 +936,27 @@ try {
     "--evidence-ids",
     smokeEvidenceId
   ]);
+  const branchKillDecision = run([
+    "record",
+    "decision",
+    "--entity-type",
+    "hypothesis_branch",
+    "--entity-id",
+    "1",
+    "--decision",
+    "killed",
+    "--reason",
+    "Smoke branch killed by evidence-backed decision",
+    "--evidence-ids",
+    smokeEvidenceId
+  ]);
+  if (!branchKillDecision.includes("Updated branch B1 to killed")) {
+    throw new Error("record decision on branch did not update branch status");
+  }
+  const killedBranches = run(["branch", "list", "--campaign-id", "1", "--status", "killed"]);
+  if (!killedBranches.includes("B1 [killed] Smoke branch")) {
+    throw new Error("branch decision did not persist killed status");
+  }
   run([
     "record",
     "gate",
@@ -536,9 +1108,18 @@ try {
 
   console.log(`Proteus smoke test passed: ${tmpRoot}`);
 } finally {
+  try {
+    run(["chimera", "stop-server"]);
+  } catch {
+    // Best-effort cleanup; the temp directory cleanup below is the final guard.
+  }
   fs.rmSync(tmpRoot, { recursive: true, force: true });
   fs.rmSync(globalRoot, { recursive: true, force: true });
   fs.rmSync(legacyRoot, { recursive: true, force: true });
   fs.rmSync(helpRoot, { recursive: true, force: true });
   fs.rmSync(mergeRoot, { recursive: true, force: true });
+  fs.rmSync(killRoot, { recursive: true, force: true });
+  fs.rmSync(concurrencyRoot, { recursive: true, force: true });
+  fs.rmSync(chimeraScopeRoot, { recursive: true, force: true });
+  fs.rmSync(chimeraGeneralistRoot, { recursive: true, force: true });
 }

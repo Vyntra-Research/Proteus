@@ -22,6 +22,18 @@ export function labsDir(targetRoot: string): string {
   return path.join(vrosDir(targetRoot), "labs");
 }
 
+export function chimeraDir(targetRoot: string): string {
+  return path.join(vrosDir(targetRoot), "chimera");
+}
+
+export function chimeraSessionsDir(targetRoot: string): string {
+  return path.join(chimeraDir(targetRoot), "sessions");
+}
+
+export function chimeraSessionDir(targetRoot: string, publicId: string): string {
+  return path.join(chimeraSessionsDir(targetRoot), publicId);
+}
+
 export function globalVrosDir(): string {
   return path.join(os.homedir(), ".vros");
 }
@@ -38,6 +50,20 @@ export function globalExportsDir(): string {
     return path.resolve(process.env.PROTEUS_GLOBAL_EXPORTS_DIR);
   }
   return path.join(globalVrosDir(), "exports");
+}
+
+export function globalChimeraDir(): string {
+  if (process.env.PROTEUS_CHIMERA_DIR) {
+    return path.resolve(process.env.PROTEUS_CHIMERA_DIR);
+  }
+  return path.join(globalVrosDir(), "chimera");
+}
+
+export function globalChimeraConfigPath(): string {
+  if (process.env.PROTEUS_CHIMERA_CONFIG_PATH) {
+    return path.resolve(process.env.PROTEUS_CHIMERA_CONFIG_PATH);
+  }
+  return path.join(globalChimeraDir(), "config.json");
 }
 
 export function ensureDir(dir: string): void {

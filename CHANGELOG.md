@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.0.0 - 2026-06-27
+
+### Added
+
+- Added optional Chimera mode for OpenCode-backed secondary agents managed by Proteus.
+- Added Chimera CLI commands for config, doctor, start, swarm, council, send, broadcast, relay, post, snapshot, workflow-snapshot, heartbeat, run, wake, attach-opencode, poll, list, kill, close, and stop-server.
+- Added MCP tools matching the Chimera CLI control surface.
+- Added SQLite-backed Chimera sessions and messages with mirrored `.vros/chimera` session files, labs, JSONL inbox/outbox, snapshots, kill flags, and OpenCode logs.
+- Added coordinator-controlled Chimera access modes: default `explorer` and explicit `editor` per launched agent.
+- Added `chimera-agent` skill for secondary agents, including communication commands, shared-chat broadcast, inbox polling, access-mode discipline, snapshots, heartbeat, and stop conditions.
+- Added OpenCode doctor checks and mock-OpenCode smoke coverage so CI validates Chimera without requiring an API key.
+- Added priority Chimera notifications for coordinator messages and broadcasts, plus a session-local `notifications.json` signal that running agents check periodically before polling Proteus.
+- Added managed OpenCode server/session tracking for Chimera runs, `chimera run` reuse of existing labs, manual `attach-opencode`, and priority `delivery=steer` pings when an OpenCode session is attached.
+- Added Chimera brainstorm councils with ordered turns, automatic cueing, exclusive council transcripts, and bounded close instructions.
+- Added compact Chimera workflow snapshots that export recent OpenCode assistant messages while excluding user messages, tool calls, tool outputs, command output, patches, and file payloads.
+- Added `proteus branch update` and MCP `proteus_update_branch` for correcting branch status directly, plus automatic branch-status updates when decisions are recorded against `hypothesis_branch` or `branch` records.
+- Added a cross-process SQLite lock layer for Proteus writes so parallel Chimera agents and MCP/CLI calls coordinate through a single memory base more reliably.
+
+### Changed
+
+- Updated the main coordinator skill to explain when to use Chimera, how to check config, how to poll unread messages, and how to choose `explorer` versus `editor` access.
+- Updated README and Chimera docs with the official OpenCode project link, GLM-style model/variant target config, CLI examples, swarm usage, MCP tools, broadcast chat, and access-mode guidance.
+- Consolidated human docs by replacing redundant planning/update documents with the current technical Chimera reference.
+- Expanded CLI and MCP smoke tests to cover Chimera config/start/post/poll/snapshot/workflow-snapshot/heartbeat/run/kill/close/swarm/council/relay flows, branch updates, no-timeout config, and MCP parity.
+
+### Migration
+
+- Existing `.vros/memory.sqlite` databases migrate automatically to add Chimera session and message tables when opened by Proteus 2.0.0. Proteus also checks the recorded migration ids, so a database stamped with the current runtime version still receives any missing idempotent migrations.
+- Chimera remains disabled by default. Normal Proteus CLI/MCP usage does not require OpenCode.
+
 ## 1.0.3 - 2026-06-23
 
 ### Fixed

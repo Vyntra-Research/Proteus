@@ -7,6 +7,7 @@ desktop.ini
 *.swp
 *.swo
 
+notes/
 .vros/
 .venv/
 venv/

@@ -1,18 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ensureDir, globalExportsDir, globalMemoryPath, globalVrosDir } from "./paths";
+import { LockedSqliteDatabase } from "./locked-sqlite";
 import { globalLearningInputSchema } from "./schemas";
 import type { GlobalLearningInput } from "./types";
-
-const emitWarning = process.emitWarning;
-process.emitWarning = ((warning: string | Error, ...args: unknown[]) => {
-  const message = typeof warning === "string" ? warning : warning.message;
-  const warningType = typeof args[0] === "string" ? args[0] : undefined;
-  if (warningType === "ExperimentalWarning" && message.includes("SQLite")) return;
-  return emitWarning.call(process, warning as never, ...(args as never[]));
-}) as typeof process.emitWarning;
-const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
-process.emitWarning = emitWarning;
 
 export interface GlobalLearningRow {
   id: number;
@@ -37,12 +28,12 @@ export interface GlobalLearningQuery {
 
 export class GlobalMemoryDb {
   readonly dbPath: string;
-  private readonly db: InstanceType<typeof DatabaseSync>;
+  private readonly db: LockedSqliteDatabase;
 
   constructor(dbPath = globalMemoryPath()) {
     ensureDir(path.dirname(dbPath));
     this.dbPath = dbPath;
-    this.db = new DatabaseSync(dbPath);
+    this.db = new LockedSqliteDatabase(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.migrate();
   }

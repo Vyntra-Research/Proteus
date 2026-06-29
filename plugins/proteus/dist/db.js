@@ -9,18 +9,10 @@ exports.createDefaultContract = createDefaultContract;
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_path_1 = __importDefault(require("node:path"));
 const node_crypto_1 = __importDefault(require("node:crypto"));
+const node_os_1 = __importDefault(require("node:os"));
 const paths_1 = require("./paths");
+const locked_sqlite_1 = require("./locked-sqlite");
 const schemas_1 = require("./schemas");
-const emitWarning = process.emitWarning;
-process.emitWarning = ((warning, ...args) => {
-    const message = typeof warning === "string" ? warning : warning.message;
-    const warningType = typeof args[0] === "string" ? args[0] : undefined;
-    if (warningType === "ExperimentalWarning" && message.includes("SQLite"))
-        return;
-    return emitWarning.call(process, warning, ...args);
-});
-const { DatabaseSync } = require("node:sqlite");
-process.emitWarning = emitWarning;
 const CURRENT_PROTEUS_VERSION = packageVersion();
 class ProteusDb {
     targetRoot;
@@ -30,9 +22,10 @@ class ProteusDb {
         this.targetRoot = targetRoot;
         (0, paths_1.ensureDir)((0, paths_1.vrosDir)(targetRoot));
         this.dbPath = (0, paths_1.memoryPath)(targetRoot);
-        this.db = new DatabaseSync(this.dbPath);
+        this.db = new locked_sqlite_1.LockedSqliteDatabase(this.dbPath);
         this.db.exec("PRAGMA foreign_keys = ON;");
         this.db.exec("PRAGMA journal_mode = WAL;");
+        this.db.exec("PRAGMA busy_timeout = 60000;");
         this.migrateIfNeeded();
     }
     close() {
@@ -400,6 +393,34 @@ class ProteusDb {
             .filter((branch) => !input.status || branch.status === input.status);
         return rows.slice(0, input.limit ?? 50);
     }
+    updateHypothesisBranch(input) {
+        const current = this.getHypothesisBranch(input.id);
+        if (!current)
+            throw new Error(`Hypothesis branch not found: B${input.id}`);
+        const status = input.status ?? current.status;
+        const now = nowIso();
+        this.db
+            .prepare("UPDATE hypothesis_branches SET status = ?, updated_at = ? WHERE id = ?")
+            .run(status, now, input.id);
+        const updated = this.getHypothesisBranch(input.id);
+        if (!updated)
+            throw new Error(`Hypothesis branch not found after update: B${input.id}`);
+        this.indexFts("hypothesis_branch", updated.id, `${updated.status}\n${updated.title}\n${updated.hypothesis}\n${updated.attackPrimitive}\n${updated.whyNonObvious}`);
+        if (updated.campaignId) {
+            this.addCampaignEvent({
+                campaignId: updated.campaignId,
+                eventType: "branch_updated",
+                entityType: "hypothesis_branch",
+                entityId: updated.id,
+                summary: `Branch B${updated.id} status updated to ${updated.status}.`
+            });
+        }
+        return updated;
+    }
+    getHypothesisBranch(id) {
+        const row = this.db.prepare("SELECT * FROM hypothesis_branches WHERE id = ?").get(id);
+        return row ? toHypothesisBranchRow(row) : null;
+    }
     campaignDigest(campaignId) {
         const campaign = this.getCampaign(campaignId);
         if (!campaign)
@@ -619,6 +640,123 @@ class ProteusDb {
             previousStoredVersion: before.storedVersion
         };
     }
+    getChimeraConfig() {
+        const raw = this.getMetadata("chimera_config_json");
+        if (!raw)
+            return null;
+        const parsed = parseJson(raw);
+        return normalizeChimeraConfig(parsed);
+    }
+    saveChimeraConfig(config) {
+        this.setMetadata("chimera_config_json", json(config));
+    }
+    createChimeraSession(input) {
+        const target = requireTarget(this);
+        const now = nowIso();
+        const publicId = input.publicId ?? this.nextChimeraPublicId();
+        const result = this.db
+            .prepare(`INSERT INTO chimera_sessions
+          (public_id, target_id, campaign_id, round_id, role, goal, status,
+           access_mode, access_notes, model, provider, session_dir, lab_dir, opencode_command, opencode_pid,
+           opencode_server_url, opencode_session_id, created_at, updated_at, closed_at, close_verdict, close_summary)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(publicId, target.id, input.campaignId ?? null, input.roundId ?? null, input.role, input.goal, "starting", input.accessMode ?? "explorer", input.accessNotes ?? null, input.model ?? null, input.provider ?? null, input.sessionDir, input.labDir, input.opencodeCommand ?? null, null, input.opencodeServerUrl ?? null, input.opencodeSessionId ?? null, now, now, null, null, null);
+        const id = Number(result.lastInsertRowid);
+        this.indexFts("chimera_session", id, `${publicId}\n${input.role}\n${input.goal}\n${input.model ?? ""}`);
+        return this.getChimeraSession(publicId);
+    }
+    getChimeraSession(publicId) {
+        const row = this.db.prepare("SELECT * FROM chimera_sessions WHERE public_id = ?").get(publicId);
+        return row ? toChimeraSessionRow(row) : null;
+    }
+    listChimeraSessions(input = {}) {
+        const rows = this.db
+            .prepare("SELECT * FROM chimera_sessions ORDER BY id DESC")
+            .all()
+            .map(toChimeraSessionRow)
+            .filter((session) => !input.status || session.status === input.status);
+        return rows.slice(0, input.limit ?? 50);
+    }
+    updateChimeraSession(input) {
+        const current = this.getChimeraSession(input.publicId);
+        if (!current)
+            throw new Error(`Chimera session not found: ${input.publicId}`);
+        const status = input.status ?? current.status;
+        const now = nowIso();
+        const closedAt = status === "closed" || status === "killed" || status === "failed" || status === "timeout"
+            ? now
+            : null;
+        this.db
+            .prepare(`UPDATE chimera_sessions
+         SET status = ?, opencode_pid = ?, updated_at = ?, closed_at = ?,
+             close_verdict = ?, close_summary = ?,
+             opencode_server_url = ?, opencode_session_id = ?
+         WHERE public_id = ?`)
+            .run(status, input.opencodePid === undefined ? current.opencodePid : input.opencodePid, now, closedAt, input.closeVerdict === undefined ? current.closeVerdict : input.closeVerdict, input.closeSummary === undefined ? current.closeSummary : input.closeSummary, input.opencodeServerUrl === undefined ? current.opencodeServerUrl : input.opencodeServerUrl, input.opencodeSessionId === undefined ? current.opencodeSessionId : input.opencodeSessionId, input.publicId);
+        this.indexFts("chimera_session", current.id, `${current.publicId}\n${status}\n${current.role}\n${current.goal}\n${input.closeVerdict ?? ""}\n${input.closeSummary ?? ""}`);
+        return this.getChimeraSession(input.publicId);
+    }
+    addChimeraMessage(input) {
+        const session = this.getChimeraSession(input.publicId);
+        if (!session)
+            throw new Error(`Chimera session not found: ${input.publicId}`);
+        const now = nowIso();
+        const result = this.db
+            .prepare(`INSERT INTO chimera_messages
+          (session_id, direction, kind, body, metadata_json,
+           read_by_coordinator, read_by_agent, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+            .run(session.id, input.direction, input.kind, input.body, json(input.metadata ?? {}), input.readByCoordinator ? 1 : 0, input.readByAgent ? 1 : 0, now);
+        const id = Number(result.lastInsertRowid);
+        this.indexFts("chimera_message", id, `${session.publicId}\n${input.direction}\n${input.kind}\n${input.body}`);
+        return this.getChimeraMessage(id);
+    }
+    getChimeraMessage(id) {
+        const row = this.db
+            .prepare(`SELECT m.*, s.public_id
+         FROM chimera_messages m
+         JOIN chimera_sessions s ON s.id = m.session_id
+         WHERE m.id = ?`)
+            .get(id);
+        return row ? toChimeraMessageRow(row) : null;
+    }
+    listChimeraMessages(input = {}) {
+        const rows = this.db
+            .prepare(`SELECT m.*, s.public_id
+         FROM chimera_messages m
+         JOIN chimera_sessions s ON s.id = m.session_id
+         ORDER BY m.id DESC`)
+            .all()
+            .map(toChimeraMessageRow)
+            .filter((message) => !input.publicId || message.publicId === input.publicId)
+            .filter((message) => {
+            if (input.unreadFor === "coordinator")
+                return message.direction === "agent_to_coordinator" && !message.readByCoordinator;
+            if (input.unreadFor === "agent")
+                return message.direction === "coordinator_to_agent" && !message.readByAgent;
+            return true;
+        });
+        return rows.slice(0, input.limit ?? 50).reverse();
+    }
+    markChimeraMessagesRead(ids, side) {
+        if (ids.length === 0)
+            return;
+        const column = side === "coordinator" ? "read_by_coordinator" : "read_by_agent";
+        const statement = this.db.prepare(`UPDATE chimera_messages SET ${column} = 1 WHERE id = ?`);
+        for (const id of ids)
+            statement.run(id);
+    }
+    latestChimeraSnapshot(publicId) {
+        const row = this.db
+            .prepare(`SELECT m.*, s.public_id
+         FROM chimera_messages m
+         JOIN chimera_sessions s ON s.id = m.session_id
+         WHERE s.public_id = ? AND m.kind = 'snapshot'
+         ORDER BY m.id DESC
+         LIMIT 1`)
+            .get(publicId);
+        return row ? toChimeraMessageRow(row) : null;
+    }
     mergeMemoryBases(sources, options = {}) {
         const destinationTarget = requireTarget(this);
         const sourceInputs = sources.map((source) => source.trim()).filter(Boolean);
@@ -637,24 +775,26 @@ class ProteusDb {
         try {
             for (const sourceInput of sourceInputs) {
                 const sourceRoot = resolveProteusSourceRoot(sourceInput, options.sourceBaseRoot ?? this.targetRoot);
-                const source = new ProteusDb(sourceRoot);
+                const sourceDbPath = (0, paths_1.memoryPath)(sourceRoot);
+                if (node_path_1.default.resolve(sourceDbPath) === node_path_1.default.resolve(this.dbPath)) {
+                    result.sources.push({
+                        input: sourceInput,
+                        root: sourceRoot,
+                        dbPath: sourceDbPath,
+                        skipped: true,
+                        reason: "source and destination are the same database",
+                        counts: emptyMergeCounts()
+                    });
+                    continue;
+                }
+                const opened = openMergeSource(sourceRoot, options.dryRun === true);
+                const source = opened.db;
                 try {
-                    if (node_path_1.default.resolve(source.dbPath) === node_path_1.default.resolve(this.dbPath)) {
-                        result.sources.push({
-                            input: sourceInput,
-                            root: source.targetRoot,
-                            dbPath: source.dbPath,
-                            skipped: true,
-                            reason: "source and destination are the same database",
-                            counts: emptyMergeCounts()
-                        });
-                        continue;
-                    }
                     const sourceResult = this.mergeOneSource(source, destinationTarget.id, options.dryRun === true);
                     result.sources.push({
                         input: sourceInput,
-                        root: source.targetRoot,
-                        dbPath: source.dbPath,
+                        root: sourceRoot,
+                        dbPath: sourceDbPath,
                         skipped: false,
                         counts: sourceResult.counts,
                         sourceTarget: source.getTarget()?.name ?? null
@@ -663,6 +803,9 @@ class ProteusDb {
                 }
                 finally {
                     source.close();
+                    if (opened.cleanupRoot) {
+                        node_fs_1.default.rmSync(opened.cleanupRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+                    }
                 }
             }
             if (!options.dryRun)
@@ -701,6 +844,8 @@ class ProteusDb {
             countOnly("campaignCheckpoints", "campaign_checkpoints");
             countOnly("entityLinks", "entity_links");
             countOnly("campaignEvents", "campaign_events");
+            countOnly("chimeraSessions", "chimera_sessions");
+            countOnly("chimeraMessages", "chimera_messages");
             return { counts };
         }
         for (const row of source.rows("target_profiles")) {
@@ -1010,6 +1155,61 @@ class ProteusDb {
             this.copyFtsRows(source, "campaign_event", Number(row.id), newId);
             counts.campaignEvents += 1;
         }
+        for (const row of source.rows("chimera_sessions")) {
+            const publicId = this.nextChimeraPublicId();
+            const newId = this.insertRow(`INSERT INTO chimera_sessions
+          (public_id, target_id, campaign_id, round_id, role, goal, status,
+           access_mode, access_notes, model, provider, session_dir, lab_dir,
+           opencode_command, opencode_pid, opencode_server_url, opencode_session_id,
+           created_at, updated_at, closed_at, close_verdict, close_summary)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+                publicId,
+                destinationTargetId,
+                remapNullableId(maps, "campaign", row.campaign_id),
+                remapNullableId(maps, "round", row.round_id),
+                row.role,
+                row.goal,
+                row.status,
+                normalizeChimeraAccessMode(String(row.access_mode ?? "")),
+                row.access_notes,
+                row.model,
+                row.provider,
+                row.session_dir,
+                row.lab_dir,
+                row.opencode_command,
+                row.opencode_pid,
+                row.opencode_server_url,
+                row.opencode_session_id,
+                row.created_at,
+                row.updated_at,
+                row.closed_at,
+                row.close_verdict,
+                row.close_summary
+            ]);
+            mapId(maps, "chimera_session", Number(row.id), newId);
+            this.indexFts("chimera_session", newId, `${publicId}\n${String(row.role ?? "")}\n${String(row.goal ?? "")}\n${String(row.model ?? "")}`);
+            counts.chimeraSessions += 1;
+        }
+        for (const row of source.rows("chimera_messages")) {
+            const sessionId = remapNullableId(maps, "chimera_session", row.session_id);
+            if (sessionId === null) {
+                counts.skippedChimeraMessages += 1;
+                continue;
+            }
+            this.insertRow(`INSERT INTO chimera_messages
+          (session_id, direction, kind, body, metadata_json, read_by_coordinator, read_by_agent, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [
+                sessionId,
+                row.direction,
+                row.kind,
+                row.body,
+                row.metadata_json,
+                row.read_by_coordinator,
+                row.read_by_agent,
+                row.created_at
+            ]);
+            counts.chimeraMessages += 1;
+        }
         return { counts };
     }
     rows(table) {
@@ -1026,6 +1226,11 @@ class ProteusDb {
         for (const row of rows) {
             this.indexFts(entityType, newId, String(row.content ?? ""));
         }
+    }
+    nextChimeraPublicId() {
+        const row = this.db.prepare("SELECT id FROM chimera_sessions ORDER BY id DESC LIMIT 1").get();
+        const nextId = Number(row?.id ?? 0) + 1;
+        return `CH-${String(nextId).padStart(4, "0")}`;
     }
     coverageCandidates() {
         const candidates = [];
@@ -1049,24 +1254,27 @@ class ProteusDb {
     }
     migrateIfNeeded() {
         this.ensureMetadataTable();
-        if (this.getMetadata("proteus_version") === CURRENT_PROTEUS_VERSION)
-            return;
         this.migrate(false);
     }
     migrate(force) {
         this.ensureMetadataTable();
-        if (!force && this.getMetadata("proteus_version") === CURRENT_PROTEUS_VERSION)
-            return;
+        const storedVersion = this.getMetadata("proteus_version");
         this.db.exec(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version TEXT PRIMARY KEY,
         applied_at TEXT NOT NULL
       );
     `);
-        this.applyMigration("2026-05-17-validation-gates-surfaces-and-focused-duplicates", BASE_SCHEMA_SQL);
-        this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL);
-        this.applyMigration("2026-06-17-campaign-checkpoints", CAMPAIGN_CHECKPOINT_SCHEMA_SQL);
-        this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
+        let changed = false;
+        changed = this.applyMigration("2026-05-17-validation-gates-surfaces-and-focused-duplicates", BASE_SCHEMA_SQL) || changed;
+        changed = this.applyMigration("2026-06-17-campaigns-links-branches", CAMPAIGN_SCHEMA_SQL) || changed;
+        changed = this.applyMigration("2026-06-17-campaign-checkpoints", CAMPAIGN_CHECKPOINT_SCHEMA_SQL) || changed;
+        changed = this.applyMigration("2026-06-27-chimera-mode", CHIMERA_SCHEMA_SQL) || changed;
+        changed = this.applyChimeraOpenCodeControlMigration("2026-06-27-chimera-opencode-control") || changed;
+        changed = this.applyMigration("2026-06-27-chimera-access-modes", CHIMERA_ACCESS_MODE_SCHEMA_SQL) || changed;
+        if (changed || storedVersion !== CURRENT_PROTEUS_VERSION || force) {
+            this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
+        }
     }
     ensureMetadataTable() {
         this.db.exec(`
@@ -1095,7 +1303,7 @@ class ProteusDb {
             .prepare("SELECT version FROM schema_migrations WHERE version = ?")
             .get(version);
         if (existing)
-            return;
+            return false;
         this.db.exec("BEGIN");
         try {
             this.db.exec(sql);
@@ -1103,11 +1311,39 @@ class ProteusDb {
                 .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
                 .run(version, nowIso());
             this.db.exec("COMMIT");
+            return true;
         }
         catch (error) {
             this.db.exec("ROLLBACK");
             throw error;
         }
+    }
+    applyChimeraOpenCodeControlMigration(version) {
+        const existing = this.db
+            .prepare("SELECT version FROM schema_migrations WHERE version = ?")
+            .get(version);
+        if (existing)
+            return false;
+        this.db.exec("BEGIN");
+        try {
+            this.addColumnIfMissing("chimera_sessions", "opencode_server_url", "TEXT");
+            this.addColumnIfMissing("chimera_sessions", "opencode_session_id", "TEXT");
+            this.db
+                .prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)")
+                .run(version, nowIso());
+            this.db.exec("COMMIT");
+            return true;
+        }
+        catch (error) {
+            this.db.exec("ROLLBACK");
+            throw error;
+        }
+    }
+    addColumnIfMissing(table, column, definition) {
+        const exists = this.db.prepare(`PRAGMA table_info(${table})`).all()
+            .some((row) => String(row.name) === column);
+        if (!exists)
+            this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
     }
     indexFts(entityType, entityId, content) {
         this.db
@@ -1349,6 +1585,61 @@ const CAMPAIGN_CHECKPOINT_SCHEMA_SQL = `
         created_at TEXT NOT NULL
       );
 `;
+const CHIMERA_SCHEMA_SQL = `
+      CREATE TABLE IF NOT EXISTS chimera_sessions (
+        id INTEGER PRIMARY KEY,
+        public_id TEXT NOT NULL UNIQUE,
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        campaign_id INTEGER REFERENCES campaigns(id) ON DELETE SET NULL,
+        round_id INTEGER REFERENCES rounds(id) ON DELETE SET NULL,
+        role TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        status TEXT NOT NULL,
+        access_mode TEXT NOT NULL DEFAULT 'explorer',
+        access_notes TEXT,
+        model TEXT,
+        provider TEXT,
+        session_dir TEXT NOT NULL,
+        lab_dir TEXT NOT NULL,
+        opencode_command TEXT,
+        opencode_pid INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        closed_at TEXT,
+        close_verdict TEXT,
+        close_summary TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_chimera_sessions_target_status
+        ON chimera_sessions(target_id, status);
+
+      CREATE TABLE IF NOT EXISTS chimera_messages (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES chimera_sessions(id) ON DELETE CASCADE,
+        direction TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        body TEXT NOT NULL,
+        metadata_json TEXT NOT NULL,
+        read_by_coordinator INTEGER NOT NULL DEFAULT 0,
+        read_by_agent INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_chimera_messages_session_created
+        ON chimera_messages(session_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_chimera_messages_unread_coordinator
+        ON chimera_messages(read_by_coordinator, direction);
+      CREATE INDEX IF NOT EXISTS idx_chimera_messages_unread_agent
+        ON chimera_messages(read_by_agent, direction);
+`;
+const CHIMERA_ACCESS_MODE_SCHEMA_SQL = `
+      UPDATE chimera_sessions
+      SET access_mode = CASE
+        WHEN access_mode = 'inherit' THEN 'editor'
+        ELSE 'explorer'
+      END
+      WHERE access_mode IS NULL OR access_mode = '' OR access_mode IN ('lab', 'inherit');
+`;
 function emptyMergeCounts() {
     return {
         targetProfiles: 0,
@@ -1370,13 +1661,31 @@ function emptyMergeCounts() {
         entityLinks: 0,
         skippedEntityLinks: 0,
         campaignEvents: 0,
-        skippedCampaignEvents: 0
+        skippedCampaignEvents: 0,
+        chimeraSessions: 0,
+        chimeraMessages: 0,
+        skippedChimeraMessages: 0
     };
 }
 function addMergeCounts(target, source) {
     for (const key of Object.keys(target)) {
         target[key] += source[key];
     }
+}
+function openMergeSource(sourceRoot, dryRun) {
+    if (!dryRun)
+        return { db: new ProteusDb(sourceRoot), cleanupRoot: null };
+    const cleanupRoot = node_fs_1.default.mkdtempSync(node_path_1.default.join(node_os_1.default.tmpdir(), "proteus-merge-dryrun-"));
+    const sourceDb = (0, paths_1.memoryPath)(sourceRoot);
+    const tempVros = (0, paths_1.vrosDir)(cleanupRoot);
+    (0, paths_1.ensureDir)(tempVros);
+    node_fs_1.default.copyFileSync(sourceDb, (0, paths_1.memoryPath)(cleanupRoot));
+    for (const suffix of ["-wal", "-shm"]) {
+        const sidecar = `${sourceDb}${suffix}`;
+        if (node_fs_1.default.existsSync(sidecar))
+            node_fs_1.default.copyFileSync(sidecar, `${(0, paths_1.memoryPath)(cleanupRoot)}${suffix}`);
+    }
+    return { db: new ProteusDb(cleanupRoot), cleanupRoot };
 }
 function resolveProteusSourceRoot(input, baseRoot) {
     const resolved = node_path_1.default.resolve(baseRoot, input);
@@ -1458,6 +1767,46 @@ function toSourceRow(row) {
         pathOrUrl: String(row.path_or_url),
         title: String(row.title),
         summary: String(row.summary ?? ""),
+        createdAt: String(row.created_at)
+    };
+}
+function toChimeraSessionRow(row) {
+    return {
+        id: Number(row.id),
+        publicId: String(row.public_id),
+        campaignId: row.campaign_id === null || row.campaign_id === undefined ? null : Number(row.campaign_id),
+        roundId: row.round_id === null || row.round_id === undefined ? null : Number(row.round_id),
+        role: String(row.role),
+        goal: String(row.goal),
+        status: normalizeChimeraStatus(String(row.status)),
+        accessMode: normalizeChimeraAccessMode(String(row.access_mode ?? "")),
+        accessNotes: String(row.access_notes ?? ""),
+        model: row.model === null || row.model === undefined ? null : String(row.model),
+        provider: row.provider === null || row.provider === undefined ? null : String(row.provider),
+        sessionDir: String(row.session_dir),
+        labDir: String(row.lab_dir),
+        opencodeCommand: row.opencode_command === null || row.opencode_command === undefined ? null : String(row.opencode_command),
+        opencodePid: row.opencode_pid === null || row.opencode_pid === undefined ? null : Number(row.opencode_pid),
+        opencodeServerUrl: row.opencode_server_url === null || row.opencode_server_url === undefined ? null : String(row.opencode_server_url),
+        opencodeSessionId: row.opencode_session_id === null || row.opencode_session_id === undefined ? null : String(row.opencode_session_id),
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at),
+        closedAt: row.closed_at === null || row.closed_at === undefined ? null : String(row.closed_at),
+        closeVerdict: row.close_verdict === null || row.close_verdict === undefined ? null : String(row.close_verdict),
+        closeSummary: row.close_summary === null || row.close_summary === undefined ? null : String(row.close_summary)
+    };
+}
+function toChimeraMessageRow(row) {
+    return {
+        id: Number(row.id),
+        publicId: String(row.public_id),
+        sessionId: Number(row.session_id),
+        direction: normalizeChimeraMessageDirection(String(row.direction)),
+        kind: normalizeChimeraMessageKind(String(row.kind)),
+        body: String(row.body ?? ""),
+        metadata: parseJson(String(row.metadata_json ?? "{}")),
+        readByCoordinator: Boolean(row.read_by_coordinator),
+        readByAgent: Boolean(row.read_by_agent),
         createdAt: String(row.created_at)
     };
 }
@@ -1648,6 +1997,73 @@ function normalizeBranchStatus(value) {
         return value;
     }
     return value.length > 0 ? "blocked" : "open";
+}
+function normalizeChimeraConfig(input) {
+    return {
+        enabled: input.enabled === true,
+        runtime: "opencode",
+        opencodeCommand: typeof input.opencodeCommand === "string" && input.opencodeCommand.trim()
+            ? input.opencodeCommand.trim()
+            : "opencode",
+        opencodeServerUrl: typeof input.opencodeServerUrl === "string" && input.opencodeServerUrl.trim()
+            ? input.opencodeServerUrl.trim()
+            : null,
+        opencodeServerPid: Number.isFinite(input.opencodeServerPid) && Number(input.opencodeServerPid) > 0
+            ? Math.floor(Number(input.opencodeServerPid))
+            : null,
+        defaultModel: typeof input.defaultModel === "string" && input.defaultModel.trim() ? input.defaultModel.trim() : null,
+        defaultVariant: typeof input.defaultVariant === "string" && input.defaultVariant.trim() ? input.defaultVariant.trim() : null,
+        defaultAgent: typeof input.defaultAgent === "string" && input.defaultAgent.trim() ? input.defaultAgent.trim() : null,
+        maxAgents: Number.isFinite(input.maxAgents) && Number(input.maxAgents) > 0 ? Math.floor(Number(input.maxAgents)) : 5,
+        defaultTimeoutSec: normalizeChimeraTimeout(input.defaultTimeoutSec),
+        defaultNetwork: input.defaultNetwork === true,
+        skipPermissions: input.skipPermissions !== false
+    };
+}
+function normalizeChimeraTimeout(value) {
+    if (!Number.isFinite(value))
+        return 0;
+    const seconds = Math.floor(Number(value));
+    if (seconds <= 0 || seconds === 900)
+        return 0;
+    return seconds;
+}
+function normalizeChimeraStatus(value) {
+    if (value === "starting" ||
+        value === "running" ||
+        value === "waiting" ||
+        value === "killed" ||
+        value === "closed" ||
+        value === "failed" ||
+        value === "timeout") {
+        return value;
+    }
+    return value.length > 0 ? "failed" : "starting";
+}
+function normalizeChimeraAccessMode(value) {
+    if (value === "editor")
+        return "editor";
+    return "explorer";
+}
+function normalizeChimeraMessageDirection(value) {
+    if (value === "coordinator_to_agent" || value === "agent_to_coordinator" || value === "system")
+        return value;
+    return "system";
+}
+function normalizeChimeraMessageKind(value) {
+    if (value === "message" ||
+        value === "redirect" ||
+        value === "finding" ||
+        value === "blocker" ||
+        value === "snapshot" ||
+        value === "heartbeat" ||
+        value === "council" ||
+        value === "kill" ||
+        value === "close" ||
+        value === "error") {
+        return value;
+    }
+    return "message";
 }
 function scoreCoverageCandidate(candidate, query, queryTerms) {
     const normalizedSearch = normalizeText(candidate.searchText);

@@ -1,61 +1,91 @@
-# Proteus
+<p align="center">
+  <img alt="Proteus chimera mark" src="docs/assets/proteus-chimera-mark.png" width="180" />
+</p>
+<h1 align="center">Proteus</h1>
 
-Proteus is a plugin for Claude Code and Codex, plus a local runtime, for
-structured, continuous vulnerability research against arbitrary codebases.
+<p align="center">
+  <strong>Assistant-oriented runtime for continuous vulnerability research.</strong>
+  <br />
+  Map real codebases, preserve research memory, delegate specialist fronts, and validate exploitability with disciplined gates.
+</p>
 
-You give it a target repository. Proteus helps the coordinator map the codebase,
-select high-ROI security surfaces, generate non-obvious exploitability
-hypotheses, delegate bounded specialist fronts, validate candidates in realistic
-labs, and preserve structured memory so future rounds do not repeat low-value
-work.
+<p align="center">
+  <a href="#install">Install</a> &bull;
+  <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#essential-cli">CLI</a> &bull;
+  <a href="#chimera-mode">Chimera</a> &bull;
+  <a href="#specialist-fronts">Specialists</a> &bull;
+  <a href="#documentation">Docs</a>
+</p>
 
-It is not a scanner and not a generic code review checklist. Proteus is built
-for professional bug bounty and offensive codebase research where findings must
-survive realistic attacker modeling, duplicate checks, expected-behavior checks,
-negative controls, and PoC validation without artificial lab help.
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.0.0-2f6feb" />
+  <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D24-43853d" />
+  <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" />
+  <img alt="Runtime" src="https://img.shields.io/badge/runtime-CLI%20%2B%20MCP%20%2B%20Skills-7c3aed" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/rafabd1/Proteus/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/rafabd1/Proteus/actions/workflows/ci.yml/badge.svg" />
+  </a>
+</p>
+
+<table>
+  <tr>
+    <td align="center"><strong>Continuous Research</strong><br />Campaigns, rounds, branches, gates, decisions, and checkpoints.</td>
+    <td align="center"><strong>Durable Memory</strong><br />SQLite-backed target memory plus reusable global learnings.</td>
+    <td align="center"><strong>Agent Native</strong><br />Codex and Claude Code skills with CLI and MCP runtime access.</td>
+    <td align="center"><strong>Chimera Mode</strong><br />Optional OpenCode-backed co-agents with labs, messages, and snapshots.</td>
+  </tr>
+</table>
+
+Proteus is built for professional bug bounty and offensive codebase research
+against real repositories. It helps a coordinator agent map the codebase, select
+high-ROI security surfaces, develop non-obvious hypotheses, delegate bounded
+specialist fronts, validate candidates in realistic labs, and preserve memory
+so future rounds do not repeat weak or already-killed work.
+
+It favors realistic attacker modeling, duplicate checks, expected-behavior
+checks, negative controls, and PoC validation under documented/default
+conditions.
 
 ## What Proteus Adds
 
-- Continuous research loop: observe, map, hypothesize, prioritize, delegate,
+- A continuous research loop: observe, map, hypothesize, prioritize, delegate,
   validate, kill or promote, then replan.
-- Structured memory in `.vros/memory.sqlite`, with Markdown exports for humans.
+- Structured target memory in `.vros/memory.sqlite`, with Markdown exports for
+  review and handoff.
+- Campaign-scoped state, branches, entity links, advisories, and checkpoints so
+  agents can resume active context without searching the whole memory base.
 - Global learnings in `~/.vros/global.sqlite` for reusable cross-target memory
-  such as user preferences, validation patterns, tooling notes, and playbook
-  material.
-- ROI-based surface planning to avoid wandering through the same low-signal
-  areas.
-- Named specialist fronts for repeatable multi-agent research: Argus, Loom,
-  Chaos, Libris, Mimic, Artificer, Skeptic, and Cicada.
-- Campaign-scoped state, hypothesis branches, entity links, and MCP advisories
-  so agents can recover active context without searching the whole memory base.
-- Validation gates that aggressively suppress weak hypotheses, duplicates,
-  expected behavior, public-known issues, forced-vulnerable configs, and
-  lab-created bugs.
-- CLI and MCP interfaces, so the same memory and planning operations work from
-  the terminal, Codex, Claude Code, or other MCP-capable assistants.
-- Realistic PoC lab scaffolding with attacker model, documented/default config,
-  negative controls, limitations, and evidence capture.
-- Triage-ready report draft guidance that follows user/program templates,
-  favors natural language, concise root-cause explanation, realistic impact
-  scenarios, and manual blackbox-style PoCs.
+  such as validation patterns, tooling notes, and playbook material.
+- Specialist skills for codebase research, chaining, fuzzing, web intel,
+  web research, PoC/exploit development, checkpoints, and Chimera co-agents.
+- Validation gates that suppress weak hypotheses, duplicates, expected
+  behavior, public-known issues, forced-vulnerable configs, and lab-created
+  bugs.
+- CLI and MCP interfaces so the same memory operations work from Codex, Claude
+  Code, terminal usage, or other MCP-capable assistants.
+- Optional Chimera mode for OpenCode-backed co-agents with Proteus-managed
+  sessions, messages, snapshots, labs, kill/close control, and coordinator-set
+  access mode.
+- Triage-ready report guidance focused on natural language, realistic impact,
+  concise PoC evidence, and external triagers with no internal context.
 
 ## Install
 
 Proteus has three install surfaces:
 
 - CLI/runtime: `proteus` and `proteus-mcp`
-- Codex plugin: the main `continuous-vuln-research` coordinator skill,
-  specialist skills, and MCP configuration
-- Claude Code plugin: `/proteus`, plugin subagents, and plugin MCP configuration
+- Codex plugin: coordinator and specialist skills plus MCP configuration
+- Claude Code plugin: `/proteus`, plugin agents, and MCP configuration
 
-Install the CLI first. The plugin instructions and skills can load without it,
-but target memory, exports, labs, and MCP tools depend on the `proteus` and
-`proteus-mcp` runtime commands.
+Install the CLI first. The plugin skills can load without it, but target memory,
+exports, labs, and MCP tools depend on the runtime commands.
 
-### 1. Install The CLI Runtime
-
-Proteus currently requires Node.js 24 or newer because it uses `node:sqlite` for
-local structured memory.
+Proteus requires Node.js 24 or newer because it uses `node:sqlite` for local
+structured memory.
 
 ```powershell
 npm install -g https://codeload.github.com/rafabd1/Proteus/tar.gz/refs/heads/main
@@ -65,38 +95,30 @@ proteus --version
 Expected:
 
 ```text
-@rafabd1/proteus 1.0.3
+@rafabd1/proteus 2.0.0
 ```
 
-The codeload tarball is the recommended install path while Proteus is distributed
-directly from GitHub. It uses the committed runtime and avoids install-time
-TypeScript builds on the target machine.
-
-### 2. Add The Codex Plugin
+### Codex
 
 ```powershell
 codex plugin marketplace add rafabd1/Proteus
+codex mcp add proteus -- proteus-mcp
 ```
 
 Then install or enable the `proteus` plugin from Codex's plugin UI if your host
 does not install marketplace defaults automatically.
 
-Then register the MCP server from the CLI install:
+### Claude Code
 
-```powershell
-codex mcp add proteus -- proteus-mcp
-```
-
-### 3. Add The Claude Code Plugin
-
-Install directly inside Claude Code:
+Claude Code support is experimental and has not been exhaustively tested yet.
+Because Proteus is heavily focused on offensive security research, Claude
+models may also apply safety restrictions that affect exploit-development,
+chaining, or other offsec workflows.
 
 ```text
 /plugin marketplace add rafabd1/Proteus
 /plugin install proteus@proteus-marketplace
 ```
-
-Then register the MCP server from the CLI install:
 
 ```powershell
 claude mcp add -s user proteus -- proteus-mcp
@@ -104,13 +126,13 @@ claude mcp add -s user proteus -- proteus-mcp
 
 ## Quick Start
 
-After installing the plugin in Codex, invoke Proteus with `@proteus`. This loads
-the plugin as the entrypoint so the assistant can choose the main coordinator
-skill and any specialist skills it needs. Avoid using a slash-style skill
-mention in Codex for normal Proteus work; slash syntax is better reserved for
-direct skill references when you explicitly want one specific skill.
+In Codex, invoke Proteus with `@proteus`. This is the normal entrypoint because
+it lets the assistant load the plugin, start from the main coordinator skill,
+and pull in specialist skills only when needed. Slash-style skill references
+are better reserved for cases where you explicitly want one specific skill.
 
-In Claude Code, use the plugin slash command `/proteus`.
+In Claude Code, use `/proteus`. This path is experimental; for offsec-heavy
+research, model-side restrictions may affect some workflows.
 
 Example prompts:
 
@@ -123,200 +145,107 @@ Example prompts:
 
 @proteus validate this candidate with realistic PoC gates, negative controls, and no forced vulnerable config
 
-@proteus draft a triage-ready report without internal workflow references
+@proteus draft a triage-ready report for an external triager
 ```
 
-When available, Proteus should use persistent goal/campaign features for
-long-running objectives and subagents for bounded fronts such as Argus, Loom,
-Chaos, Libris, Mimic, Artificer, Skeptic, and Cicada. The coordinator still owns
-strategy, memory, dedupe, validation gates, and final kill/promote decisions.
-Codex can use the packaged role contracts in `plugins/proteus/agents/*.md` when
-spawning subagents by reading the contract and inlining it into the delegated
-prompt. These paths are plugin-package paths, not target-workspace paths. Claude
-Code loads the same files as plugin subagents.
-If the package path is not directly exposed, coordinators should resolve
-contracts from the installed plugin package/cache, never from the target
-workspace.
-The same package/cache resolution applies to templates in
-`plugins/proteus/templates/*.md`.
+The intended flow is agent-led. The coordinator should initialize or resume
+memory, ingest prior work, observe the repo, plan a focused round, delegate
+bounded fronts when useful, record evidence and decisions, then replan from
+what was learned.
 
-### CLI Runtime
+## Essential CLI
 
-Use the CLI when you want explicit terminal control or when your Codex host does
-not expose plugin tools directly.
-
-Initialize memory for a target:
+The CLI is mostly a runtime and recovery surface for agents. Use it manually
+when you need explicit terminal control, debugging, or a host without direct
+MCP/plugin access.
 
 ```powershell
 proteus init --root C:\path\to\target --name target-name
-```
-
-Ingest prior work so Proteus can dedupe and avoid repeated coverage:
-
-```powershell
+proteus status --root C:\path\to\target
 proteus ingest --root C:\path\to\target findings REPORTS reports docs
-```
-
-Ingested files are stored in `.vros/memory.sqlite`; local Markdown exports are
-only reader-facing views. Re-running ingest reports `unchanged` for content that
-is already present by hash.
-
-Observe the repository and local environment:
-
-```powershell
 proteus observe --root C:\path\to\target
-```
-
-Plan a focused research round:
-
-```powershell
-proteus plan-round --root C:\path\to\target --objective "Find high-ROI daemon, archive, indexer, and storage candidates" --plan-json round-input.json --write
-proteus list rounds --root C:\path\to\target --status active
-```
-
-Create or resume campaign-scoped state:
-
-```powershell
-proteus campaign create --root C:\path\to\target --title "Recent-delta research" --objective "Find high-ROI, non-obvious chains"
+proteus plan-round --root C:\path\to\target --objective "Next high-ROI research round" --write
 proteus campaign resume --root C:\path\to\target
-proteus branch add --root C:\path\to\target --campaign-id 1 --title "Cache authority branch" --primitive "attacker-controlled state transition"
-proteus campaign checkpoint --root C:\path\to\target --id 1 --confirmed "auth boundary mapped" --open "cache authority branch" --next "validate branch control"
-proteus link --root C:\path\to\target --from-type campaign --from-id 1 --relation has_round --to-type round --to-id 1
-```
-
-Each target database records the Proteus runtime version that last migrated it.
-On startup, Proteus runs automatic migrations only when that stored version is
-missing or different from the current runtime. `proteus migrate` forces a full
-idempotent migration check and refreshes the stored version.
-
-Use the actual workspace/repository root as `--root` unless you intentionally
-want a separate target memory. If a nested `.vros` is created by mistake, merge
-it back into the canonical workspace base:
-
-```powershell
-proteus merge --root C:\path\to\workspace --source C:\path\to\workspace\packages\foo\.vros\memory.sqlite
-proteus merge --root C:\path\to\workspace --sources .\old\.vros\memory.sqlite,.\nested\.vros --dry-run
-```
-
-When exactly one campaign is active, Proteus automatically links new hypotheses,
-evidence, decisions, validation gates, and agent outputs back to that campaign.
-If there are zero or multiple active campaigns, MCP advisories ask the agent to
-create, resume, or choose campaign state explicitly.
-
-`plan-round` is a structured recorder and scaffold, not an autonomous target
-selection oracle. For serious targets, pass coordinator-supplied surfaces and
-fronts through `--plan-json` or the MCP `proteus_plan_round` structured fields.
-Query global learnings separately, review them in the coordinator context, and
-manually include only relevant conclusions in the supplied plan.
-
-Each recorded round is also a lightweight research goal. New plans default to
-`active`; use `proteus list rounds --status active|paused|completed` to recover
-current work, and `proteus update round --id <id> --status <status>` when the
-coordinator pauses, resumes, completes, or blocks a plan.
-Use `superseded` for old or replaced round records that should remain
-searchable but should not be treated as future work. To clean legacy workspaces
-that have many old `planned` rounds, run
-`proteus update rounds --from planned --status superseded --keep-latest` and
-then explicitly keep or update the one remaining planned round.
-
-Minimal `round-input.json` shape:
-
-```json
-{
-  "status": "active",
-  "currentUnderstanding": "Coordinator-written target understanding.",
-  "selectedSurfaces": [
-    {
-      "id": 1,
-      "name": "Specific bounded surface",
-      "family": "short-family-name",
-      "roiScore": 0,
-      "reason": "Coordinator-written selection reason.",
-      "files": ["relative/path/from/target/root.ext"],
-      "revisitCondition": "When to revisit this surface."
-    }
-  ],
-  "skippedSurfaces": [],
-  "agentFronts": [
-    {
-      "codename": "argus",
-      "assignedSurfaceIds": [1],
-      "purpose": "Bounded objective for this front.",
-      "requiredOutput": ["covered surface map", "live candidates", "killed hypotheses with evidence"]
-    }
-  ],
-  "stopConditions": ["Report-grade candidate needs user decision."],
-  "replanTrigger": "Coordinator-written trigger for the next round."
-}
-```
-
-The full packaged template is `plugins/proteus/templates/round-input.json`.
-
-Export human-readable state:
-
-```powershell
 proteus export --root C:\path\to\target
 ```
 
-Proteus stores source-of-truth state under:
+Use the actual workspace or repository root as `--root` unless you intentionally
+want separate target memory. If a nested `.vros` is created by mistake, merge it
+back into the canonical workspace base:
 
-```text
-<target>/.vros/memory.sqlite
+```powershell
+proteus merge --root C:\path\to\workspace --source C:\path\to\workspace\packages\foo\.vros\memory.sqlite
 ```
 
-Exports are written under:
+Each target database records the Proteus runtime version and applied migration
+ids. On startup, Proteus checks both values and runs missing idempotent
+migrations automatically. `proteus migrate --root <path>` performs the same
+check explicitly.
 
-```text
-<target>/.vros/exports/
+For the full runtime reference, see [Runtime usage](docs/RUNTIME_USAGE.md).
+
+## Chimera Mode
+
+Chimera is optional. It lets the coordinator launch OpenCode-backed co-agents
+with Proteus context, role skills, private labs, messaging, snapshots, and
+kill/close control. Normal Proteus memory, MCP, CLI, exports, and skills work
+without OpenCode.
+
+Install and configure OpenCode by following the official project:
+
+- OpenCode repository: <https://github.com/anomalyco/opencode>
+- OpenCode docs: <https://opencode.ai/docs/>
+
+After OpenCode works locally, configure Chimera globally for the current user:
+
+```powershell
+proteus chimera config init --opencode-command opencode --model zai/glm-5.2 --variant high
+proteus chimera doctor --root C:\path\to\target
 ```
 
-## Typical Flow
+`chimera config` is global and does not need `--root`. Workspace-specific
+actions such as `doctor`, `start`, `run`, messages, sessions, and labs still
+use `--root`. Chimera has no default run timeout; use `--timeout N` only for
+short bounded probes or tests, and stop normal sessions with `chimera kill` or
+`chimera close`.
 
-```text
-you: use Proteus on this repository for continuous vulnerability research
+Common operations:
 
-coordinator:
-  - loads or initializes .vros memory
-  - ingests existing findings, reports, docs, and prior research logs
-  - observes the repo, toolchain, package managers, tests, and runtime hints
-  - builds a round plan with high-ROI surfaces and skipped low-ROI areas
-  - assigns bounded fronts to Argus, Loom, Chaos, Libris, Mimic, Artificer, Skeptic, or Cicada
-  - records hypotheses, evidence, decisions, killed paths, and revisit conditions
-  - promotes only candidates that survive the validation gates
-  - replans from what was learned instead of restarting from scratch
+```powershell
+proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7" --run
+proteus chimera run --root C:\path\to\target --id CH-0001
+proteus chimera poll --root C:\path\to\target --unread
+proteus chimera send --root C:\path\to\target --id CH-0001 --message "Focus on policy side effects." --priority
+proteus chimera kill --root C:\path\to\target --id CH-0001 --reason "Looping without new testable signal"
+proteus chimera close --root C:\path\to\target --id CH-0001 --verdict watchlist --summary "Useful ideas, no validated PoC yet"
 ```
 
-When the host assistant provides persistent goals, subagents, or parallel
-delegation, Proteus expects the coordinator to use those capabilities for
-efficiency:
-
-- Goal or campaign mode is useful for user-requested continuous campaigns or
-  persistent objectives with explicit stop conditions.
-- Subagents are useful for independent bounded fronts, not vague repo-wide
-  review.
-- The coordinator remains responsible for strategy, memory, validation gates,
-  duplicate checks, and final kill/promote decisions.
+For councils, swarms, OpenCode session reuse, access modes, snapshots, and
+message flow, see [Chimera mode](docs/CHIMERA.md).
 
 ## Specialist Fronts
 
-| Codename | Focus |
-| --- | --- |
-| Argus | Component-level review of local primitives and covered modules. |
-| Loom | Macro and chaining analysis across components and trust boundaries. |
-| Chaos | Fuzzing, edge-case generation, anomaly matrices, and probes. |
-| Libris | Docs, tests, advisories, public-known behavior, timeline, and contract verification. |
-| Mimic | Runtime, adapter, deployment-profile, and environment divergence. |
-| Artificer | Realistic PoC labs and didactic validation artifacts. |
-| Skeptic | Adversarial review, refutation, downgrade, and anti-slop pressure. |
+Proteus can work serially, through host subagents, or through Chimera co-agents.
+Specialist fronts give the coordinator bounded research roles with clear
+outputs. The coordinator remains responsible for strategy, memory, validation
+gates, duplicate checks, and final kill/promote decisions.
 
-Artificer starts only after initial gates pass. Skeptic starts only after there
-is technical evidence worth challenging. No candidate should become report-grade
-until Libris has recorded public intel/timeline results and Skeptic has recorded
-an evidence-backed refutation attempt.
+| Front | Focus |
+| --- | --- |
+| Argus, codebase research | Architecture, dataflow, trust boundaries, invariants, side effects, and high-ROI surfaces. |
+| Loom, chaining | Non-obvious chains across components, state transitions, side effects, and capability amplification. |
+| Chaos, fuzzing | Calibrated probes, harnesses, differential behavior, parser/state-machine learning, and edge cases. |
+| Libris, web intel | Public-known status, advisories, changelogs, issues, docs, tests, timelines, and duplicate risk. |
+| Mimic, web research | Authorized live or local web-surface mapping, runtime divergence, endpoint behavior, and workflow validation. |
+| Artificer, PoC/exploit | Realistic labs, manual blackbox reproduction, negative controls, exploitability evidence, and report support. |
+| Skeptic, adversarial review | Refutation, downgrade pressure, anti-slop checks, and evidence-backed challenge of promoted candidates. |
+| Cicada, exploit chaining | Focused bypass/chaining work for promising branches that need deeper exploit development, side-effect discovery, or capability amplification. |
+| Checkpoint | Context compression, killed paths, pivots, branch scores, and the next high-ROI move. |
+| Chimera agent | OpenCode-backed secondary research fronts with coordinator-controlled scope and messaging. |
 
 ## Validation Model
 
-A candidate is report-grade only when it satisfies the core gates:
+A candidate is report-grade only when the core gates survive:
 
 ```text
 G1: root cause is in the target.
@@ -327,163 +256,43 @@ G5: negative controls pass.
 G6: local findings/reports/logs do not already cover it.
 G7: public-known, advisory, issue, changelog, and expected-behavior checks are complete and documented.
 G8: affected version, likely introduction point, and timeline are understood.
-G9: Skeptic has tried to refute or downgrade the finding and the rebuttal is recorded.
-G10: old/obvious classes have exceptional impact or are killed.
+G9: adversarial review tried to refute or downgrade the finding and the rebuttal is recorded.
+G10: old or obvious classes have exceptional impact or are killed.
 G11: PoC does not depend on artificial lab help.
 ```
 
 Immediate kill reasons include expected behavior, duplicates, weak crashes,
 weak DoS, integration-only issues, explicitly unsafe configuration only,
-lab-created behavior, incomplete public intel/timeline, unresolved Skeptic
-refutation, and no realistic attacker boundary.
+lab-created behavior, incomplete public intel/timeline, unresolved refutation,
+and no realistic attacker boundary.
 
 ## Report Drafts
 
-Proteus report drafts are written for triagers, not for the internal research
-workflow. The default shape is Title, CWE, Summary, Root Cause when applicable,
-PoC Details when applicable, Steps To Reproduce, and Impact. Add other sections
-only when the program template requires them or the triage context specifically
-needs them. Avoid internal references to Proteus, `.vros`, subagents, workspace
-paths, or research process.
+Report drafts should read like concise bug bounty submissions for a triager
+with no prior context. The default shape is Title, CWE, Summary, Root Cause when
+applicable, PoC Details when applicable, Steps To Reproduce, and Impact. Add
+other sections only when the program template requires them or the triage
+context specifically needs them.
 
-Report prose should avoid common LLM habits: defensive reframing, unnecessary
-caveats, em dashes, generic hype, and stock phrases such as "this is not about
-X, it is about Y", "Why this matters", "This matters", or "This is security
-relevant because". Impact should preferably be concise bullet points listing
-concrete consequences, not prerequisites or caveats. Steps should stay terse:
-action title plus expected output, with output interpretation placed in PoC
-Details or a short note after the steps.
-
-PoCs should prefer manual reproduction when possible: browser actions, HTTP
-requests, `curl`, normal CLI commands, or other blackbox steps an attacker could
-realistically perform. If automation is necessary, the report should explain the
-manual flow being automated and include only short snippets that make the PoC
-easier to trust.
-
-## CLI Commands
-
-```text
-proteus init [--root <path>] [--name <target>]
-proteus status [--root <path>]
-proteus migrate [--root <path>]
-proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
-proteus ingest [--root <path>] [paths...]
-proteus observe [--root <path>]
-proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
-proteus campaign create --title <text> [--objective <text>]
-proteus campaign resume [--id <id>]
-proteus campaign checkpoint --id <id> [--confirmed a,b] [--killed a,b] [--open a,b] [--pivots a,b] [--context a,b] [--next <text>] [--contract-signature <json>]
-proteus branch add --title <text> [--campaign-id <id>] [--round-id <id>]
-proteus link --from-type <type> --from-id <id> --relation <text> --to-type <type> --to-id <id>
-proteus roles
-proteus prompt --role <argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text>
-proteus record surface --name <text> [--family <text>] [--files a,b] [--status active|covered|exhausted|low_roi|blocked|watch]
-proteus record hypothesis --title <text> [--surface-id <id>] [--impact <text>]
-proteus record evidence --title <text> [--kind <kind>] [--body <text>]
-proteus record decision --entity-type <type> --entity-id <id> --decision <text> --reason <text>
-proteus record gate --entity-type <type> --entity-id <id> --gate <G1|...> [--status pending|pass|fail|blocked|not_applicable]
-proteus record agent-output --round-id <id> --role <codename> --surface <text>
-proteus list surfaces|hypotheses|evidence|decisions|gates|rounds|campaigns|branches|links|checkpoints [--status <status>] [--limit <n>]
-proteus update surface --id <id> [--status exhausted|low_roi|covered|blocked|watch] [--revisit <text>]
-proteus update round --id <id> --status active|paused|completed|blocked|planned|superseded
-proteus update rounds --from planned --status superseded [--keep-latest]
-proteus query duplicates <text>
-proteus query memory <text>
-proteus query similar <text>
-proteus query revisit <surface>
-proteus query surfaces <text>
-proteus show <source|surface|hypothesis|evidence|decision|gate|round|campaign|branch|checkpoint|entity_link|agent_output|lab> <id>
-proteus export [--root <path>]
-proteus lab create --candidate-id <id> [--name <name>]
-proteus learn add --title <text> [--category <category>] [--scope <scope>] [--body <text>] [--tags a,b]
-proteus learn query [text] [--scope <scope>] [--category <category>] [--target-scope]
-proteus learn export [--out <path>]
-```
-
-## MCP Tools
-
-Codex can use the MCP server through a global MCP registration:
-
-```powershell
-codex mcp add proteus -- proteus-mcp
-```
-
-Claude Code can use the same runtime through a user-scoped MCP registration:
-
-```powershell
-claude mcp add -s user proteus -- proteus-mcp
-```
-
-Plugin hosts that support plugin-declared MCP servers can also start it through:
-
-```text
-plugins/proteus/.mcp.json
-```
-
-The server exposes:
-
-```text
-proteus_init
-proteus_status
-proteus_migrate
-proteus_merge_memory
-proteus_ingest
-proteus_observe
-proteus_plan_round
-proteus_campaign_create
-proteus_campaign_resume
-proteus_campaign_checkpoint
-proteus_campaign_close
-proteus_record_branch
-proteus_link_entities
-proteus_roles
-proteus_prompt
-proteus_query_memory
-proteus_query_similar
-proteus_query_surfaces
-proteus_get_record
-proteus_list_records
-proteus_query_duplicates
-proteus_record_surface
-proteus_record_hypothesis
-proteus_record_evidence
-proteus_record_decision
-proteus_record_gate
-proteus_record_agent_output
-proteus_update_surface
-proteus_update_round
-proteus_update_rounds
-proteus_query_revisit
-proteus_export
-proteus_lab_create
-proteus_record_global_learning
-proteus_query_global_learnings
-proteus_export_global_learnings
-```
-
-Record-oriented MCP tools return a compact research-state envelope with the
-main record plus optional advisories, related records, suggested reads, and
-state deltas. Agents should treat those advisories as live context hints, not as
-automatic findings or kills.
-
-You can run it manually for local testing:
-
-```powershell
-proteus-mcp
-```
+Keep Proteus internals, `.vros`, subagents, workspace paths, and research
+process out of the report. Prose should be natural, concise, and specific. Cut
+defensive reframing, unnecessary caveats, em dashes, generic hype, and stock
+phrases such as "Why this matters" or "This is security relevant because".
+Impact should list concrete consequences; Steps should stay terse and put
+interpretation in PoC Details or a short note after the steps.
 
 ## Architecture
 
 ```text
 Assistant integration
-  - operational contract for continuous vulnerability research
-  - defines coordinator loop, validation gates, role usage, and output verdicts
+  - coordinator and specialist skills
+  - validation gates, role usage, report guidance, and output discipline
 
 CLI runtime
   - initializes target memory
   - observes repositories and local tooling
   - plans rounds
-  - records hypotheses, evidence, decisions, surfaces, and agent outputs
+  - records hypotheses, evidence, decisions, branches, and agent outputs
   - creates labs and exports Markdown
 
 MCP server
@@ -496,45 +305,9 @@ MCP server
 global learnings
   - reusable memory in ~/.vros/global.sqlite
   - recovered by text, category, tags, or target scope
-  - guides strategy without becoming target-specific evidence
 ```
 
-Project layout:
-
-```text
-docs/
-  ARCHITECTURE.md
-  DEVELOPMENT_PLAN.md
-  INSTALLATION.md
-  MEMORY_MODEL.md
-  REQUIREMENTS.md
-  RUNTIME_USAGE.md
-.claude-plugin/
-  marketplace.json
-plugins/
-  proteus/
-    .claude-plugin/plugin.json
-    .codex-plugin/plugin.json
-    .mcp.json
-    agents/proteus-*.md
-    commands/proteus.md
-    dist/
-    scripts/proteus-mcp.cjs
-    skills/continuous-vuln-research/SKILL.md
-    skills/chaining/SKILL.md
-    skills/codebase-research/SKILL.md
-    skills/fuzzing/SKILL.md
-    skills/web-intel/SKILL.md
-    skills/web-research/SKILL.md
-src/
-  cli.ts
-  mcp.ts
-  db.ts
-  planner.ts
-  roles.ts
-```
-
-## Dev Install
+## Development
 
 ```powershell
 git clone https://github.com/rafabd1/Proteus
@@ -559,10 +332,9 @@ coverage against temporary targets.
 - [Installation](docs/INSTALLATION.md)
 - [Runtime usage](docs/RUNTIME_USAGE.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Chimera mode](docs/CHIMERA.md)
 - [Requirements](docs/REQUIREMENTS.md)
 - [Memory model](docs/MEMORY_MODEL.md)
-- [Development plan](docs/DEVELOPMENT_PLAN.md)
-
 
 ## License
 

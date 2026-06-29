@@ -8,9 +8,14 @@ exports.vrosDir = vrosDir;
 exports.memoryPath = memoryPath;
 exports.exportsDir = exportsDir;
 exports.labsDir = labsDir;
+exports.chimeraDir = chimeraDir;
+exports.chimeraSessionsDir = chimeraSessionsDir;
+exports.chimeraSessionDir = chimeraSessionDir;
 exports.globalVrosDir = globalVrosDir;
 exports.globalMemoryPath = globalMemoryPath;
 exports.globalExportsDir = globalExportsDir;
+exports.globalChimeraDir = globalChimeraDir;
+exports.globalChimeraConfigPath = globalChimeraConfigPath;
 exports.ensureDir = ensureDir;
 exports.toRelative = toRelative;
 const node_path_1 = __importDefault(require("node:path"));
@@ -31,6 +36,15 @@ function exportsDir(targetRoot) {
 function labsDir(targetRoot) {
     return node_path_1.default.join(vrosDir(targetRoot), "labs");
 }
+function chimeraDir(targetRoot) {
+    return node_path_1.default.join(vrosDir(targetRoot), "chimera");
+}
+function chimeraSessionsDir(targetRoot) {
+    return node_path_1.default.join(chimeraDir(targetRoot), "sessions");
+}
+function chimeraSessionDir(targetRoot, publicId) {
+    return node_path_1.default.join(chimeraSessionsDir(targetRoot), publicId);
+}
 function globalVrosDir() {
     return node_path_1.default.join(node_os_1.default.homedir(), ".vros");
 }
@@ -45,6 +59,18 @@ function globalExportsDir() {
         return node_path_1.default.resolve(process.env.PROTEUS_GLOBAL_EXPORTS_DIR);
     }
     return node_path_1.default.join(globalVrosDir(), "exports");
+}
+function globalChimeraDir() {
+    if (process.env.PROTEUS_CHIMERA_DIR) {
+        return node_path_1.default.resolve(process.env.PROTEUS_CHIMERA_DIR);
+    }
+    return node_path_1.default.join(globalVrosDir(), "chimera");
+}
+function globalChimeraConfigPath() {
+    if (process.env.PROTEUS_CHIMERA_CONFIG_PATH) {
+        return node_path_1.default.resolve(process.env.PROTEUS_CHIMERA_CONFIG_PATH);
+    }
+    return node_path_1.default.join(globalChimeraDir(), "config.json");
 }
 function ensureDir(dir) {
     node_fs_1.default.mkdirSync(dir, { recursive: true });

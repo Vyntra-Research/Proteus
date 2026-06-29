@@ -8,6 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
 const serverPath = path.join(repoRoot, "plugins", "proteus", "scripts", "proteus-mcp.cjs");
+const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
 const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
@@ -17,7 +18,8 @@ const child = spawn(process.execPath, [serverPath], {
   env: {
     ...process.env,
     PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
-    PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports")
+    PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
+    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
   },
   stdio: ["pipe", "pipe", "pipe"]
 });
@@ -61,6 +63,15 @@ function request(method, params = {}) {
   });
 }
 
+async function requestFail(method, params = {}) {
+  try {
+    await request(method, params);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  throw new Error(`${method} unexpectedly succeeded`);
+}
+
 try {
   await request("initialize", {
     protocolVersion: "2025-06-18",
@@ -74,6 +85,25 @@ try {
     "proteus_status",
     "proteus_migrate",
     "proteus_merge_memory",
+    "proteus_chimera_config",
+    "proteus_chimera_doctor",
+    "proteus_chimera_stop_server",
+    "proteus_chimera_start",
+    "proteus_chimera_swarm",
+    "proteus_chimera_council",
+    "proteus_chimera_broadcast",
+    "proteus_chimera_relay",
+    "proteus_chimera_send",
+    "proteus_chimera_post",
+    "proteus_chimera_snapshot",
+    "proteus_chimera_workflow_snapshot",
+    "proteus_chimera_heartbeat",
+    "proteus_chimera_run",
+    "proteus_chimera_attach_opencode",
+    "proteus_chimera_poll",
+    "proteus_chimera_list",
+    "proteus_chimera_kill",
+    "proteus_chimera_close",
     "proteus_ingest",
     "proteus_observe",
     "proteus_plan_round",
@@ -82,6 +112,7 @@ try {
     "proteus_campaign_checkpoint",
     "proteus_campaign_close",
     "proteus_record_branch",
+    "proteus_update_branch",
     "proteus_link_entities",
     "proteus_roles",
     "proteus_prompt",
@@ -189,6 +220,235 @@ try {
     throw new Error("proteus_status did not return Proteus database version state");
   }
 
+  const opencodeCommand = `"${process.execPath}" "${mockOpenCode}"`;
+  const chimeraConfig = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { action: "init", opencodeCommand, model: "mock/mock-model", variant: "high", maxAgents: 3 }
+  });
+  const chimeraConfigText = String(chimeraConfig.content?.[0]?.text ?? "");
+  if (!chimeraConfigText.includes('"enabled": true') || !chimeraConfigText.includes("mock/mock-model") || !chimeraConfigText.includes('"defaultVariant": "high"')) {
+    throw new Error("proteus_chimera_config did not enable mock Chimera config");
+  }
+  if (!chimeraConfigText.includes('"defaultTimeoutSec": 0')) {
+    throw new Error("proteus_chimera_config should default to no run timeout");
+  }
+  const chimeraTimeoutConfig = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { action: "init", timeout: 5 }
+  });
+  if (!String(chimeraTimeoutConfig.content?.[0]?.text ?? "").includes('"defaultTimeoutSec": 5')) {
+    throw new Error("proteus_chimera_config did not persist explicit timeout");
+  }
+  const chimeraNoTimeoutConfig = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { action: "init", timeout: 0 }
+  });
+  if (!String(chimeraNoTimeoutConfig.content?.[0]?.text ?? "").includes('"defaultTimeoutSec": 0')) {
+    throw new Error("proteus_chimera_config timeout 0 did not disable default timeout");
+  }
+  const chimeraConfigPartial = await request("tools/call", {
+    name: "proteus_chimera_config",
+    arguments: { action: "init", model: "mock/other-model" }
+  });
+  const chimeraConfigPartialJson = JSON.parse(String(chimeraConfigPartial.content?.[0]?.text ?? "{}"));
+  if (
+    chimeraConfigPartialJson.record?.opencodeCommand !== opencodeCommand ||
+    chimeraConfigPartialJson.record?.defaultVariant !== "high" ||
+    chimeraConfigPartialJson.record?.defaultModel !== "mock/other-model"
+  ) {
+    throw new Error("proteus_chimera_config partial init did not preserve existing global config fields");
+  }
+  if (!fs.existsSync(path.join(globalRoot, "chimera", "config.json"))) {
+    throw new Error("proteus_chimera_config did not write global config");
+  }
+  if (fs.existsSync(path.join(tmpRoot, ".vros", "chimera", "config.json"))) {
+    throw new Error("proteus_chimera_config should not write workspace config");
+  }
+  const chimeraDoctor = await request("tools/call", {
+    name: "proteus_chimera_doctor",
+    arguments: { root: tmpRoot }
+  });
+  if (!String(chimeraDoctor.content?.[0]?.text ?? "").includes('"ok": true')) {
+    throw new Error("proteus_chimera_doctor did not pass with mock OpenCode");
+  }
+  const chimeraStart = await request("tools/call", {
+    name: "proteus_chimera_start",
+    arguments: {
+      root: tmpRoot,
+      role: "chaining",
+      goal: "MCP Chimera chain",
+      access: "editor",
+      accessNotes: "MCP smoke editor grant: non-destructive shell only; edit generated lab files only."
+    }
+  });
+  const chimeraStartText = String(chimeraStart.content?.[0]?.text ?? "");
+  if (!chimeraStartText.includes('"publicId": "CH-0001"') || !chimeraStartText.includes('"accessMode": "editor"')) {
+    throw new Error("proteus_chimera_start did not create editor CH-0001");
+  }
+  const invalidAttach = await requestFail("tools/call", {
+    name: "proteus_chimera_attach_opencode",
+    arguments: { root: tmpRoot, id: "CH-0001", serverUrl: "http://127.0.0.1:4096" }
+  });
+  if (!invalidAttach.includes("Expected non-empty string")) {
+    throw new Error("proteus_chimera_attach_opencode should require an OpenCode session id");
+  }
+  const chimeraRun = await request("tools/call", {
+    name: "proteus_chimera_run",
+    arguments: { root: tmpRoot, id: "CH-0001", timeout: 10 }
+  });
+  const chimeraRunJson = JSON.parse(String(chimeraRun.content?.[0]?.text ?? "{}"));
+  if (chimeraRunJson.record?.run?.exitCode !== 0 || chimeraRunJson.record?.session?.opencodeSessionId !== "ses_mock_CH-0001") {
+    throw new Error("proteus_chimera_run did not attach the mock OpenCode session");
+  }
+  const chimeraWorkflowSnapshot = await request("tools/call", {
+    name: "proteus_chimera_workflow_snapshot",
+    arguments: { root: tmpRoot, id: "CH-0001", limit: 3, maxMessageChars: 80 }
+  });
+  const workflowSnapshotText = String(chimeraWorkflowSnapshot.content?.[0]?.text ?? "");
+  if (!workflowSnapshotText.includes("First compact agent workflow message") || workflowSnapshotText.includes("TOOL RESULT THAT MUST NOT APPEAR")) {
+    throw new Error("proteus_chimera_workflow_snapshot did not return filtered compact agent messages");
+  }
+  const removedExportKeys = ["requested" + "San" + "itize", "fallbackFrom" + "San" + "itizedExport"];
+  if (removedExportKeys.some((key) => workflowSnapshotText.includes(key))) {
+    throw new Error("proteus_chimera_workflow_snapshot should not expose removed export compatibility fields");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_post",
+    arguments: { root: tmpRoot, id: "CH-0001", kind: "finding", body: "MCP Chimera finding" }
+  });
+  const chimeraPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0001", unreadOnly: true }
+  });
+  if (!String(chimeraPoll.content?.[0]?.text ?? "").includes("MCP Chimera finding")) {
+    throw new Error("proteus_chimera_poll did not return unread agent message");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_send",
+    arguments: { root: tmpRoot, id: "CH-0001", kind: "redirect", message: "MCP coordinator redirect", priority: true }
+  });
+  const chimeraAgentPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0001", unreadOnly: true, forAgent: true }
+  });
+  if (!String(chimeraAgentPoll.content?.[0]?.text ?? "").includes("MCP coordinator redirect")) {
+    throw new Error("proteus_chimera_poll did not return coordinator-to-agent message");
+  }
+  if (!String(chimeraAgentPoll.content?.[0]?.text ?? "").includes('"priority": true')) {
+    throw new Error("proteus_chimera_send did not preserve priority metadata");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_broadcast",
+    arguments: { root: tmpRoot, message: "MCP shared chat", priority: true }
+  });
+  const chimeraBroadcastPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0001", unreadOnly: true, forAgent: true }
+  });
+  if (!String(chimeraBroadcastPoll.content?.[0]?.text ?? "").includes("MCP shared chat")) {
+    throw new Error("proteus_chimera_broadcast did not deliver shared chat to agent");
+  }
+  if (!String(chimeraBroadcastPoll.content?.[0]?.text ?? "").includes('"priority": true')) {
+    throw new Error("proteus_chimera_broadcast did not preserve priority metadata");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_snapshot",
+    arguments: { root: tmpRoot, id: "CH-0001", body: "MCP Chimera snapshot" }
+  });
+  const chimeraHeartbeat = await request("tools/call", {
+    name: "proteus_chimera_heartbeat",
+    arguments: { root: tmpRoot, id: "CH-0001" }
+  });
+  if (!String(chimeraHeartbeat.content?.[0]?.text ?? "").includes('"alive": true')) {
+    throw new Error("proteus_chimera_heartbeat did not report alive");
+  }
+  const chimeraSwarm = await request("tools/call", {
+    name: "proteus_chimera_swarm",
+    arguments: {
+      root: tmpRoot,
+      plan: {
+        agents: [
+          { role: "codebase-research", goal: "MCP map surface" },
+          { role: "fuzzing", goal: "MCP fuzz surface" }
+        ]
+      }
+    }
+  });
+  const chimeraSwarmText = String(chimeraSwarm.content?.[0]?.text ?? "");
+  if (!chimeraSwarmText.includes('"publicId": "CH-0002"') || !chimeraSwarmText.includes('"publicId": "CH-0003"')) {
+    throw new Error("proteus_chimera_swarm did not create independent sessions");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_relay",
+    arguments: { root: tmpRoot, fromId: "CH-0001", toId: "CH-0002", message: "MCP direct Chimera relay" }
+  });
+  const chimeraRelayPoll = await request("tools/call", {
+    name: "proteus_chimera_poll",
+    arguments: { root: tmpRoot, id: "CH-0002", unreadOnly: true, forAgent: true }
+  });
+  const chimeraRelayPollText = String(chimeraRelayPoll.content?.[0]?.text ?? "");
+  if (!chimeraRelayPollText.includes("MCP direct Chimera relay") || !chimeraRelayPollText.includes('"fromId": "CH-0001"')) {
+    throw new Error("proteus_chimera_relay did not deliver direct agent-to-agent message metadata");
+  }
+  const chimeraCouncil = await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: {
+      root: tmpRoot,
+      action: "start",
+      topic: "MCP stalled branch brainstorm",
+      reason: "MCP checkpoint needs fresh angles",
+      ids: ["CH-0001", "CH-0002"],
+      maxRounds: 1
+    }
+  });
+  const councilText = String(chimeraCouncil.content?.[0]?.text ?? "");
+  const councilId = councilText.match(/"councilId": "([^"]+)"/)?.[1];
+  if (!councilId || !councilText.includes('"participants"')) {
+    throw new Error("proteus_chimera_council start did not return a council id and participants");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "accept", id: "CH-0001", councilId, body: "MCP CH-0001 ready" }
+  });
+  const councilOpenRound = await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "open-round", councilId, round: 1, message: "MCP round 1 opening" }
+  });
+  const councilOpenRoundText = String(councilOpenRound.content?.[0]?.text ?? "");
+  if (!councilOpenRoundText.includes('"firstCue"') || !councilOpenRoundText.includes("it is your ordered turn now") || !councilOpenRoundText.includes("MCP CH-0001 ready")) {
+    throw new Error("proteus_chimera_council open-round did not automatically cue first accepted participant with transcript");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "turn", id: "CH-0001", councilId, round: 1, body: "MCP CH-0001 observation" }
+  });
+  const councilStatus = await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "status", councilId }
+  });
+  const councilStatusText = String(councilStatus.content?.[0]?.text ?? "");
+  if (!councilStatusText.includes('"readyCount": 1') || !councilStatusText.includes("MCP CH-0001 observation")) {
+    throw new Error("proteus_chimera_council status did not recover accept and turn messages");
+  }
+  const councilClose = await request("tools/call", {
+    name: "proteus_chimera_council",
+    arguments: { root: tmpRoot, action: "close", councilId, summary: "MCP council final decision", instruction: "Resume MCP smoke work" }
+  });
+  if (!String(councilClose.content?.[0]?.text ?? "").includes('"closed": true')) {
+    throw new Error("proteus_chimera_council close did not mark the council closed");
+  }
+  await request("tools/call", {
+    name: "proteus_chimera_kill",
+    arguments: { root: tmpRoot, id: "CH-0001", reason: "MCP smoke kill" }
+  });
+  const chimeraClose = await request("tools/call", {
+    name: "proteus_chimera_close",
+    arguments: { root: tmpRoot, id: "CH-0001", verdict: "watchlist", summary: "MCP smoke close" }
+  });
+  if (!String(chimeraClose.content?.[0]?.text ?? "").includes('"closeVerdict": "watchlist"')) {
+    throw new Error("proteus_chimera_close did not persist verdict");
+  }
+
   await request("tools/call", {
     name: "proteus_plan_round",
     arguments: { root: tmpRoot, objective: "MCP smoke plan", markdown: false }
@@ -292,6 +552,13 @@ try {
   if (!String(branchRecords.content?.[0]?.text ?? "").includes("MCP smoke branch")) {
     throw new Error("proteus_list_records did not return recorded branches");
   }
+  const updateBranch = await request("tools/call", {
+    name: "proteus_update_branch",
+    arguments: { root: tmpRoot, id: 1, status: "testing" }
+  });
+  if (!String(updateBranch.content?.[0]?.text ?? "").includes('"status": "testing"')) {
+    throw new Error("proteus_update_branch did not move branch to testing");
+  }
   await request("tools/call", {
     name: "proteus_update_round",
     arguments: { root: tmpRoot, id: 2, status: "paused" }
@@ -393,6 +660,28 @@ try {
   if (!String(decisionRecord.content?.[0]?.text ?? "").includes('"evidenceIds": [\n    1\n  ]')) {
     throw new Error("proteus_get_record did not preserve numeric-string decision evidenceIds");
   }
+  const branchDecision = await request("tools/call", {
+    name: "proteus_record_decision",
+    arguments: {
+      root: tmpRoot,
+      entityType: "hypothesis_branch",
+      entityId: 1,
+      decision: "killed",
+      reason: "MCP smoke branch killed by evidence-backed decision",
+      evidenceIds: ["1"]
+    }
+  });
+  const branchDecisionText = String(branchDecision.content?.[0]?.text ?? "");
+  if (!branchDecisionText.includes('"entityType": "hypothesis_branch"') || !branchDecisionText.includes('"updated"')) {
+    throw new Error("proteus_record_decision did not report branch status update");
+  }
+  const killedBranch = await request("tools/call", {
+    name: "proteus_get_record",
+    arguments: { root: tmpRoot, entityType: "branch", entityId: 1 }
+  });
+  if (!String(killedBranch.content?.[0]?.text ?? "").includes('"status": "killed"')) {
+    throw new Error("proteus_record_decision on branch did not persist killed status");
+  }
   const agentOutput = await request("tools/call", {
     name: "proteus_record_agent_output",
     arguments: {
@@ -489,11 +778,37 @@ try {
   if (!String(revisit.content?.[0]?.text ?? "").includes("Smoke daemon protocol surface")) {
     throw new Error("proteus_query_revisit did not return recorded surface");
   }
+  await request("tools/call", {
+    name: "proteus_chimera_stop_server",
+    arguments: { root: tmpRoot }
+  });
 
   console.log(`Proteus MCP smoke test passed: ${tmpRoot}`);
 } finally {
+  child.stdin.end();
   child.kill();
-  fs.rmSync(tmpRoot, { recursive: true, force: true });
-  fs.rmSync(globalRoot, { recursive: true, force: true });
-  fs.rmSync(mergeSourceRoot, { recursive: true, force: true });
+  await waitForExit(child, 2000);
+  rmTemp(tmpRoot);
+  rmTemp(globalRoot);
+  rmTemp(mergeSourceRoot);
+}
+
+function waitForExit(childProcess, timeoutMs) {
+  if (childProcess.exitCode !== null || childProcess.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    childProcess.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+function rmTemp(target) {
+  try {
+    fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+    console.warn(`warning: could not remove temp path ${target}: ${error.message}`);
+  }
 }

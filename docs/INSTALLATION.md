@@ -20,7 +20,7 @@ proteus --version
 Expected shape:
 
 ```text
-@rafabd1/proteus 1.0.3
+@rafabd1/proteus 2.0.0
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no
@@ -108,6 +108,11 @@ that Proteus ships multiple skills.
 
 ## 3. Claude Code Plugin Install
 
+Claude Code support is experimental and has not been exhaustively tested yet.
+Because Proteus is heavily focused on offensive security research, Claude
+models may also apply safety restrictions that affect exploit-development,
+chaining, or other offsec workflows.
+
 Install directly inside Claude Code:
 
 ```text
@@ -150,6 +155,24 @@ For Codex, use `codex mcp add proteus -- proteus-mcp`. For Claude Code, use
 `claude mcp add -s user proteus -- proteus-mcp`. Plugin hosts that support
 plugin-declared MCP servers can also use `plugins/proteus/.mcp.json`. The
 wrapper builds the runtime if `dist/` is not present yet.
+
+## Optional Chimera Runtime
+
+Chimera mode uses OpenCode for secondary agents. Normal Proteus usage does not
+require OpenCode. Install and configure OpenCode from the official project, then
+enable Chimera for a target:
+
+- OpenCode repository: <https://github.com/anomalyco/opencode>
+- OpenCode docs: <https://opencode.ai/docs/>
+
+```powershell
+proteus chimera config init --opencode-command opencode --model zai/glm-5.2 --variant high
+proteus chimera doctor --root C:\path\to\target
+```
+
+Chimera config is global for the current user. Workspace commands still use
+`--root`. Runs have no default timeout; pass `--timeout N` only for deliberate
+smoke tests or short probes.
 
 ## Uninstall CLI
 

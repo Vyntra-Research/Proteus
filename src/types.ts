@@ -62,6 +62,63 @@ export type BranchStatus =
   | "promoted"
   | "blocked";
 
+export type ChimeraRole =
+  | "generalist"
+  | "explorer"
+  | "codebase-research"
+  | "chaining"
+  | "fuzzing"
+  | "web-intel"
+  | "web-research"
+  | "poc-exploit"
+  | "cicada"
+  | "custom";
+
+export type ChimeraStatus =
+  | "starting"
+  | "running"
+  | "waiting"
+  | "killed"
+  | "closed"
+  | "failed"
+  | "timeout";
+
+export type ChimeraAccessMode =
+  | "explorer"
+  | "editor";
+
+export type ChimeraMessageDirection =
+  | "coordinator_to_agent"
+  | "agent_to_coordinator"
+  | "system";
+
+export type ChimeraMessageKind =
+  | "message"
+  | "redirect"
+  | "finding"
+  | "blocker"
+  | "snapshot"
+  | "heartbeat"
+  | "council"
+  | "kill"
+  | "close"
+  | "error";
+
+export interface ChimeraConfig {
+  enabled: boolean;
+  runtime: "opencode";
+  opencodeCommand: string;
+  opencodeServerUrl: string | null;
+  opencodeServerPid: number | null;
+  defaultModel: string | null;
+  defaultVariant: string | null;
+  defaultAgent: string | null;
+  maxAgents: number;
+  defaultTimeoutSec: number;
+  defaultNetwork: boolean;
+  skipPermissions: boolean;
+}
+
 export interface TargetContract {
   target: string;
   scopeRoot: string;
