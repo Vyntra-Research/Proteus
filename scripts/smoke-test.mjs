@@ -20,6 +20,7 @@ const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
 const concurrencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-concurrency-smoke-"));
 const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
 const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
+const chimeraCampaignListRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-campaign-list-smoke-"));
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
@@ -295,9 +296,9 @@ try {
   if (liveRunResult.code !== 0 || !liveRunResult.stdout.includes('"killed": true')) {
     throw new Error(`live Chimera kill did not terminate the running OpenCode process cleanly\nstdout=${liveRunResult.stdout}\nstderr=${liveRunResult.stderr}`);
   }
-  const killedSession = run(["chimera", "list", "--root", killRoot], killRoot);
-  if (!killedSession.includes('"status": "killed"') || fs.existsSync(path.join(killRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"))) {
-    throw new Error("live Chimera kill did not persist killed status and clear opencode.pid");
+  const killedSession = run(["chimera", "list", "--root", killRoot, "--all"], killRoot);
+  if (!killedSession.includes('"status": "stopped"') || !killedSession.includes('"closeVerdict": "kill"') || fs.existsSync(path.join(killRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"))) {
+    throw new Error("live Chimera kill did not persist stopped kill verdict and clear opencode.pid");
   }
   run(["chimera", "stop-server", "--root", killRoot], killRoot);
   if (!fs.existsSync(path.join(globalRoot, "chimera", "config.json"))) {
@@ -398,25 +399,17 @@ try {
   if (notificationAfterAgentPoll.pending !== false || notificationAfterAgentPoll.priority !== false || notificationAfterAgentPoll.unreadForAgent !== 0) {
     throw new Error("chimera agent poll did not clear notifications.json");
   }
-  const chimeraBroadcast = run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]);
-  if (!chimeraBroadcast.includes('"delivered"') || !chimeraBroadcast.includes("Smoke shared chat message")) {
-    throw new Error("chimera broadcast did not deliver shared chat message");
-  }
-  const notificationAfterBroadcast = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
-  if (notificationAfterBroadcast.pending !== true || notificationAfterBroadcast.priority !== true || notificationAfterBroadcast.latestKind !== "message") {
-    throw new Error("chimera broadcast did not update priority notifications.json");
-  }
-  const chimeraBroadcastUnread = run(["chimera", "poll", "--id", "CH-0001", "--unread", "--agent"]);
-  if (!chimeraBroadcastUnread.includes("Smoke shared chat message")) {
-    throw new Error("chimera broadcast was not visible to the destination agent");
+  const chimeraBroadcast = JSON.parse(run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]));
+  if (chimeraBroadcast.delivered.length !== 0 || !chimeraBroadcast.skipped.some((entry) => entry.publicId === "CH-0001" && entry.reason === "status stopped")) {
+    throw new Error(`chimera broadcast should skip stopped sessions: ${JSON.stringify(chimeraBroadcast)}`);
   }
   run(["chimera", "snapshot", "--id", "CH-0001", "--body", "Confirmed smoke snapshot"]);
   if (!fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/snapshot.md"), "utf8").includes("Confirmed smoke snapshot")) {
     throw new Error("chimera snapshot did not write snapshot.md");
   }
-  const chimeraHeartbeat = run(["chimera", "heartbeat", "--id", "CH-0001"]);
-  if (!chimeraHeartbeat.includes('"alive": true')) {
-    throw new Error("chimera heartbeat did not report alive session");
+  const chimeraHeartbeat = JSON.parse(run(["chimera", "heartbeat", "--id", "CH-0001"]));
+  if (chimeraHeartbeat.killed !== false || chimeraHeartbeat.session?.publicId !== "CH-0001" || chimeraHeartbeat.session?.status !== "stopped") {
+    throw new Error(`chimera heartbeat did not report stopped reusable session state: ${JSON.stringify(chimeraHeartbeat)}`);
   }
   run(["init", "--root", chimeraScopeRoot, "--name", "chimera-scope-smoke"], chimeraScopeRoot);
   run(["campaign", "create", "--root", chimeraScopeRoot, "--title", "Chimera scoped campaign", "--objective", "Validate Chimera scoped records"], chimeraScopeRoot);
@@ -462,6 +455,75 @@ try {
   if (!chimeraScopedLinks.includes(`campaign#1 -[has_evidence]-> evidence#${chimeraScopedEvidenceId}`)) {
     throw new Error("Chimera scoped evidence did not link to the session campaign");
   }
+  if (!chimeraScopedLinks.includes("campaign#1 -[has_chimera_session]-> chimera_session#1")) {
+    throw new Error("Chimera session did not link to the active campaign");
+  }
+  run(["init", "--root", chimeraCampaignListRoot, "--name", "chimera-campaign-list-smoke"], chimeraCampaignListRoot);
+  run(["campaign", "create", "--root", chimeraCampaignListRoot, "--title", "Chimera active campaign A", "--objective", "Validate campaign-scoped Chimera list A"], chimeraCampaignListRoot);
+  run(["campaign", "create", "--root", chimeraCampaignListRoot, "--title", "Chimera active campaign B", "--objective", "Validate campaign-scoped Chimera list B"], chimeraCampaignListRoot);
+  const campaignRunA = spawn(process.execPath, [
+    cli,
+    "chimera",
+    "start",
+    "--root",
+    chimeraCampaignListRoot,
+    "--role",
+    "explorer",
+    "--goal",
+    "Campaign A active list smoke",
+    "--campaign-id",
+    "1",
+    "--run",
+    "--timeout",
+    "30"
+  ], {
+    cwd: chimeraCampaignListRoot,
+    env: smokeEnv({ MOCK_OPENCODE_SLEEP_MS: "30000" }),
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  waitForFile(path.join(chimeraCampaignListRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"));
+  const campaignRunB = spawn(process.execPath, [
+    cli,
+    "chimera",
+    "start",
+    "--root",
+    chimeraCampaignListRoot,
+    "--role",
+    "explorer",
+    "--goal",
+    "Campaign B active list smoke",
+    "--campaign-id",
+    "2",
+    "--run",
+    "--timeout",
+    "30"
+  ], {
+    cwd: chimeraCampaignListRoot,
+    env: smokeEnv({ MOCK_OPENCODE_SLEEP_MS: "30000" }),
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  waitForFile(path.join(chimeraCampaignListRoot, ".vros/chimera/sessions/CH-0002/opencode/opencode.pid"));
+  const multiCampaignActiveList = JSON.parse(run(["chimera", "list", "--root", chimeraCampaignListRoot, "--active"], chimeraCampaignListRoot));
+  const multiCampaignIds = multiCampaignActiveList.sessions.map((session) => session.publicId);
+  const multiCampaignLabels = multiCampaignActiveList.sessions.map((session) => session.campaignLabel).join("\n");
+  if (
+    multiCampaignActiveList.scope?.activeOnly !== true ||
+    multiCampaignActiveList.scope?.campaignIds?.length !== 2 ||
+    !multiCampaignIds.includes("CH-0001") ||
+    !multiCampaignIds.includes("CH-0002") ||
+    !multiCampaignLabels.includes("C1 [active] Chimera active campaign A") ||
+    !multiCampaignLabels.includes("C2 [active] Chimera active campaign B")
+  ) {
+    throw new Error(`chimera list --active did not return active sessions from all active campaigns with campaign labels: ${JSON.stringify(multiCampaignActiveList)}`);
+  }
+  const multiCampaignBroadcast = JSON.parse(run(["chimera", "broadcast", "--root", chimeraCampaignListRoot, "--message", "Active campaign broadcast smoke", "--priority"], chimeraCampaignListRoot));
+  if (multiCampaignBroadcast.delivered.length !== 2 || multiCampaignBroadcast.skipped.length !== 0) {
+    throw new Error(`chimera broadcast did not deliver only to active sessions: ${JSON.stringify(multiCampaignBroadcast)}`);
+  }
+  run(["chimera", "kill", "--root", chimeraCampaignListRoot, "--id", "CH-0001", "--reason", "Campaign list smoke done"], chimeraCampaignListRoot);
+  run(["chimera", "kill", "--root", chimeraCampaignListRoot, "--id", "CH-0002", "--reason", "Campaign list smoke done"], chimeraCampaignListRoot);
+  await waitForChild(campaignRunA);
+  await waitForChild(campaignRunB);
   const chimeraRun = JSON.parse(run([
     "chimera",
     "start",
@@ -659,8 +721,13 @@ try {
     throw new Error("chimera close did not persist final verdict");
   }
   const activeChimeraList = run(["chimera", "list", "--active"]);
-  if (activeChimeraList.includes('"publicId": "CH-0001"') || !activeChimeraList.includes('"publicId": "CH-0002"')) {
-    throw new Error("chimera list --active did not hide closed sessions while keeping reusable sessions");
+  const activeChimeraListJson = JSON.parse(activeChimeraList);
+  if (activeChimeraListJson.sessions.some((session) => session.publicId === "CH-0001" || session.status === "stopped")) {
+    throw new Error("chimera list --active returned stopped sessions");
+  }
+  const reusableChimeraList = JSON.parse(run(["chimera", "list"]));
+  if (!reusableChimeraList.sessions.some((session) => session.publicId === "CH-0001" && session.status === "stopped" && session.closeVerdict === "watchlist") || !JSON.stringify(reusableChimeraList.advisories).includes("Session is stopped")) {
+    throw new Error("chimera list did not expose reusable stopped sessions with resume guidance");
   }
   run(["init", "--root", mergeRoot, "--name", "stray-merge-target"], mergeRoot);
   run([
@@ -1128,7 +1195,7 @@ try {
 
   console.log(`Proteus smoke test passed: ${tmpRoot}`);
 } finally {
-  for (const root of [tmpRoot, killRoot, chimeraScopeRoot, chimeraGeneralistRoot]) {
+  for (const root of [tmpRoot, killRoot, chimeraScopeRoot, chimeraGeneralistRoot, chimeraCampaignListRoot]) {
     stopChimeraServer(root);
   }
   killMockOpenCodeServers();
@@ -1141,7 +1208,8 @@ try {
     killRoot,
     concurrencyRoot,
     chimeraScopeRoot,
-    chimeraGeneralistRoot
+    chimeraGeneralistRoot,
+    chimeraCampaignListRoot
   ]) {
     rmTemp(root);
   }

@@ -393,19 +393,13 @@ try {
   if (!String(chimeraAgentPoll.content?.[0]?.text ?? "").includes('"priority": true')) {
     throw new Error("proteus_chimera_send did not preserve priority metadata");
   }
-  await request("tools/call", {
+  const chimeraBroadcast = await request("tools/call", {
     name: "proteus_chimera_broadcast",
     arguments: { root: tmpRoot, message: "MCP shared chat", priority: true }
   });
-  const chimeraBroadcastPoll = await request("tools/call", {
-    name: "proteus_chimera_poll",
-    arguments: { root: tmpRoot, id: "CH-0001", unreadOnly: true, forAgent: true }
-  });
-  if (!String(chimeraBroadcastPoll.content?.[0]?.text ?? "").includes("MCP shared chat")) {
-    throw new Error("proteus_chimera_broadcast did not deliver shared chat to agent");
-  }
-  if (!String(chimeraBroadcastPoll.content?.[0]?.text ?? "").includes('"priority": true')) {
-    throw new Error("proteus_chimera_broadcast did not preserve priority metadata");
+  const chimeraBroadcastJson = JSON.parse(String(chimeraBroadcast.content?.[0]?.text ?? "{}"));
+  if (chimeraBroadcastJson.record?.delivered?.length !== 0 || !chimeraBroadcastJson.record?.skipped?.some((entry) => entry.publicId === "CH-0001" && entry.reason === "status stopped")) {
+    throw new Error("proteus_chimera_broadcast should skip stopped sessions");
   }
   await request("tools/call", {
     name: "proteus_chimera_snapshot",
@@ -415,8 +409,9 @@ try {
     name: "proteus_chimera_heartbeat",
     arguments: { root: tmpRoot, id: "CH-0001" }
   });
-  if (!String(chimeraHeartbeat.content?.[0]?.text ?? "").includes('"alive": true')) {
-    throw new Error("proteus_chimera_heartbeat did not report alive");
+  const chimeraHeartbeatJson = JSON.parse(String(chimeraHeartbeat.content?.[0]?.text ?? "{}"));
+  if (chimeraHeartbeatJson.record?.killed !== false || chimeraHeartbeatJson.record?.session?.publicId !== "CH-0001" || chimeraHeartbeatJson.record?.session?.status !== "stopped") {
+    throw new Error("proteus_chimera_heartbeat did not report stopped reusable session state");
   }
   const chimeraSwarm = await request("tools/call", {
     name: "proteus_chimera_swarm",
@@ -524,8 +519,17 @@ try {
     arguments: { root: tmpRoot, active: true }
   });
   const activeChimeraListText = String(activeChimeraList.content?.[0]?.text ?? "");
-  if (activeChimeraListText.includes('"publicId": "CH-0001"') || !activeChimeraListText.includes('"publicId": "CH-0002"')) {
-    throw new Error("proteus_chimera_list active=true did not hide closed sessions while keeping reusable sessions");
+  const activeChimeraListJson = JSON.parse(activeChimeraListText);
+  if (activeChimeraListJson.record?.sessions?.some((session) => session.publicId === "CH-0001" || session.status === "stopped")) {
+    throw new Error("proteus_chimera_list active=true returned stopped sessions");
+  }
+  const reusableChimeraList = await request("tools/call", {
+    name: "proteus_chimera_list",
+    arguments: { root: tmpRoot }
+  });
+  const reusableChimeraListJson = JSON.parse(String(reusableChimeraList.content?.[0]?.text ?? "{}"));
+  if (!reusableChimeraListJson.record?.sessions?.some((session) => session.publicId === "CH-0001" && session.status === "stopped" && session.closeVerdict === "watchlist") || !JSON.stringify(reusableChimeraListJson.record?.advisories).includes("Session is stopped")) {
+    throw new Error("proteus_chimera_list did not expose reusable stopped sessions with resume guidance");
   }
 
   await request("tools/call", {

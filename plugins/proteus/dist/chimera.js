@@ -24,6 +24,7 @@ exports.snapshotChimeraSession = snapshotChimeraSession;
 exports.heartbeatChimeraSession = heartbeatChimeraSession;
 exports.pollChimeraMessages = pollChimeraMessages;
 exports.listChimeraSessions = listChimeraSessions;
+exports.listChimeraSessionView = listChimeraSessionView;
 exports.recoverChimeraSession = recoverChimeraSession;
 exports.killChimeraSession = killChimeraSession;
 exports.closeChimeraSession = closeChimeraSession;
@@ -176,7 +177,7 @@ function startChimeraSession(db, input) {
     });
     const linked = linkChimeraSession(db, session);
     const shouldRunSynchronously = input.run === true && typeof input.timeoutSec === "number" && input.timeoutSec > 0;
-    let updated = db.updateChimeraSession({ publicId: session.publicId, status: shouldRunSynchronously ? "running" : "ready" });
+    let updated = db.updateChimeraSession({ publicId: session.publicId, status: shouldRunSynchronously ? "running" : "stopped" });
     writeStatusFile(db, updated, { linked });
     let run;
     let backgroundRun;
@@ -240,7 +241,7 @@ function broadcastChimeraMessage(db, input) {
             skipped.push({ publicId: session.publicId, reason: "source session" });
             continue;
         }
-        if (!input.includeClosed && ["closed", "failed", "killed", "timeout"].includes(session.status)) {
+        if (!isActiveChimeraStatus(session)) {
             skipped.push({ publicId: session.publicId, reason: `status ${session.status}` });
             continue;
         }
@@ -559,7 +560,7 @@ function heartbeatChimeraSession(db, publicId) {
     const current = refreshChimeraRuntime(db, requireChimeraSession(db, publicId));
     const killPath = node_path_1.default.join(current.sessionDir, "kill.flag");
     const killed = node_fs_1.default.existsSync(killPath);
-    const session = db.updateChimeraSession({ publicId, status: killed ? "killed" : current.status === "starting" ? "running" : current.status });
+    const session = db.updateChimeraSession({ publicId, status: killed ? "stopped" : current.status === "starting" ? "running" : current.status });
     if (!killed) {
         db.addChimeraMessage({
             publicId,
@@ -571,7 +572,7 @@ function heartbeatChimeraSession(db, publicId) {
     }
     writeStatusFile(db, session);
     return {
-        alive: !killed && session.status !== "closed" && session.status !== "failed" && session.status !== "timeout",
+        alive: !killed && session.status !== "stopped",
         killed,
         session,
         killReason: killed ? node_fs_1.default.readFileSync(killPath, "utf8") : undefined
@@ -622,6 +623,40 @@ function listChimeraSessions(db, input = {}) {
         .map((session) => refreshChimeraRuntime(db, session));
     return activeOnly ? sessions.filter(isActiveChimeraStatus).slice(0, limit) : sessions;
 }
+function listChimeraSessionView(db, input = {}) {
+    const limit = input.limit ?? 50;
+    const status = input.status ?? null;
+    const activeOnly = status === "active";
+    const all = input.all === true;
+    const activeCampaigns = db.listCampaigns("active");
+    const activeCampaignIds = new Set(activeCampaigns.map((campaign) => campaign.id));
+    const rawLimit = all || activeCampaignIds.size === 0 ? limit : Math.max(limit * 6, 300);
+    let sessions = listChimeraSessions(db, { status: status ?? undefined, limit: rawLimit });
+    const campaignMap = new Map(db.listCampaigns().map((campaign) => [campaign.id, campaign]));
+    if (!all && activeCampaignIds.size > 0) {
+        sessions = sessions.filter((session) => campaignIdsForChimeraSession(db, session).some((id) => activeCampaignIds.has(id)));
+    }
+    const items = sessions.slice(0, limit).map((session) => enrichChimeraSessionForList(db, session, campaignMap));
+    const campaignScope = activeCampaigns.map(publicCampaignSummary);
+    const reason = all
+        ? "all sessions requested"
+        : activeCampaigns.length > 0
+            ? "filtered to sessions linked to active campaigns"
+            : "no active campaigns; showing recent sessions";
+    return {
+        sessions: items,
+        scope: {
+            activeOnly,
+            all,
+            status,
+            campaignIds: all ? [] : campaignScope.map((campaign) => campaign.id),
+            reason
+        },
+        activeCampaigns: campaignScope,
+        advisories: chimeraListAdvisories(activeOnly, all, activeCampaigns.length),
+        limit
+    };
+}
 function recoverChimeraSession(db, publicId) {
     const recovered = recoverChimeraRuntime(db, requireChimeraSession(db, publicId));
     return {
@@ -647,13 +682,16 @@ function killChimeraSession(db, publicId, reason) {
     const pid = session.opencodePid ?? readPidFile(node_path_1.default.join(session.sessionDir, "opencode", "opencode.pid"));
     if (pid)
         terminateProcess(pid);
-    const updated = db.updateChimeraSession({ publicId, status: "killed", closeVerdict: "kill", closeSummary: reason });
+    const updated = db.updateChimeraSession({ publicId, status: "stopped", closeVerdict: "kill", closeSummary: reason });
     writeStatusFile(db, updated, { killReason: reason });
-    return updated;
+    return {
+        session: updated,
+        advisories: [chimeraResumeHint()]
+    };
 }
 function closeChimeraSession(db, publicId, verdict, summary) {
     const current = refreshChimeraRuntime(db, requireChimeraSession(db, publicId));
-    const updated = db.updateChimeraSession({ publicId, status: "closed", closeVerdict: verdict, closeSummary: summary });
+    const updated = db.updateChimeraSession({ publicId, status: "stopped", closeVerdict: verdict, closeSummary: summary });
     db.addChimeraMessage({
         publicId,
         direction: "system",
@@ -712,7 +750,8 @@ function runChimeraSession(db, publicId, timeoutSec, options = {}) {
     const promptPath = node_path_1.default.join(session.sessionDir, "opencode", "prompt.md");
     if (!node_fs_1.default.existsSync(promptPath))
         throw new Error(`Missing Chimera prompt: ${promptPath}`);
-    const running = db.updateChimeraSession({ publicId, status: "running" });
+    clearKillFlag(session);
+    const running = db.updateChimeraSession({ publicId, status: "running", closeVerdict: null, closeSummary: null });
     writeStatusFile(db, running, { runStartedAt: new Date().toISOString() });
     const instruction = renderRunInstruction(running, options.instruction);
     if (options.instruction?.trim()) {
@@ -742,6 +781,7 @@ function startChimeraRunBackground(db, publicId, timeoutSec, options = {}) {
     }
     const opencodeDir = node_path_1.default.join(session.sessionDir, "opencode");
     (0, paths_1.ensureDir)(opencodeDir);
+    clearKillFlag(session);
     const backgroundLogPath = node_path_1.default.join(opencodeDir, "background-run.log");
     const backgroundErrPath = node_path_1.default.join(opencodeDir, "background-run.err.log");
     const backgroundPidPath = node_path_1.default.join(opencodeDir, "background-run.pid");
@@ -749,7 +789,9 @@ function startChimeraRunBackground(db, publicId, timeoutSec, options = {}) {
     const starting = db.updateChimeraSession({
         publicId: session.publicId,
         status: "starting",
-        opencodePid: null
+        opencodePid: null,
+        closeVerdict: null,
+        closeSummary: null
     });
     writeStatusFile(db, starting, { backgroundRunStartedAt: new Date().toISOString() });
     const args = [
@@ -807,7 +849,8 @@ function wakeChimeraSession(db, publicId, input = {}) {
     (0, paths_1.ensureDir)(opencodeDir);
     const promptPath = node_path_1.default.join(opencodeDir, `wake-${input.messageId ?? "latest"}.md`);
     node_fs_1.default.writeFileSync(promptPath, renderWakePrompt(db, session, input.messageId));
-    const running = db.updateChimeraSession({ publicId, status: "running" });
+    clearKillFlag(session);
+    const running = db.updateChimeraSession({ publicId, status: "running", closeVerdict: null, closeSummary: null });
     writeStatusFile(db, running, { wakeStartedAt: new Date().toISOString(), wakeMessageId: input.messageId ?? null });
     const run = runOpenCodeOnce(db, running, promptPath, config, resolveRunTimeoutSec(config, input.timeoutSec), `Priority Proteus wake for ${session.publicId}. Read the attached wake instructions, poll Proteus unread messages immediately, perform only the requested communication/control action, then stop.`);
     const updated = db.updateChimeraSession({
@@ -1391,15 +1434,12 @@ function linkChimeraSession(db, session) {
     return linked;
 }
 function resolveCouncilParticipants(db, sessionIds) {
-    const closedStatuses = new Set(["closed", "failed", "killed", "timeout"]);
     if (sessionIds && sessionIds.length > 0) {
-        return sessionIds
-            .map((id) => requireChimeraSession(db, id))
-            .filter((session) => !closedStatuses.has(session.status));
+        return sessionIds.map((id) => requireChimeraSession(db, id));
     }
     return db
         .listChimeraSessions({ limit: 500 })
-        .filter((session) => !closedStatuses.has(session.status))
+        .filter(isActiveChimeraStatus)
         .reverse();
 }
 function councilMessages(db, councilId) {
@@ -1642,6 +1682,17 @@ function writeStatusFile(db, session, extra = {}) {
     (0, paths_1.ensureDir)(session.sessionDir);
     node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "status.json"), JSON.stringify({ session, extra }, null, 2) + "\n");
 }
+function clearKillFlag(session) {
+    try {
+        node_fs_1.default.rmSync(node_path_1.default.join(session.sessionDir, "kill.flag"), { force: true });
+    }
+    catch {
+        // Best-effort; a missing or locked kill flag will be handled by the controlled run.
+    }
+}
+function chimeraResumeHint() {
+    return "Session is stopped, not destroyed. For the same dossier/lab, prefer chimera send --id for queued or priority steering; use chimera run --message only when intentionally starting another work cycle.";
+}
 function refreshChimeraRuntime(db, session) {
     return recoverChimeraRuntime(db, session).session;
 }
@@ -1661,8 +1712,8 @@ function recoverChimeraRuntime(db, session) {
             actions.push("kept starting status during bootstrap grace window");
         }
         else {
-            current = db.updateChimeraSession({ publicId: current.publicId, status: "waiting", opencodePid: null });
-            actions.push("recovered to waiting because no live OpenCode process was found");
+            current = db.updateChimeraSession({ publicId: current.publicId, status: "stopped", opencodePid: null });
+            actions.push("recovered to stopped because no live OpenCode process was found");
             writeStatusFile(db, current, { recovery: actions });
         }
     }
@@ -1840,16 +1891,13 @@ function chimeraControlStatus(db, session) {
     const unreadMessages = db.listChimeraMessages({ publicId: session.publicId, unreadFor: "agent", limit: 500 });
     const unreadForAgent = unreadMessages.length;
     const priorityPending = unreadMessages.some(isPriorityMessage);
-    const closed = ["closed", "failed", "killed", "timeout"].includes(session.status);
-    const deliveryState = closed
-        ? "closed"
-        : session.status === "running" || session.opencodeSessionId
-            ? "live"
-            : session.status === "starting"
-                ? "starting"
-                : "queued";
+    const deliveryState = session.status === "running" || session.opencodeSessionId
+        ? "live"
+        : session.status === "starting"
+            ? "starting"
+            : "queued";
     let recommendedNextCommand = null;
-    if (!closed && priorityPending) {
+    if (priorityPending) {
         if (deliveryState === "queued") {
             const latestPriority = unreadMessages.find(isPriorityMessage);
             recommendedNextCommand = `proteus chimera wake --root "${db.targetRoot}" --id ${session.publicId}${latestPriority ? ` --message-id ${latestPriority.id}` : ""}`;
@@ -1944,9 +1992,6 @@ function maybeWakeChimeraSession(db, session, message) {
     if (session.status === "running" || session.status === "starting") {
         return { attempted: false, started: false, pid: null, reason: `session is ${session.status}` };
     }
-    if (session.status === "closed" || session.status === "killed" || session.status === "failed") {
-        return { attempted: false, started: false, pid: null, reason: `session is ${session.status}` };
-    }
     const config = getChimeraConfig();
     const promptPath = node_path_1.default.join(session.sessionDir, "opencode", "prompt.md");
     if (!node_fs_1.default.existsSync(promptPath)) {
@@ -1994,10 +2039,51 @@ function maybeWakeChimeraSession(db, session, message) {
     };
 }
 function isActiveChimeraStatus(session) {
-    return session.status === "starting" ||
-        session.status === "running" ||
-        session.status === "ready" ||
-        session.status === "waiting";
+    return session.status === "starting" || session.status === "running";
+}
+function enrichChimeraSessionForList(db, session, campaignMap) {
+    const campaigns = campaignIdsForChimeraSession(db, session)
+        .map((id) => campaignMap.get(id))
+        .filter((campaign) => Boolean(campaign))
+        .map(publicCampaignSummary);
+    return {
+        ...session,
+        campaigns,
+        campaignLabel: campaigns.length > 0
+            ? campaigns.map((campaign) => `C${campaign.id} [${campaign.status}] ${campaign.title}`).join("; ")
+            : "unlinked",
+        resumeHint: chimeraResumeHint()
+    };
+}
+function campaignIdsForChimeraSession(db, session) {
+    const ids = new Set();
+    if (session.campaignId)
+        ids.add(session.campaignId);
+    for (const link of db.listEntityLinks({ entityType: "chimera_session", entityId: session.id, limit: 1000 })) {
+        if (link.fromType === "campaign" && link.toType === "chimera_session" && link.toId === session.id) {
+            ids.add(link.fromId);
+        }
+        if (link.toType === "campaign" && link.fromType === "chimera_session" && link.fromId === session.id) {
+            ids.add(link.toId);
+        }
+    }
+    return [...ids].sort((a, b) => a - b);
+}
+function publicCampaignSummary(campaign) {
+    return { id: campaign.id, title: campaign.title, status: campaign.status };
+}
+function chimeraListAdvisories(activeOnly, all, activeCampaignCount) {
+    const advisories = [];
+    if (activeOnly) {
+        advisories.push("Active means currently starting or running. Stopped sessions are reusable but not live.");
+    }
+    else {
+        advisories.push(chimeraResumeHint());
+    }
+    if (!all && activeCampaignCount > 0) {
+        advisories.push("Default list scope is sessions linked to active campaigns. Use --all to include every historical Chimera session.");
+    }
+    return advisories;
 }
 function renderSteerPrompt(db, session, message) {
     const metadata = metadataObject(message.metadata) ?? {};
@@ -2128,12 +2214,12 @@ function listOpenCodeSessions(serverUrl) {
 }
 function chimeraStatusAfterRun(run, session) {
     if (run.exitCode === 0 || run.timedOut)
-        return "waiting";
+        return "stopped";
     if (run.killed)
-        return "killed";
+        return "stopped";
     if (session?.opencodeSessionId || run.stdoutPreview.includes('"type":"error"'))
-        return "waiting";
-    return "failed";
+        return "stopped";
+    return "stopped";
 }
 function httpJson(url, options = {}) {
     const script = `

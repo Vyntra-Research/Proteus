@@ -150,16 +150,19 @@ proteus chimera swarm --root <workspace> --plan chimera-swarm.json
 ```
 
 `start` creates the lab, writes the dossier and contract, and starts OpenCode
-bootstrap automatically. Do not follow every `start` with `run`. `waiting`
-means the Chimera session is persisted and reusable, not necessarily that a
-live agent is connected and listening. Use normal `send` to queue a message in
-the session inbox. Use `send --priority` when the destination should be nudged
-to poll soon. Use `chimera run --id <CH-ID> --message "..."` only when you
-intentionally want to resume a parked existing session for another work cycle
-without creating a new lab. Run and wake operations have no default wall-clock
-timeout. Use `--timeout N` only for a deliberate smoke test or short bounded
-probe. For normal research, let the agent continue until its stop condition,
-blocker, kill, or close event.
+bootstrap automatically. Do not follow every `start` with `run`. `starting`
+and `running` are the only live session states. `stopped` means the session is
+persisted and reusable, not necessarily that a live agent is connected and
+listening. `kill`, `close`, failed runs, completed runs, and legacy parked or
+error states all resolve to a stopped session with verdict details stored separately.
+Use normal `send` to queue a message in the session inbox. Use `send --priority`
+when the destination should be nudged to poll soon. Use
+`chimera run --id <CH-ID> --message "..."` only when you intentionally want to
+resume a parked existing session for another work cycle without creating a new
+lab. Run and wake operations have no default wall-clock timeout. Use
+`--timeout N` only for a deliberate smoke test or short bounded probe. For
+normal research, let the agent continue until its stop condition, blocker,
+kill, or close event.
 
 Coordinator duties:
 
@@ -167,9 +170,14 @@ Coordinator duties:
   independent, rational research fronts that choose their own concrete next
   probes, labs, PoCs, payloads, and validation steps inside the assigned scope;
 - use `proteus chimera start` to create and auto-start a new co-agent front;
-- use `proteus chimera list --active` to recover existing reusable sessions
-  before creating new ones. Use unfiltered `list` only when you explicitly need
-  closed, killed, failed, or timed-out history;
+- use `proteus chimera list` first to recover reusable sessions linked to the
+  active campaign set before creating new ones. When multiple campaigns are
+  active, list returns sessions from all active campaigns and shows which
+  campaign each session belongs to;
+- use `proteus chimera list --active` only when you need sessions that are
+  actually live now, meaning `starting` or `running`;
+- use `proteus chimera list --all --limit <n>` only when you explicitly need
+  historical sessions outside the active campaign set;
 - use `proteus chimera poll` to read Proteus-brokered messages and session
   control status;
 - use `proteus chimera workflow-snapshot` to inspect recent OpenCode assistant
@@ -243,13 +251,13 @@ noise. Share facts, pivots, dedupe discoveries, scope changes, and concrete
 questions. Co-agents do not need to answer every broadcast; they should answer
 direct questions and messages that materially affect their branch.
 
-Before creating a new Chimera agent, prefer to reuse an active or waiting
+Before creating a new Chimera agent, prefer to reuse an active or stopped
 session with the same role/front/lab context. Use `proteus chimera list` to
-check existing sessions, usually with `--active`, then continue with `poll`, `workflow-snapshot`,
-`heartbeat`, `send`, `send --priority`, or `run --message` only when the
-session is actually parked and should start another work cycle. Start a new
-co-agent only when the campaign needs a distinct front, model, access mode, or
-independent lab.
+check existing sessions in the active campaign set, then continue with `poll`,
+`workflow-snapshot`, `heartbeat`, `send`, `send --priority`, or `run --message`
+only when the session is actually parked and should start another work cycle.
+Start a new co-agent only when the campaign needs a distinct front, model,
+access mode, or independent lab.
 
 ### Chimera Brainstorm Council
 

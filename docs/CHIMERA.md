@@ -54,10 +54,12 @@ proteus chimera start --root C:\path\to\target --role chaining --goal "Develop n
 ```
 
 `start` creates the lab, writes the dossier and contract, and starts OpenCode
-bootstrap automatically. `waiting` means the Chimera session is persisted and
-reusable, but no Proteus-controlled OpenCode process is necessarily listening.
-Use `run` only when intentionally resuming or recovering an existing
-non-running session into another work cycle:
+bootstrap automatically. `starting` and `running` are live states. `stopped`
+means the Chimera session is persisted and reusable, but no Proteus-controlled
+OpenCode process is necessarily listening. `kill`, `close`, failed runs, and
+completed runs all leave a reusable stopped session with the verdict or summary
+stored separately. Use `run` only when intentionally resuming or recovering an
+existing non-running session into another work cycle:
 
 ```powershell
 proteus chimera run --root C:\path\to\target --id CH-0001 --message "Continue the same front, but prioritize parser side effects."
@@ -71,6 +73,12 @@ poll, or `run --message` only when the session should do another full work
 cycle. `run` and priority `wake` do not time out by default, so an active
 OpenCode agent can keep working until it finishes, blocks, is killed, or is
 closed.
+
+Use `chimera list --active` when you only want sessions that are actually
+`starting` or `running`. Without `--active`, `chimera list` defaults to sessions
+linked to currently active campaigns. When multiple campaigns are active, it
+returns sessions from all of them and each session includes its campaign label.
+Use `--all` to inspect historical sessions outside the active campaign set.
 
 If status, pid, or OpenCode session attachment looks stale, use `recover`
 before deciding to start a new session or run an existing one again:
@@ -145,11 +153,13 @@ research fronts and bring different angles, but they do not promote findings or
 bypass Proteus gates.
 
 Do not create a new session for every coordinator turn. Use
-`proteus chimera list --root ... --active` first, inspect role, goal, status,
-lab path, and `opencodeSessionId`, then reuse the existing `CH-...` session with
-`chimera run --id`, priority `send`, `broadcast`, or a council redirect when
-the front is still the same. New sessions are for genuinely separate fronts,
-models, access modes, or labs.
+`proteus chimera list --root ...` first, inspect role, goal, campaign label,
+status, lab path, and `opencodeSessionId`, then reuse the existing `CH-...`
+session with normal `send`, priority `send`, `workflow-snapshot`, or
+`chimera run --id --message` when the front is still the same. Use
+`chimera list --active` only when you specifically need currently live
+sessions. New sessions are for genuinely separate fronts, models, access
+modes, or labs.
 
 Co-agents may read campaign context, but campaign and round state belongs to
 the coordinator. From inside a Chimera session, Proteus blocks `campaign
@@ -209,6 +219,9 @@ Coordinator to all active agents:
 ```powershell
 proteus chimera broadcast --root C:\path\to\target --message "Shared pivot: B7 matters only if it crosses the policy cache boundary."
 ```
+
+Broadcast only targets active Chimera sessions. Use direct `send --id` for a
+stopped session that should receive queued context or be nudged back into work.
 
 Agent to coordinator:
 

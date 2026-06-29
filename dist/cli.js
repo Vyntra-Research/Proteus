@@ -291,15 +291,15 @@ function cmdChimera(db, subcommand, parsed) {
                     body: requiredString(parsed, "message"),
                     kind: chimeraMessageKind(parsed, "kind", "message"),
                     fromId: optionalCurrentChimeraSessionId(db, parsed, "from-id"),
-                    includeClosed: getBoolean(parsed, "include-closed"),
                     priority: getBoolean(parsed, "priority")
                 })
             }, null, 2));
             return;
         case "list":
-            console.log(JSON.stringify((0, chimera_1.listChimeraSessions)(db, {
+            console.log(JSON.stringify((0, chimera_1.listChimeraSessionView)(db, {
                 limit: getNumber(parsed, "limit"),
-                status: getBoolean(parsed, "active") ? "active" : chimeraListStatus(getString(parsed, "status"))
+                status: getBoolean(parsed, "active") ? "active" : chimeraListStatus(getString(parsed, "status")),
+                all: getBoolean(parsed, "all")
             }), null, 2));
             return;
         case "recover":
@@ -1123,12 +1123,7 @@ function chimeraListStatus(value) {
     if (value === "active" ||
         value === "starting" ||
         value === "running" ||
-        value === "ready" ||
-        value === "waiting" ||
-        value === "killed" ||
-        value === "closed" ||
-        value === "failed" ||
-        value === "timeout")
+        value === "stopped")
         return value;
     throw new Error(`Invalid Chimera status filter: ${value}`);
 }
@@ -1482,7 +1477,7 @@ Usage:
   proteus chimera send|broadcast|post|snapshot|workflow-snapshot|heartbeat|run|wake|poll|list|recover|kill|close --root <path>
   proteus chimera run --root <path> --id <CH-ID> [--message <text>] [--timeout <seconds|0>]
   proteus chimera wake --root <path> --id <CH-ID> [--timeout <seconds|0>]
-  proteus chimera list --root <path> [--active] [--status active|starting|running|waiting|closed|killed|failed|timeout] [--limit <n>]
+  proteus chimera list --root <path> [--active] [--status active|starting|running|stopped] [--all] [--limit <n>]
   proteus chimera send --root <path> --id <CH-ID> --message <text> [--priority]
   proteus chimera send --root <path> --to-id <CH-ID> --message <text> [--from-id <CH-ID>] [--priority]
   proteus chimera post|snapshot|heartbeat --root <path> [--id <CH-ID>]

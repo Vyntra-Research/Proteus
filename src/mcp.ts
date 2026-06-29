@@ -21,7 +21,7 @@ import {
   heartbeatChimeraSession,
   initChimeraConfig,
   killChimeraSession,
-  listChimeraSessions,
+  listChimeraSessionView,
   acceptChimeraCouncil,
   attachOpenCodeSession,
   cueChimeraCouncilTurn,
@@ -318,7 +318,6 @@ const tools: ToolDefinition[] = [
         message: stringProp("Message body."),
         kind: stringProp("Message kind, usually message or redirect."),
         fromId: stringProp("Optional source Chimera session id when an agent broadcasts to peers."),
-        includeClosed: booleanProp("Also deliver to closed, failed, killed, or timed-out sessions."),
         priority: booleanProp("Mark destination notifications as priority so agents poll as soon as practical.")
       },
       ["root", "message"]
@@ -329,7 +328,6 @@ const tools: ToolDefinition[] = [
           body: str(input.message),
           kind: chimeraKind(input.kind, "message"),
           fromId: maybeStr(input.fromId),
-          includeClosed: input.includeClosed === true,
           priority: input.priority === true
         }))
       )
@@ -470,19 +468,21 @@ const tools: ToolDefinition[] = [
   {
     name: "proteus_chimera_list",
     title: "List Chimera Sessions",
-    description: "List Chimera sessions. Use active=true or status=active to hide closed, killed, failed, and timed-out sessions.",
+    description: "List Chimera sessions. Default scope is sessions linked to active campaigns when any active campaigns exist. Use active=true for currently running/starting sessions only, or all=true for every historical session.",
     inputSchema: schema(
       {
         root: stringProp("Target root path."),
-        active: booleanProp("Only return active/reusable sessions: starting, running, ready, or waiting."),
-        status: stringProp("Optional status filter: active, starting, running, ready, waiting, closed, killed, failed, or timeout."),
+        active: booleanProp("Only return sessions that are actually active now: starting or running."),
+        status: stringProp("Optional status filter: active, starting, running, or stopped."),
+        all: booleanProp("Return every historical Chimera session instead of only sessions linked to active campaigns."),
         limit: numberProp("Limit.")
       },
       ["root"]
     ),
-    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(listChimeraSessions(db, {
+    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(listChimeraSessionView(db, {
       limit: maybeNum(input.limit),
-      status: input.active === true ? "active" : chimeraListStatus(maybeStr(input.status))
+      status: input.active === true ? "active" : chimeraListStatus(maybeStr(input.status)),
+      all: input.all === true
     })))
   },
   {
@@ -495,7 +495,7 @@ const tools: ToolDefinition[] = [
   {
     name: "proteus_chimera_kill",
     title: "Kill Chimera Session",
-    description: "Write a kill flag, send a kill message, and mark the session killed.",
+    description: "Write a kill flag, send a kill message, and mark the session stopped with a kill verdict.",
     inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id."), reason: stringProp("Kill reason.") }, ["root", "id", "reason"]),
     handler: (input) => withDb(str(input.root), (db) => toolEnvelope(killChimeraSession(db, str(input.id), str(input.reason))))
   },
@@ -1777,12 +1777,7 @@ function chimeraListStatus(value: string | undefined): "active" | ChimeraStatus 
     value === "active" ||
     value === "starting" ||
     value === "running" ||
-    value === "ready" ||
-    value === "waiting" ||
-    value === "killed" ||
-    value === "closed" ||
-    value === "failed" ||
-    value === "timeout"
+    value === "stopped"
   ) return value;
   throw new Error(`Invalid Chimera status filter: ${value}`);
 }

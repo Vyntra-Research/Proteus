@@ -234,8 +234,8 @@ Your council turn should be useful without becoming a report:
 - one recommended next high-ROI move.
 
 Do not answer every other agent. Do not debate unless the coordinator asks for
-another round. Default to one contribution per round, then return to waiting or
-work. Do not manually pass the turn to another agent; after your `turn` command
+another round. Default to one contribution per round, then return to your
+assigned work or stop condition. Do not manually pass the turn to another agent; after your `turn` command
 Proteus automatically cues the next accepted participant when one remains. If
 the coordinator closes the council, follow the final instruction. If the final
 instruction does not redirect you, resume the previous branch from the last

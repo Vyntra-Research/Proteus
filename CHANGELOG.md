@@ -12,6 +12,8 @@
 - Changed OpenCode server selection to reuse an already healthy local OpenCode server in the managed range before starting a new one.
 - Improved Chimera polling visibility with control status, priority-pending state, delivery state, and recommended next command.
 - Added active Chimera session list filters through CLI `chimera list --active` and MCP `proteus_chimera_list active=true`.
+- Collapsed parked, closed, killed, failed, timed-out, and legacy waiting Chimera session states into reusable `stopped` sessions with verdict details stored separately.
+- Changed default Chimera list scope to sessions linked to active campaigns, including all active campaigns when more than one is open. Added campaign labels in list output and `--all`/`all=true` for historical sessions.
 - Accepted prefixed numeric ids such as `B8` in CLI/MCP numeric-id parsing.
 
 ### Changed
