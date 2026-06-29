@@ -43,7 +43,7 @@ import {
   type ChimeraSwarmPlan
 } from "./chimera";
 import { resolveTargetRoot } from "./paths";
-import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, RoiFactors, RoundStatus } from "./types";
+import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, ChimeraStatus, RoiFactors, RoundStatus } from "./types";
 
 type JsonRpcId = string | number | null;
 type JsonObject = Record<string, unknown>;
@@ -470,9 +470,20 @@ const tools: ToolDefinition[] = [
   {
     name: "proteus_chimera_list",
     title: "List Chimera Sessions",
-    description: "List Chimera sessions.",
-    inputSchema: schema({ root: stringProp("Target root path."), limit: numberProp("Limit.") }, ["root"]),
-    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(listChimeraSessions(db, { limit: maybeNum(input.limit) })))
+    description: "List Chimera sessions. Use active=true or status=active to hide closed, killed, failed, and timed-out sessions.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        active: booleanProp("Only return active/reusable sessions: starting, running, ready, or waiting."),
+        status: stringProp("Optional status filter: active, starting, running, ready, waiting, closed, killed, failed, or timeout."),
+        limit: numberProp("Limit.")
+      },
+      ["root"]
+    ),
+    handler: (input) => withDb(str(input.root), (db) => toolEnvelope(listChimeraSessions(db, {
+      limit: maybeNum(input.limit),
+      status: input.active === true ? "active" : chimeraListStatus(maybeStr(input.status))
+    })))
   },
   {
     name: "proteus_chimera_recover",
@@ -1758,6 +1769,22 @@ function sendChimeraOutboundMcp(db: ProteusDb, input: JsonObject): ReturnType<ty
     priority: input.priority === true,
     fromId: maybeStr(input.fromId)
   });
+}
+
+function chimeraListStatus(value: string | undefined): "active" | ChimeraStatus | undefined {
+  if (value === undefined) return undefined;
+  if (
+    value === "active" ||
+    value === "starting" ||
+    value === "running" ||
+    value === "ready" ||
+    value === "waiting" ||
+    value === "killed" ||
+    value === "closed" ||
+    value === "failed" ||
+    value === "timeout"
+  ) return value;
+  throw new Error(`Invalid Chimera status filter: ${value}`);
 }
 
 function num(value: unknown, fallback: number): number {

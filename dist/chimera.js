@@ -613,7 +613,14 @@ function pollChimeraMessages(db, input) {
     return { sessions, messages, latestSnapshots, controlStatus };
 }
 function listChimeraSessions(db, input = {}) {
-    return db.listChimeraSessions(input).map((session) => refreshChimeraRuntime(db, session));
+    const activeOnly = input.status === "active";
+    const status = input.status && input.status !== "active" ? input.status : undefined;
+    const limit = input.limit ?? 50;
+    const rawLimit = activeOnly ? Math.max(limit * 4, 200) : limit;
+    const sessions = db
+        .listChimeraSessions({ status, limit: rawLimit })
+        .map((session) => refreshChimeraRuntime(db, session));
+    return activeOnly ? sessions.filter(isActiveChimeraStatus).slice(0, limit) : sessions;
 }
 function recoverChimeraSession(db, publicId) {
     const recovered = recoverChimeraRuntime(db, requireChimeraSession(db, publicId));
@@ -1986,6 +1993,12 @@ function maybeWakeChimeraSession(db, session, message) {
         logPath: (0, paths_1.toRelative)(db.targetRoot, wakeLogPath)
     };
 }
+function isActiveChimeraStatus(session) {
+    return session.status === "starting" ||
+        session.status === "running" ||
+        session.status === "ready" ||
+        session.status === "waiting";
+}
 function renderSteerPrompt(db, session, message) {
     const metadata = metadataObject(message.metadata) ?? {};
     const pollCommand = `${proteusCliCommand()} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent`;
@@ -2044,7 +2057,8 @@ function ensureOpenCodeServer(db, config) {
     for (let port = 4096; port <= 4115; port++) {
         const url = `http://127.0.0.1:${port}`;
         if (openCodeServerHealthy(url)) {
-            continue;
+            saveChimeraConfig({ ...config, opencodeServerUrl: url, opencodeServerPid: null });
+            return { url, pid: null, started: false };
         }
         const started = startOpenCodeServerProcess(db, config, port);
         for (let attempt = 0; attempt < 20; attempt++) {

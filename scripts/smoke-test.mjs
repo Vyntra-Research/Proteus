@@ -658,6 +658,10 @@ try {
   if (!chimeraClose.includes('"closeVerdict": "watchlist"')) {
     throw new Error("chimera close did not persist final verdict");
   }
+  const activeChimeraList = run(["chimera", "list", "--active"]);
+  if (activeChimeraList.includes('"publicId": "CH-0001"') || !activeChimeraList.includes('"publicId": "CH-0002"')) {
+    throw new Error("chimera list --active did not hide closed sessions while keeping reusable sessions");
+  }
   run(["init", "--root", mergeRoot, "--name", "stray-merge-target"], mergeRoot);
   run([
     "record",

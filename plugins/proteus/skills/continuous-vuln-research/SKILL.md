@@ -121,10 +121,11 @@ Before launching Chimera agents:
   expected-behavior context already recovered;
 - make the goal and stop conditions explicit enough that the agent can keep
   working until completion or a real blocker without guessing when to stop;
-- check `proteus chimera list --root <workspace>` before creating new agents; inspect role, goal,
-  status, `labDir`, and `opencodeSessionId`; create a new co-agent only when
-  there is a distinct front, role, model, or lab need, otherwise continue with
-  `poll`, `workflow-snapshot`, `heartbeat`, or a targeted `send`;
+- check `proteus chimera list --root <workspace> --active` before creating new
+  agents; inspect role, goal, status, `labDir`, and `opencodeSessionId`;
+  create a new co-agent only when there is a distinct front, role, model, or
+  lab need, otherwise continue with `poll`, `workflow-snapshot`, `heartbeat`,
+  or a targeted `send`;
 - choose the access mode deliberately.
 
 Access modes:
@@ -166,8 +167,9 @@ Coordinator duties:
   independent, rational research fronts that choose their own concrete next
   probes, labs, PoCs, payloads, and validation steps inside the assigned scope;
 - use `proteus chimera start` to create and auto-start a new co-agent front;
-- use `proteus chimera list` to recover existing sessions before creating new
-  ones;
+- use `proteus chimera list --active` to recover existing reusable sessions
+  before creating new ones. Use unfiltered `list` only when you explicitly need
+  closed, killed, failed, or timed-out history;
 - use `proteus chimera poll` to read Proteus-brokered messages and session
   control status;
 - use `proteus chimera workflow-snapshot` to inspect recent OpenCode assistant
@@ -194,8 +196,10 @@ Coordinator duties:
 - use `proteus chimera kill` to stop a session and `proteus chimera close` to
   preserve final useful/killed/watchlist outcome;
 - expect Proteus to reuse the saved/configured OpenCode server URL when it is
-  healthy. If no configured server is healthy, Proteus starts a managed local
-  server instead of attaching to an arbitrary process on the port range;
+  healthy. If no configured server is healthy, Proteus reuses the first healthy
+  OpenCode server in the managed local range so parallel coordinator chats can
+  share one server. If none is healthy, Proteus starts a managed local server
+  on a free port;
 - treat `proteus chimera poll` as the authoritative Proteus broker history:
   coordinator messages, agent posts, snapshots, heartbeat, kill/close events,
   and latest snapshots. It is not the full raw OpenCode chat transcript;
@@ -241,7 +245,7 @@ direct questions and messages that materially affect their branch.
 
 Before creating a new Chimera agent, prefer to reuse an active or waiting
 session with the same role/front/lab context. Use `proteus chimera list` to
-check existing sessions, then continue with `poll`, `workflow-snapshot`,
+check existing sessions, usually with `--active`, then continue with `poll`, `workflow-snapshot`,
 `heartbeat`, `send`, `send --priority`, or `run --message` only when the
 session is actually parked and should start another work cycle. Start a new
 co-agent only when the campaign needs a distinct front, model, access mode, or

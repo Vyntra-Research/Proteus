@@ -42,7 +42,7 @@ import { planRound, renderRoundPlan } from "./planner";
 import { renderAgentPrompt } from "./prompts";
 import { ROLE_ORDER, ROLES } from "./roles";
 import { ensureDir, exportsDir, resolveTargetRoot } from "./paths";
-import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, HypothesisInput, JsonValue, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
+import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, ChimeraStatus, HypothesisInput, JsonValue, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
 
 interface ParsedArgs {
   command: string[];
@@ -343,7 +343,10 @@ function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: Parse
       }, null, 2));
       return;
     case "list":
-      console.log(JSON.stringify(listChimeraSessions(db, { limit: getNumber(parsed, "limit") }), null, 2));
+      console.log(JSON.stringify(listChimeraSessions(db, {
+        limit: getNumber(parsed, "limit"),
+        status: getBoolean(parsed, "active") ? "active" : chimeraListStatus(getString(parsed, "status"))
+      }), null, 2));
       return;
     case "recover":
       console.log(JSON.stringify({ ok: true, ...recoverChimeraSession(db, requiredString(parsed, "id")) }, null, 2));
@@ -1221,6 +1224,22 @@ function getBoolean(parsed: ParsedArgs, key: string): boolean {
   return parsed.flags[key] === true || parsed.flags[key] === "true";
 }
 
+function chimeraListStatus(value: string | undefined): "active" | ChimeraStatus | undefined {
+  if (value === undefined) return undefined;
+  if (
+    value === "active" ||
+    value === "starting" ||
+    value === "running" ||
+    value === "ready" ||
+    value === "waiting" ||
+    value === "killed" ||
+    value === "closed" ||
+    value === "failed" ||
+    value === "timeout"
+  ) return value;
+  throw new Error(`Invalid Chimera status filter: ${value}`);
+}
+
 function parseNumericId(value: string): number {
   const trimmed = value.trim();
   const prefixed = /^([A-Za-z])(\d+)$/.exec(trimmed);
@@ -1587,6 +1606,7 @@ Usage:
   proteus chimera send|broadcast|post|snapshot|workflow-snapshot|heartbeat|run|wake|poll|list|recover|kill|close --root <path>
   proteus chimera run --root <path> --id <CH-ID> [--message <text>] [--timeout <seconds|0>]
   proteus chimera wake --root <path> --id <CH-ID> [--timeout <seconds|0>]
+  proteus chimera list --root <path> [--active] [--status active|starting|running|waiting|closed|killed|failed|timeout] [--limit <n>]
   proteus chimera send --root <path> --id <CH-ID> --message <text> [--priority]
   proteus chimera send --root <path> --to-id <CH-ID> --message <text> [--from-id <CH-ID>] [--priority]
   proteus chimera post|snapshot|heartbeat --root <path> [--id <CH-ID>]

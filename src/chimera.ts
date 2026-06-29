@@ -756,8 +756,15 @@ export function pollChimeraMessages(db: ProteusDb, input: {
   return { sessions, messages, latestSnapshots, controlStatus };
 }
 
-export function listChimeraSessions(db: ProteusDb, input: { status?: ChimeraStatus; limit?: number } = {}): ChimeraSessionRow[] {
-  return db.listChimeraSessions(input).map((session) => refreshChimeraRuntime(db, session));
+export function listChimeraSessions(db: ProteusDb, input: { status?: ChimeraStatus | "active"; limit?: number } = {}): ChimeraSessionRow[] {
+  const activeOnly = input.status === "active";
+  const status: ChimeraStatus | undefined = input.status && input.status !== "active" ? input.status : undefined;
+  const limit = input.limit ?? 50;
+  const rawLimit = activeOnly ? Math.max(limit * 4, 200) : limit;
+  const sessions = db
+    .listChimeraSessions({ status, limit: rawLimit })
+    .map((session) => refreshChimeraRuntime(db, session));
+  return activeOnly ? sessions.filter(isActiveChimeraStatus).slice(0, limit) : sessions;
 }
 
 export function recoverChimeraSession(db: ProteusDb, publicId: string): ChimeraRecoveryResult {
@@ -2232,6 +2239,13 @@ function maybeWakeChimeraSession(db: ProteusDb, session: ChimeraSessionRow, mess
   };
 }
 
+function isActiveChimeraStatus(session: ChimeraSessionRow): boolean {
+  return session.status === "starting" ||
+    session.status === "running" ||
+    session.status === "ready" ||
+    session.status === "waiting";
+}
+
 function renderSteerPrompt(db: ProteusDb, session: ChimeraSessionRow, message: ChimeraMessageRow): string {
   const metadata = metadataObject(message.metadata) ?? {};
   const pollCommand = `${proteusCliCommand()} --root "${db.targetRoot}" chimera poll --id ${session.publicId} --unread --agent`;
@@ -2292,7 +2306,8 @@ function ensureOpenCodeServer(db: ProteusDb, config: ChimeraConfig): OpenCodeSer
   for (let port = 4096; port <= 4115; port++) {
     const url = `http://127.0.0.1:${port}`;
     if (openCodeServerHealthy(url)) {
-      continue;
+      saveChimeraConfig({ ...config, opencodeServerUrl: url, opencodeServerPid: null });
+      return { url, pid: null, started: false };
     }
     const started = startOpenCodeServerProcess(db, config, port);
     for (let attempt = 0; attempt < 20; attempt++) {

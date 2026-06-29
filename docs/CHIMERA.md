@@ -19,9 +19,10 @@ OpenCode by following the official project:
 Proteus does not manage provider credentials. Configure the model/provider in
 OpenCode first, then point Proteus at the OpenCode command and model name.
 When a Chimera run needs the OpenCode server API, Proteus reuses the configured
-server URL if it is healthy. Otherwise it starts a managed local server on an
-available port in the managed range; it does not attach to an arbitrary healthy
-process just because it is listening on that range.
+server URL if it is healthy. Otherwise it scans the managed local range and
+reuses the first healthy OpenCode server it finds, so multiple coordinator
+chats can share one server. If no healthy server is available, Proteus starts a
+managed local server on the first free port in the range.
 
 ## Enable Chimera
 
@@ -144,8 +145,8 @@ research fronts and bring different angles, but they do not promote findings or
 bypass Proteus gates.
 
 Do not create a new session for every coordinator turn. Use
-`proteus chimera list --root ...` first, inspect role, goal, status, lab path,
-and `opencodeSessionId`, then reuse the existing `CH-...` session with
+`proteus chimera list --root ... --active` first, inspect role, goal, status,
+lab path, and `opencodeSessionId`, then reuse the existing `CH-...` session with
 `chimera run --id`, priority `send`, `broadcast`, or a council redirect when
 the front is still the same. New sessions are for genuinely separate fronts,
 models, access modes, or labs.
@@ -333,7 +334,7 @@ proteus chimera swarm --root C:\path\to\target --plan chimera-swarm.json --run
 
 ```powershell
 proteus chimera heartbeat --root C:\path\to\target
-proteus chimera list --root C:\path\to\target
+proteus chimera list --root C:\path\to\target --active
 proteus chimera attach-opencode --root C:\path\to\target --id CH-0001 --server-url http://127.0.0.1:4096 --opencode-session-id ses_xxx
 proteus chimera stop-server --root C:\path\to\target
 proteus chimera kill --root C:\path\to\target --id CH-0001 --reason "Looping without new testable signal"

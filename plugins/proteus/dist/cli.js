@@ -297,7 +297,10 @@ function cmdChimera(db, subcommand, parsed) {
             }, null, 2));
             return;
         case "list":
-            console.log(JSON.stringify((0, chimera_1.listChimeraSessions)(db, { limit: getNumber(parsed, "limit") }), null, 2));
+            console.log(JSON.stringify((0, chimera_1.listChimeraSessions)(db, {
+                limit: getNumber(parsed, "limit"),
+                status: getBoolean(parsed, "active") ? "active" : chimeraListStatus(getString(parsed, "status"))
+            }), null, 2));
             return;
         case "recover":
             console.log(JSON.stringify({ ok: true, ...(0, chimera_1.recoverChimeraSession)(db, requiredString(parsed, "id")) }, null, 2));
@@ -1114,6 +1117,21 @@ function requiredNumber(parsed, key) {
 function getBoolean(parsed, key) {
     return parsed.flags[key] === true || parsed.flags[key] === "true";
 }
+function chimeraListStatus(value) {
+    if (value === undefined)
+        return undefined;
+    if (value === "active" ||
+        value === "starting" ||
+        value === "running" ||
+        value === "ready" ||
+        value === "waiting" ||
+        value === "killed" ||
+        value === "closed" ||
+        value === "failed" ||
+        value === "timeout")
+        return value;
+    throw new Error(`Invalid Chimera status filter: ${value}`);
+}
 function parseNumericId(value) {
     const trimmed = value.trim();
     const prefixed = /^([A-Za-z])(\d+)$/.exec(trimmed);
@@ -1464,6 +1482,7 @@ Usage:
   proteus chimera send|broadcast|post|snapshot|workflow-snapshot|heartbeat|run|wake|poll|list|recover|kill|close --root <path>
   proteus chimera run --root <path> --id <CH-ID> [--message <text>] [--timeout <seconds|0>]
   proteus chimera wake --root <path> --id <CH-ID> [--timeout <seconds|0>]
+  proteus chimera list --root <path> [--active] [--status active|starting|running|waiting|closed|killed|failed|timeout] [--limit <n>]
   proteus chimera send --root <path> --id <CH-ID> --message <text> [--priority]
   proteus chimera send --root <path> --to-id <CH-ID> --message <text> [--from-id <CH-ID>] [--priority]
   proteus chimera post|snapshot|heartbeat --root <path> [--id <CH-ID>]

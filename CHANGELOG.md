@@ -9,7 +9,9 @@
 - Added Chimera session recovery for stale or inconsistent pid, status, and OpenCode session attachment state, including `chimera recover` and MCP `proteus_chimera_recover`.
 - Hardened `chimera run` so manual runs do not compete with sessions that are already starting or running, and added optional resume instructions through `--message`/`message`.
 - Changed priority delivery for parked sessions to use compact wake behavior for queued messages instead of treating every priority message as a full research rerun.
+- Changed OpenCode server selection to reuse an already healthy local OpenCode server in the managed range before starting a new one.
 - Improved Chimera polling visibility with control status, priority-pending state, delivery state, and recommended next command.
+- Added active Chimera session list filters through CLI `chimera list --active` and MCP `proteus_chimera_list active=true`.
 - Accepted prefixed numeric ids such as `B8` in CLI/MCP numeric-id parsing.
 
 ### Changed

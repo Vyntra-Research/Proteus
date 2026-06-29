@@ -519,6 +519,14 @@ try {
   if (!String(chimeraClose.content?.[0]?.text ?? "").includes('"closeVerdict": "watchlist"')) {
     throw new Error("proteus_chimera_close did not persist verdict");
   }
+  const activeChimeraList = await request("tools/call", {
+    name: "proteus_chimera_list",
+    arguments: { root: tmpRoot, active: true }
+  });
+  const activeChimeraListText = String(activeChimeraList.content?.[0]?.text ?? "");
+  if (activeChimeraListText.includes('"publicId": "CH-0001"') || !activeChimeraListText.includes('"publicId": "CH-0002"')) {
+    throw new Error("proteus_chimera_list active=true did not hide closed sessions while keeping reusable sessions");
+  }
 
   await request("tools/call", {
     name: "proteus_plan_round",
