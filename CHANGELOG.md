@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.1 - 2026-06-29
+## 2.0.0 - 2026-06-27
 
 ### Added
 
@@ -27,7 +27,7 @@
 
 ### Migration
 
-- Existing `.vros/memory.sqlite` databases migrate automatically to add Chimera session and message tables when opened by Proteus 2.0.1. Proteus also checks the recorded migration ids, so a database stamped with the current runtime version still receives any missing idempotent migrations.
+- Existing `.vros/memory.sqlite` databases migrate automatically to add Chimera session and message tables when opened by Proteus 2.0.0. Proteus also checks the recorded migration ids, so a database stamped with the current runtime version still receives any missing idempotent migrations.
 - Chimera remains disabled by default. Normal Proteus CLI/MCP usage does not require OpenCode.
 
 ## 1.0.3 - 2026-06-23
