@@ -1,3 +1,7 @@
+<p align="center">
+  <img alt="Proteus chimera mark" src="docs/assets/proteus-chimera-mark.png" width="200" />
+</p>
+
 <h1 align="center">Proteus</h1>
 
 <p align="center">
