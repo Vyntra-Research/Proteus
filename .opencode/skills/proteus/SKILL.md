@@ -1,6 +1,9 @@
 ---
-name: continuous-vuln-research
-description: Coordinate disciplined, continuous, professional vulnerability research with Proteus memory, campaigns, bounded delegation, validation gates, realistic exploitability, anti-slop controls, and report-grade decision discipline.
+name: proteus
+description: Coordinate Proteus continuous vulnerability research with memory, campaigns, delegation, validation gates, and report-grade discipline.
+compatibility: opencode
+metadata:
+  source: proteus
 ---
 
 # Proteus Continuous Vulnerability Research

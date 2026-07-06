@@ -13,6 +13,7 @@ const lab_1 = require("./lab");
 const chimera_1 = require("./chimera");
 const global_memory_1 = require("./global-memory");
 const observe_1 = require("./observe");
+const opencode_1 = require("./opencode");
 const planner_1 = require("./planner");
 const prompts_1 = require("./prompts");
 const roles_1 = require("./roles");
@@ -38,6 +39,10 @@ function main() {
     }
     if (command === "chimera" && subcommand === "stop-server") {
         console.log(JSON.stringify({ ok: true, ...(0, chimera_1.stopOpenCodeServer)() }, null, 2));
+        return;
+    }
+    if (command === "opencode") {
+        cmdOpenCode(subcommand, parsed);
         return;
     }
     const targetRoot = (0, paths_1.resolveTargetRoot)(getString(parsed, "root") ?? process.cwd());
@@ -183,6 +188,19 @@ function cmdMerge(db, parsed) {
     ];
     const result = db.mergeMemoryBases(sources, { dryRun: getBoolean(parsed, "dry-run"), sourceBaseRoot: process.cwd() });
     console.log(JSON.stringify(result, null, 2));
+}
+function cmdOpenCode(subcommand, parsed) {
+    const root = (0, paths_1.resolveTargetRoot)(getString(parsed, "root") ?? process.cwd());
+    switch (subcommand) {
+        case "install":
+            console.log(JSON.stringify({ ok: true, ...(0, opencode_1.installOpenCodeSupport)(root, { force: getBoolean(parsed, "force") }) }, null, 2));
+            return;
+        case "doctor":
+            console.log(JSON.stringify((0, opencode_1.doctorOpenCodeSupport)(root), null, 2));
+            return;
+        default:
+            throw new Error("Usage: proteus opencode install|doctor [--root <path>] [--force]");
+    }
 }
 function cmdChimera(db, subcommand, parsed) {
     switch (subcommand) {
@@ -1469,6 +1487,8 @@ Usage:
   proteus status [--root <path>]
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
+  proteus opencode install [--root <path>] [--force]
+  proteus opencode doctor [--root <path>]
   proteus chimera config init|show|disable [--opencode-command <cmd>] [--server-url <url>] [--model <provider/model>] [--variant <variant>] [--timeout <seconds|0>]
   proteus chimera doctor [--root <path>]
   proteus chimera stop-server [--root <path>]
@@ -1522,6 +1542,11 @@ Usage:
 
 Role codenames are canonical Proteus roles. Host subagent names or nicknames
 belong in --surface, --objective, or notes, not --role.
+
+OpenCode support:
+  proteus opencode install writes project-local OpenCode config, /proteus
+  command, Proteus skills, specialist agents, templates, and local MCP wiring.
+  proteus opencode doctor checks the generated files and OpenCode CLI.
 `);
 }
 try {

@@ -9,6 +9,11 @@
 - Preserved latest control-message metadata in `notifications.json` even after the agent inbox is consumed.
 - Added the missing `campaign close` usage line to CLI help.
 
+### Added
+
+- Added direct OpenCode project support through `proteus opencode install|doctor` and matching MCP tools.
+- Added generated OpenCode assets for `/proteus`, Proteus coordinator/specialist skills, specialist subagents, templates, instructions, and local `proteus-mcp` wiring.
+
 ### Changed
 
 - Clarified CLI, MCP, docs, and Chimera skill wording around agent-authored `chimera snapshot` versus coordinator `chimera workflow-snapshot`.

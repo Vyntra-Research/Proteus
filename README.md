@@ -12,6 +12,7 @@
 <p align="center">
   <a href="#install">Install</a> &bull;
   <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#opencode">OpenCode</a> &bull;
   <a href="#essential-cli">CLI</a> &bull;
   <a href="#chimera-mode">Chimera</a> &bull;
   <a href="#specialist-fronts">Specialists</a> &bull;
@@ -19,7 +20,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.0.3-2f6feb" />
+  <img alt="Version" src="https://img.shields.io/badge/version-2.1.0-2f6feb" />
   <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D24-43853d" />
   <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" />
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-CLI%20%2B%20MCP%20%2B%20Skills-7c3aed" />
@@ -35,7 +36,7 @@
   <tr>
     <td align="center"><strong>Continuous Research</strong><br />Campaigns, rounds, branches, gates, decisions, and checkpoints.</td>
     <td align="center"><strong>Durable Memory</strong><br />SQLite-backed target memory plus reusable global learnings.</td>
-    <td align="center"><strong>Agent Native</strong><br />Codex and Claude Code skills with CLI and MCP runtime access.</td>
+    <td align="center"><strong>Agent Native</strong><br />Codex, Claude Code, and OpenCode skills with CLI and MCP runtime access.</td>
     <td align="center"><strong>Chimera Mode</strong><br />Optional OpenCode-backed co-agents with labs, messages, and snapshots.</td>
   </tr>
 </table>
@@ -80,6 +81,7 @@ Proteus has three install surfaces:
 - CLI/runtime: `proteus` and `proteus-mcp`
 - Codex plugin: coordinator and specialist skills plus MCP configuration
 - Claude Code plugin: `/proteus`, plugin agents, and MCP configuration
+- OpenCode project support: `/proteus`, project skills, specialist agents, and MCP configuration
 
 Install the CLI first. The plugin skills can load without it, but target memory,
 exports, labs, and MCP tools depend on the runtime commands.
@@ -95,7 +97,7 @@ proteus --version
 Expected:
 
 ```text
-@rafabd1/proteus 2.0.3
+@rafabd1/proteus 2.1.0
 ```
 
 ### Codex
@@ -124,6 +126,24 @@ chaining, or other offsec workflows.
 claude mcp add -s user proteus -- proteus-mcp
 ```
 
+### OpenCode
+
+OpenCode support is project-local. First install and configure OpenCode from
+the official project, then let Proteus write the project assets:
+
+- OpenCode repository: <https://github.com/anomalyco/opencode>
+- OpenCode docs: <https://opencode.ai/docs/>
+
+```powershell
+proteus opencode install --root C:\path\to\target
+proteus opencode doctor --root C:\path\to\target
+```
+
+This creates `opencode.json`, `.opencode/commands/proteus.md`,
+`.opencode/skills/proteus*/`, `.opencode/agents/proteus-*.md`, templates, and
+local MCP wiring through `proteus-mcp`. Use `/proteus` inside OpenCode to start
+the coordinator workflow.
+
 ## Quick Start
 
 In Codex, invoke Proteus with `@proteus`. This is the normal entrypoint because
@@ -133,6 +153,8 @@ are better reserved for cases where you explicitly want one specific skill.
 
 In Claude Code, use `/proteus`. This path is experimental; for offsec-heavy
 research, model-side restrictions may affect some workflows.
+
+In OpenCode, install the project support above and use `/proteus`.
 
 Example prompts:
 
@@ -162,6 +184,8 @@ MCP/plugin access.
 ```powershell
 proteus init --root C:\path\to\target --name target-name
 proteus status --root C:\path\to\target
+proteus opencode install --root C:\path\to\target
+proteus opencode doctor --root C:\path\to\target
 proteus ingest --root C:\path\to\target findings REPORTS reports docs
 proteus observe --root C:\path\to\target
 proteus plan-round --root C:\path\to\target --objective "Next high-ROI research round" --write
@@ -183,6 +207,7 @@ migrations automatically. `proteus migrate --root <path>` performs the same
 check explicitly.
 
 For the full runtime reference, see [Runtime usage](docs/RUNTIME_USAGE.md).
+For direct OpenCode usage, see [OpenCode support](docs/OPENCODE.md).
 
 ## Chimera Mode
 

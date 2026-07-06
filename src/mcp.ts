@@ -6,6 +6,7 @@ import { ProteusDb, createDefaultContract } from "./db";
 import { ingestPaths } from "./ingest";
 import { defaultGlobalScopeFromTarget, GlobalMemoryDb } from "./global-memory";
 import { observeTarget } from "./observe";
+import { doctorOpenCodeSupport, installOpenCodeSupport } from "./opencode";
 import { planRound, renderRoundPlan } from "./planner";
 import { renderAgentPrompt } from "./prompts";
 import { ROLE_ORDER, ROLES, normalizeAgentCodename, validRoleList } from "./roles";
@@ -99,6 +100,26 @@ const tools: ToolDefinition[] = [
           memory: db.memoryStats()
         };
       })
+  },
+  {
+    name: "proteus_opencode_install",
+    title: "Install OpenCode Support",
+    description: "Write project-local OpenCode config, command, skills, agents, templates, and Proteus MCP wiring.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path where opencode.json and .opencode/ should be written."),
+        force: booleanProp("Overwrite existing generated OpenCode files.")
+      },
+      ["root"]
+    ),
+    handler: ({ root, force }) => toolEnvelope(installOpenCodeSupport(str(root), { force: force === true }))
+  },
+  {
+    name: "proteus_opencode_doctor",
+    title: "Check OpenCode Support",
+    description: "Check OpenCode CLI availability and project-local Proteus OpenCode config/assets.",
+    inputSchema: schema({ root: stringProp("Target root path.") }, ["root"]),
+    handler: ({ root }) => toolEnvelope(doctorOpenCodeSupport(str(root)))
   },
   {
     name: "proteus_migrate",

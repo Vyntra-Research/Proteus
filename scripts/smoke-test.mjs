@@ -21,6 +21,7 @@ const concurrencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-concurren
 const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
 const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
 const chimeraCampaignListRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-campaign-list-smoke-"));
+const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-smoke-"));
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
@@ -89,6 +90,31 @@ try {
   }
   if (fs.existsSync(path.join(helpRoot, ".vros"))) {
     throw new Error("plan-round --help created target memory state");
+  }
+  const opencodeInstall = JSON.parse(run(["opencode", "install", "--root", opencodeRoot], opencodeRoot));
+  if (!opencodeInstall.ok || !fs.existsSync(path.join(opencodeRoot, "opencode.json"))) {
+    throw new Error("opencode install did not write opencode.json");
+  }
+  const opencodeConfig = JSON.parse(fs.readFileSync(path.join(opencodeRoot, "opencode.json"), "utf8"));
+  if (opencodeConfig.mcp?.proteus?.command?.[0] !== "proteus-mcp") {
+    throw new Error("opencode install did not configure Proteus MCP");
+  }
+  for (const requiredOpenCodeAsset of [
+    path.join(opencodeRoot, ".opencode", "commands", "proteus.md"),
+    path.join(opencodeRoot, ".opencode", "skills", "proteus", "SKILL.md"),
+    path.join(opencodeRoot, ".opencode", "skills", "proteus-chaining", "SKILL.md"),
+    path.join(opencodeRoot, ".opencode", "agents", "proteus-loom.md")
+  ]) {
+    if (!fs.existsSync(requiredOpenCodeAsset)) {
+      throw new Error(`opencode install missed asset: ${requiredOpenCodeAsset}`);
+    }
+  }
+  const opencodeDoctor = JSON.parse(run(["opencode", "doctor", "--root", opencodeRoot], opencodeRoot));
+  if (!opencodeDoctor.config?.hasProteusMcp || !opencodeDoctor.config?.hasProteusInstructions || !opencodeDoctor.assets?.skills?.includes("proteus")) {
+    throw new Error("opencode doctor did not detect installed Proteus OpenCode support");
+  }
+  if (fs.existsSync(path.join(opencodeRoot, ".vros"))) {
+    throw new Error("opencode install/doctor created target memory state");
   }
 
   fs.mkdirSync(path.join(legacyRoot, ".vros"), { recursive: true });
