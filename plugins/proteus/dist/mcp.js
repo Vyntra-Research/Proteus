@@ -11,6 +11,7 @@ const db_1 = require("./db");
 const ingest_1 = require("./ingest");
 const global_memory_1 = require("./global-memory");
 const observe_1 = require("./observe");
+const opencode_1 = require("./opencode");
 const planner_1 = require("./planner");
 const prompts_1 = require("./prompts");
 const roles_1 = require("./roles");
@@ -44,6 +45,23 @@ const tools = [
                 memory: db.memoryStats()
             };
         })
+    },
+    {
+        name: "proteus_opencode_install",
+        title: "Install OpenCode Support",
+        description: "Write project-local OpenCode config, command, skills, agents, templates, and Proteus MCP wiring.",
+        inputSchema: schema({
+            root: stringProp("Target root path where opencode.json and .opencode/ should be written."),
+            force: booleanProp("Overwrite existing generated OpenCode files.")
+        }, ["root"]),
+        handler: ({ root, force }) => toolEnvelope((0, opencode_1.installOpenCodeSupport)(str(root), { force: force === true }))
+    },
+    {
+        name: "proteus_opencode_doctor",
+        title: "Check OpenCode Support",
+        description: "Check OpenCode CLI availability and project-local Proteus OpenCode config/assets.",
+        inputSchema: schema({ root: stringProp("Target root path.") }, ["root"]),
+        handler: ({ root }) => toolEnvelope((0, opencode_1.doctorOpenCodeSupport)(str(root)))
     },
     {
         name: "proteus_migrate",
@@ -315,15 +333,15 @@ const tools = [
     },
     {
         name: "proteus_chimera_snapshot",
-        title: "Write Chimera Snapshot",
-        description: "Write the latest Chimera snapshot and notify the coordinator.",
+        title: "Write Agent-Authored Chimera Snapshot",
+        description: "Record the agent's own concise state summary and notify the coordinator. This does not capture a live OpenCode transcript; use proteus_chimera_workflow_snapshot for that.",
         inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id."), body: stringProp("Snapshot body.") }, ["root", "id", "body"]),
         handler: (input) => withDb(str(input.root), (db) => toolEnvelope((0, chimera_1.snapshotChimeraSession)(db, str(input.id), str(input.body))))
     },
     {
         name: "proteus_chimera_workflow_snapshot",
         title: "Read Compact Chimera Workflow Snapshot",
-        description: "Export the attached OpenCode session and return only the latest agent text messages, excluding tool calls and tool outputs.",
+        description: "Export the attached OpenCode session and return only the latest agent text messages, excluding tool calls and tool outputs. Message limits apply after export; Proteus streams the export through temporary files to avoid subprocess buffer failures.",
         inputSchema: schema({
             root: stringProp("Target root path."),
             id: stringProp("Chimera session id."),

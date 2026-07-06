@@ -47,6 +47,8 @@ if (args[0] === "serve") {
 
 if (args[0] === "export") {
   const sessionID = args[1] ?? "ses_mock_unknown";
+  const paddingBytes = Math.max(0, Number(process.env.MOCK_OPENCODE_EXPORT_PADDING_BYTES || "0"));
+  const exportPadding = paddingBytes > 0 ? "X".repeat(paddingBytes) : "";
   if (process.env.MOCK_OPENCODE_EXPORT_FAIL_ONCE === "1") {
     const markerPath = path.join(process.cwd(), "opencode", "mock-export-failed-once.marker");
     if (!fs.existsSync(markerPath)) {
@@ -71,7 +73,7 @@ if (args[0] === "export") {
           time: { created: 1760000000000 }
         },
         parts: [
-          { type: "text", text: "User prompt that must not appear." }
+          { type: "text", text: `User prompt that must not appear.${exportPadding}` }
         ]
       },
       {

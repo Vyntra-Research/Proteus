@@ -21,6 +21,8 @@ const concurrencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-concurren
 const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
 const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
 const chimeraCampaignListRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-campaign-list-smoke-"));
+const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-smoke-"));
+const opencodeExistingRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-existing-smoke-"));
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
@@ -89,6 +91,47 @@ try {
   }
   if (fs.existsSync(path.join(helpRoot, ".vros"))) {
     throw new Error("plan-round --help created target memory state");
+  }
+  const opencodeInstall = JSON.parse(run(["opencode", "install", "--root", opencodeRoot], opencodeRoot));
+  if (!opencodeInstall.ok || !fs.existsSync(path.join(opencodeRoot, "opencode.json"))) {
+    throw new Error("opencode install did not write opencode.json");
+  }
+  const opencodeConfig = JSON.parse(fs.readFileSync(path.join(opencodeRoot, "opencode.json"), "utf8"));
+  if (opencodeConfig.mcp?.proteus?.command?.[0] !== "proteus-mcp") {
+    throw new Error("opencode install did not configure Proteus MCP");
+  }
+  for (const requiredOpenCodeAsset of [
+    path.join(opencodeRoot, ".opencode", "commands", "proteus.md"),
+    path.join(opencodeRoot, ".opencode", "skills", "proteus", "SKILL.md"),
+    path.join(opencodeRoot, ".opencode", "skills", "proteus-chaining", "SKILL.md"),
+    path.join(opencodeRoot, ".opencode", "agents", "proteus-loom.md")
+  ]) {
+    if (!fs.existsSync(requiredOpenCodeAsset)) {
+      throw new Error(`opencode install missed asset: ${requiredOpenCodeAsset}`);
+    }
+  }
+  const opencodeDoctor = JSON.parse(run(["opencode", "doctor", "--root", opencodeRoot], opencodeRoot));
+  if (!opencodeDoctor.config?.hasProteusMcp || !opencodeDoctor.config?.hasProteusInstructions || !opencodeDoctor.assets?.skills?.includes("proteus")) {
+    throw new Error("opencode doctor did not detect installed Proteus OpenCode support");
+  }
+  if (fs.existsSync(path.join(opencodeRoot, ".vros"))) {
+    throw new Error("opencode install/doctor created target memory state");
+  }
+  run(["init", "--root", opencodeExistingRoot, "--name", "opencode-existing"], opencodeExistingRoot);
+  const existingMemory = path.join(opencodeExistingRoot, ".vros", "memory.sqlite");
+  const existingMemoryBefore = fs.statSync(existingMemory).size;
+  const existingStatusBefore = run(["status", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  if (!existingStatusBefore.includes("opencode-existing")) {
+    throw new Error("existing Proteus base was not initialized before OpenCode support test");
+  }
+  run(["opencode", "install", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  run(["opencode", "doctor", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  const existingStatusAfter = run(["status", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  if (!existingStatusAfter.includes("opencode-existing") || !fs.existsSync(existingMemory)) {
+    throw new Error("opencode install/doctor broke an existing Proteus base");
+  }
+  if (fs.statSync(existingMemory).size !== existingMemoryBefore) {
+    throw new Error("opencode install/doctor modified an existing Proteus memory database");
   }
 
   fs.mkdirSync(path.join(legacyRoot, ".vros"), { recursive: true });
@@ -399,6 +442,13 @@ try {
   if (notificationAfterAgentPoll.pending !== false || notificationAfterAgentPoll.priority !== false || notificationAfterAgentPoll.unreadForAgent !== 0) {
     throw new Error("chimera agent poll did not clear notifications.json");
   }
+  if (
+    notificationAfterAgentPoll.latestControlMessageId === null ||
+    notificationAfterAgentPoll.acknowledgement !== "read_not_confirmed" ||
+    !String(notificationAfterAgentPoll.acknowledgementNote ?? "").includes("does not prove")
+  ) {
+    throw new Error(`chimera notifications.json did not preserve latest control-message acknowledgement semantics: ${JSON.stringify(notificationAfterAgentPoll)}`);
+  }
   const chimeraBroadcast = JSON.parse(run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]));
   if (chimeraBroadcast.delivered.length !== 0 || !chimeraBroadcast.skipped.some((entry) => entry.publicId === "CH-0001" && entry.reason === "status stopped")) {
     throw new Error(`chimera broadcast should skip stopped sessions: ${JSON.stringify(chimeraBroadcast)}`);
@@ -590,9 +640,24 @@ try {
   if (retryWorkflowSnapshot.export.attempts.length < 2 || retryWorkflowSnapshot.export.attempts[0].parsed !== false || retryWorkflowSnapshot.messages.length !== 1) {
     throw new Error(`chimera workflow-snapshot did not retry a transient OpenCode export failure: ${JSON.stringify(retryWorkflowSnapshot.export)}`);
   }
+  const largeExportWorkflowSnapshot = JSON.parse(run(
+    ["chimera", "workflow-snapshot", "--id", "CH-0002", "--limit", "1", "--max-message-chars", "80"],
+    tmpRoot,
+    { MOCK_OPENCODE_EXPORT_PADDING_BYTES: "1500000" }
+  ));
+  if (
+    largeExportWorkflowSnapshot.messages.length !== 1 ||
+    !largeExportWorkflowSnapshot.export.stdoutPreview.includes("parsed OpenCode export") ||
+    JSON.stringify(largeExportWorkflowSnapshot).includes("User prompt that must not appear")
+  ) {
+    throw new Error(`chimera workflow-snapshot did not handle a large OpenCode export safely: ${JSON.stringify(largeExportWorkflowSnapshot.export)}`);
+  }
   const chimeraDirectSend = JSON.parse(run(["chimera", "send", "--id", "CH-0002", "--message", "Smoke direct steer", "--priority"]));
   if (chimeraDirectSend.directDelivery?.ok !== true || !["steer", "queue"].includes(chimeraDirectSend.directDelivery?.mode)) {
     throw new Error(`chimera priority send did not steer or wake the Chimera session: ${JSON.stringify(chimeraDirectSend.directDelivery)}`);
+  }
+  if (!["accepted_by_runtime", "pending_agent_poll"].includes(chimeraDirectSend.directDelivery?.acknowledgement)) {
+    throw new Error(`chimera priority send did not expose runtime-vs-agent acknowledgement state: ${JSON.stringify(chimeraDirectSend.directDelivery)}`);
   }
   run(
     ["chimera", "send", "--root", tmpRoot, "--to-id", "CH-0002", "--message", "Smoke inferred source id"],

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "proteus": {
+      "type": "local",
+      "command": [
+        "proteus-mcp"
+      ],
+      "enabled": true,
+      "timeout": 15000
+    }
+  },
+  "instructions": [
+    ".opencode/instructions/proteus.md"
+  ],
+  "permission": {
+    "skill": {
+      "proteus*": "allow"
+    }
+  }
+}

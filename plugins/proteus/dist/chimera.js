@@ -227,7 +227,7 @@ function sendChimeraMessage(db, publicId, body, kind = "message", options = {}) 
     writeNotificationFile(db, publicId, message);
     const directDelivery = options.priority === true
         ? deliverPriorityChimeraMessage(db, session, message)
-        : { attempted: false, ok: false, mode: "none", detail: "priority is false; stored in Proteus inbox only" };
+        : { attempted: false, ok: false, mode: "none", acknowledgement: "queued", detail: "priority is false; stored in Proteus inbox only" };
     return { message, directDelivery };
 }
 function broadcastChimeraMessage(db, input) {
@@ -992,11 +992,36 @@ function snapshotChimeraWorkflow(db, publicId, input = {}) {
     return snapshot;
 }
 function exportOpenCodeSession(command, session) {
-    return spawnExternalSync(command, ["export", String(session.opencodeSessionId)], {
-        cwd: session.sessionDir,
-        encoding: "utf8",
-        timeout: 30000
-    });
+    const outDir = node_path_1.default.join(session.sessionDir, "opencode", "workflow-snapshots", ".tmp");
+    (0, paths_1.ensureDir)(outDir);
+    const stamp = `${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+    const stdoutPath = node_path_1.default.join(outDir, `export-${stamp}.stdout.json`);
+    const stderrPath = node_path_1.default.join(outDir, `export-${stamp}.stderr.log`);
+    const stdoutFd = node_fs_1.default.openSync(stdoutPath, "w");
+    const stderrFd = node_fs_1.default.openSync(stderrPath, "w");
+    let result;
+    try {
+        result = spawnExternalSync(command, ["export", String(session.opencodeSessionId)], {
+            cwd: session.sessionDir,
+            timeout: 30000,
+            stdio: ["ignore", stdoutFd, stderrFd]
+        });
+    }
+    finally {
+        node_fs_1.default.closeSync(stdoutFd);
+        node_fs_1.default.closeSync(stderrFd);
+    }
+    const stdout = readTextIfExists(stdoutPath);
+    const stderr = readTextIfExists(stderrPath);
+    safeUnlink(stdoutPath);
+    safeUnlink(stderrPath);
+    return {
+        status: result.status,
+        signal: result.signal,
+        error: result.error,
+        stdout,
+        stderr
+    };
 }
 function createSessionFiles(db, session, config) {
     (0, paths_1.ensureDir)((0, paths_1.chimeraSessionsDir)(db.targetRoot));
@@ -1275,6 +1300,7 @@ Communication commands:
 - ${proteusCommand} --root "${db.targetRoot}" chimera heartbeat --id ${session.publicId}
 
 Use --priority only when sending to another OpenCode-backed Chimera agent that should be nudged to poll soon. Do not use --priority when posting to the coordinator.
+Use chimera snapshot only for your own concise state summary. It is not a live transcript capture. The coordinator may use chimera workflow-snapshot to inspect a compact OpenCode transcript view when needed.
 `;
 }
 function renderAgentInstructions(db, session) {
@@ -1292,6 +1318,8 @@ If invited to a brainstorm council, accept only at a safe pause point. During th
 Before stopping, write a snapshot:
 
 ${proteusCommand} --root "${db.targetRoot}" chimera snapshot --body "Confirmed / killed / open / next move"
+
+This snapshot is your written summary. Do not call workflow-snapshot from inside your own flow unless the coordinator explicitly asks for transcript diagnostics.
 `;
 }
 function renderLabReadme(session) {
@@ -1937,14 +1965,28 @@ function refreshNotificationFile(db, publicId, latestMessage) {
     const session = requireChimeraSession(db, publicId);
     const unreadMessages = db.listChimeraMessages({ publicId, unreadFor: "agent", limit: 500 });
     const latestUnread = unreadMessages[unreadMessages.length - 1];
-    const markerMessage = latestMessage ?? latestUnread;
+    const controlMessages = db
+        .listChimeraMessages({ publicId, limit: 500 })
+        .filter((message) => message.direction === "coordinator_to_agent");
+    const latestControlMessage = controlMessages[controlMessages.length - 1];
+    const latestPriorityMessage = [...controlMessages].reverse().find(isPriorityMessage);
+    const markerMessage = latestMessage ?? latestUnread ?? latestControlMessage;
     node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "notifications.json"), JSON.stringify({
         pending: unreadMessages.length > 0,
         priority: unreadMessages.some(isPriorityMessage),
         unreadForAgent: unreadMessages.length,
         updatedAt: new Date().toISOString(),
         latestMessageId: markerMessage?.id ?? null,
-        latestKind: markerMessage?.kind ?? null
+        latestKind: markerMessage?.kind ?? null,
+        latestControlMessageId: latestControlMessage?.id ?? null,
+        latestPriorityMessageId: latestPriorityMessage?.id ?? null,
+        latestControlReadByAgent: latestControlMessage?.readByAgent ?? null,
+        acknowledgement: unreadMessages.length > 0
+            ? "unread_pending"
+            : latestControlMessage
+                ? "read_not_confirmed"
+                : "none",
+        acknowledgementNote: "readByAgent means the Proteus inbox was consumed; it does not prove the OpenCode agent acted on the message."
     }, null, 2) + "\n");
 }
 function isPriorityMessage(message) {
@@ -1966,8 +2008,13 @@ function notificationPendingForAgent(db, publicId) {
 }
 function chimeraControlStatus(db, session) {
     const unreadMessages = db.listChimeraMessages({ publicId: session.publicId, unreadFor: "agent", limit: 500 });
+    const controlMessages = db
+        .listChimeraMessages({ publicId: session.publicId, limit: 500 })
+        .filter((message) => message.direction === "coordinator_to_agent");
     const unreadForAgent = unreadMessages.length;
     const priorityPending = unreadMessages.some(isPriorityMessage);
+    const latestControlMessage = controlMessages[controlMessages.length - 1];
+    const latestPriorityMessage = [...controlMessages].reverse().find(isPriorityMessage);
     const deliveryState = session.status === "running" || session.opencodeSessionId
         ? "live"
         : session.status === "starting"
@@ -1992,13 +2039,32 @@ function chimeraControlStatus(db, session) {
         opencodeSessionId: session.opencodeSessionId,
         unreadForAgent,
         priorityPending,
+        latestControlMessageId: latestControlMessage?.id ?? null,
+        latestPriorityMessageId: latestPriorityMessage?.id ?? null,
         deliveryState,
-        recommendedNextCommand
+        recommendedNextCommand,
+        acknowledgement: unreadForAgent > 0 ? "unread_pending" : latestControlMessage ? "read_not_confirmed" : "none"
     };
 }
 function appendJsonl(filePath, value) {
     (0, paths_1.ensureDir)(node_path_1.default.dirname(filePath));
     node_fs_1.default.appendFileSync(filePath, JSON.stringify(value) + "\n");
+}
+function readTextIfExists(filePath) {
+    try {
+        return node_fs_1.default.readFileSync(filePath, "utf8");
+    }
+    catch {
+        return "";
+    }
+}
+function safeUnlink(filePath) {
+    try {
+        node_fs_1.default.unlinkSync(filePath);
+    }
+    catch {
+        // Best-effort cleanup for temporary export files.
+    }
 }
 function deliverPriorityChimeraMessage(db, session, message) {
     const current = refreshChimeraRuntime(db, requireChimeraSession(db, session.publicId));
@@ -2011,6 +2077,7 @@ function deliverPriorityChimeraMessage(db, session, message) {
         ...steer,
         ok: steer.ok || woke,
         mode: steer.ok ? steer.mode : "queue",
+        acknowledgement: steer.ok ? steer.acknowledgement : woke ? "pending_agent_poll" : steer.acknowledgement,
         autoWake: wake,
         detail: `${steer.detail}; ${wake.started ? `auto-wake started pid ${wake.pid ?? "unknown"}` : `auto-wake not started: ${wake.reason}`}`
     };
@@ -2019,7 +2086,7 @@ function steerOpenCodeSession(db, session, message) {
     const config = getChimeraConfig();
     const current = reconcileOpenCodeSession(db, session);
     if (!current.opencodeSessionId) {
-        return { attempted: false, ok: false, mode: "none", detail: "no OpenCode session id is attached to this Chimera session" };
+        return { attempted: false, ok: false, mode: "none", acknowledgement: "queued", detail: "no OpenCode session id is attached to this Chimera session" };
     }
     let serverUrl = current.opencodeServerUrl ?? config.opencodeServerUrl;
     if (!serverUrl || !openCodeServerHealthy(serverUrl)) {
@@ -2033,6 +2100,7 @@ function steerOpenCodeSession(db, session, message) {
                 attempted: false,
                 ok: false,
                 mode: "none",
+                acknowledgement: "queued",
                 ...(serverUrl ? { serverUrl } : {}),
                 opencodeSessionId: current.opencodeSessionId,
                 detail: error instanceof Error ? error.message : String(error)
@@ -2062,10 +2130,13 @@ function steerOpenCodeSession(db, session, message) {
         attempted: true,
         ok: response.ok,
         mode: "steer",
+        acknowledgement: response.ok ? "accepted_by_runtime" : "pending_agent_poll",
         serverUrl,
         opencodeSessionId: current.opencodeSessionId,
         status: response.status,
-        detail: response.ok ? "sent via OpenCode delivery=steer" : response.error ?? `HTTP ${response.status ?? "unknown"}`
+        detail: response.ok
+            ? "sent via OpenCode delivery=steer; this confirms runtime acceptance, not semantic agent acknowledgement"
+            : response.error ?? `HTTP ${response.status ?? "unknown"}`
     };
 }
 function maybeWakeChimeraSession(db, session, message) {

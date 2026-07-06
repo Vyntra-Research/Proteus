@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.1.0 - 2026-07-06
+
+### Fixed
+
+- Hardened `chimera workflow-snapshot` for long OpenCode sessions by exporting through temporary files instead of relying on subprocess stdout buffering.
+- Clarified Chimera priority delivery results so OpenCode steer acceptance is not mistaken for semantic agent acknowledgement.
+- Preserved latest control-message metadata in `notifications.json` even after the agent inbox is consumed.
+- Added the missing `campaign close` usage line to CLI help.
+
+### Added
+
+- Added direct OpenCode project support through `proteus opencode install|doctor` and matching MCP tools.
+- Added generated OpenCode assets for `/proteus`, Proteus coordinator/specialist skills, specialist subagents, templates, instructions, and local `proteus-mcp` wiring.
+
+### Changed
+
+- Clarified CLI, MCP, docs, and Chimera skill wording around agent-authored `chimera snapshot` versus coordinator `chimera workflow-snapshot`.
+
 ## 2.0.3 - 2026-06-29
 
 ### Fixed

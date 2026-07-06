@@ -5,6 +5,8 @@ Proteus has three install surfaces:
 - CLI/runtime: the `proteus` and `proteus-mcp` commands.
 - Codex plugin: installed through a Codex plugin marketplace.
 - Claude Code plugin: `/proteus`, plugin subagents, and MCP config.
+- OpenCode project support: `/proteus`, project skills, specialist agents,
+  templates, and MCP config.
 
 Install the CLI first. The plugin instructions can load without it, but target
 memory, exports, labs, and MCP tools depend on the `proteus` and `proteus-mcp`
@@ -127,6 +129,34 @@ Then register the MCP server from the CLI install:
 ```powershell
 claude mcp add -s user proteus -- proteus-mcp
 ```
+
+## OpenCode Project Support
+
+Install and configure OpenCode from the official project:
+
+- OpenCode repository: <https://github.com/anomalyco/opencode>
+- OpenCode docs: <https://opencode.ai/docs/>
+
+Then install Proteus support in each workspace where OpenCode should load it:
+
+```powershell
+proteus opencode install --root C:\path\to\target
+proteus opencode doctor --root C:\path\to\target
+```
+
+This writes project-local OpenCode files:
+
+- `opencode.json` with a local MCP server named `proteus` that runs
+  `proteus-mcp`;
+- `.opencode/commands/proteus.md` for `/proteus`;
+- `.opencode/skills/proteus*/` for coordinator and specialist skills;
+- `.opencode/agents/proteus-*.md` for specialist subagents;
+- `.opencode/templates/` with the packaged Proteus templates.
+
+It does not initialize Proteus target memory or modify an existing
+`.vros/memory.sqlite` base. Use `/proteus` inside OpenCode to start the
+coordinator workflow. Use `--force` only when you want to refresh existing
+generated OpenCode files.
 
 ## Verify Runtime
 

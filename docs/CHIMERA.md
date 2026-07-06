@@ -270,6 +270,10 @@ server and `opencodeSessionId` are attached, Proteus also sends a direct
 OpenCode steer ping telling the agent to poll Proteus. If the session is parked,
 Proteus uses a compact wake prompt focused on the queued message rather than
 re-running the whole dossier. The canonical message still lives in Proteus.
+`readByAgent` and the notification acknowledgement fields mean the Proteus inbox
+was consumed; they do not prove the OpenCode agent semantically acted on the
+message. Use the agent's reply, snapshot, heartbeat, or a workflow snapshot for
+that confirmation.
 
 ## Snapshots
 
@@ -288,8 +292,10 @@ proteus chimera workflow-snapshot --root C:\path\to\target --id CH-0001 --limit 
 `workflow-snapshot` exports the attached OpenCode session and returns only
 recent assistant text messages. It excludes user messages, tool calls, tool
 outputs, command output, diffs, patches, and file payloads. Output is bounded by
-message count and max characters per message. Proteus exports the session and
-filters the raw data locally before returning or writing the compact snapshot.
+message count and max characters per message. Proteus exports the session
+through temporary files and filters the raw data locally before returning or
+writing the compact snapshot, avoiding subprocess stdout buffer failures on long
+OpenCode sessions.
 
 ## Councils
 
