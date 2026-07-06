@@ -22,6 +22,7 @@ const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-
 const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
 const chimeraCampaignListRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-campaign-list-smoke-"));
 const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-smoke-"));
+const opencodeExistingRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-existing-smoke-"));
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
@@ -115,6 +116,22 @@ try {
   }
   if (fs.existsSync(path.join(opencodeRoot, ".vros"))) {
     throw new Error("opencode install/doctor created target memory state");
+  }
+  run(["init", "--root", opencodeExistingRoot, "--name", "opencode-existing"], opencodeExistingRoot);
+  const existingMemory = path.join(opencodeExistingRoot, ".vros", "memory.sqlite");
+  const existingMemoryBefore = fs.statSync(existingMemory).size;
+  const existingStatusBefore = run(["status", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  if (!existingStatusBefore.includes("opencode-existing")) {
+    throw new Error("existing Proteus base was not initialized before OpenCode support test");
+  }
+  run(["opencode", "install", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  run(["opencode", "doctor", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  const existingStatusAfter = run(["status", "--root", opencodeExistingRoot], opencodeExistingRoot);
+  if (!existingStatusAfter.includes("opencode-existing") || !fs.existsSync(existingMemory)) {
+    throw new Error("opencode install/doctor broke an existing Proteus base");
+  }
+  if (fs.statSync(existingMemory).size !== existingMemoryBefore) {
+    throw new Error("opencode install/doctor modified an existing Proteus memory database");
   }
 
   fs.mkdirSync(path.join(legacyRoot, ".vros"), { recursive: true });

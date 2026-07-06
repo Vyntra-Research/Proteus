@@ -83,22 +83,19 @@ When available and allowed:
 Host capabilities improve orchestration; they do not weaken evidence,
 validation, or anti-slop gates.
 
-### OpenCode As Host
+### OpenCode Project Setup
 
-When this skill is running directly inside OpenCode, treat OpenCode as the host
-assistant, not as Chimera. Use the project-local `/proteus` command, Proteus
-skills, specialist OpenCode subagents, and the `proteus` MCP server when they
-are available. If the OpenCode project support is missing, the coordinator may
-ask to run:
+If the user explicitly asks to prepare the current workspace for OpenCode
+direct usage, run or suggest:
 
 ```text
 proteus opencode install --root <workspace>
 proteus opencode doctor --root <workspace>
 ```
 
-Direct OpenCode support makes the current OpenCode session Proteus-aware.
-Chimera is only for launching additional OpenCode-backed co-agents under
-Proteus lifecycle, lab, messaging, and snapshot control.
+Do not run these commands as part of normal research initialization. They only
+write OpenCode project files and must not replace `proteus init`, campaign
+recovery, MCP usage, or Chimera configuration.
 
 ## Chimera Mode
 
