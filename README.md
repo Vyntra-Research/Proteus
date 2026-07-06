@@ -12,7 +12,6 @@
 <p align="center">
   <a href="#install">Install</a> &bull;
   <a href="#quick-start">Quick Start</a> &bull;
-  <a href="#opencode">OpenCode</a> &bull;
   <a href="#essential-cli">CLI</a> &bull;
   <a href="#chimera-mode">Chimera</a> &bull;
   <a href="#specialist-fronts">Specialists</a> &bull;
@@ -207,7 +206,7 @@ migrations automatically. `proteus migrate --root <path>` performs the same
 check explicitly.
 
 For the full runtime reference, see [Runtime usage](docs/RUNTIME_USAGE.md).
-For direct OpenCode usage, see [OpenCode support](docs/OPENCODE.md).
+For OpenCode setup details, see [Installation](docs/INSTALLATION.md).
 
 ## Chimera Mode
 

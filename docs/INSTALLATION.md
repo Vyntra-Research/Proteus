@@ -144,10 +144,19 @@ proteus opencode install --root C:\path\to\target
 proteus opencode doctor --root C:\path\to\target
 ```
 
-This writes project-local OpenCode files under `opencode.json` and
-`.opencode/`. It does not initialize Proteus target memory. Use `/proteus`
-inside OpenCode to start the coordinator workflow. Use `--force` only when you
-want to refresh existing generated OpenCode files.
+This writes project-local OpenCode files:
+
+- `opencode.json` with a local MCP server named `proteus` that runs
+  `proteus-mcp`;
+- `.opencode/commands/proteus.md` for `/proteus`;
+- `.opencode/skills/proteus*/` for coordinator and specialist skills;
+- `.opencode/agents/proteus-*.md` for specialist subagents;
+- `.opencode/templates/` with the packaged Proteus templates.
+
+It does not initialize Proteus target memory or modify an existing
+`.vros/memory.sqlite` base. Use `/proteus` inside OpenCode to start the
+coordinator workflow. Use `--force` only when you want to refresh existing
+generated OpenCode files.
 
 ## Verify Runtime
 

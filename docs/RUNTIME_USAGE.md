@@ -36,7 +36,8 @@ proteus opencode doctor --root C:\path\to\target
 
 This writes `opencode.json`, `.opencode/commands/proteus.md`,
 `.opencode/skills/proteus*/`, `.opencode/agents/proteus-*.md`, templates, and
-the local MCP server config for `proteus-mcp`. See [OpenCode support](OPENCODE.md).
+the local MCP server config for `proteus-mcp`. See [Installation](INSTALLATION.md)
+for details.
 
 Proteus is designed to benefit from host-assistant orchestration features when
 they are available in the session:
