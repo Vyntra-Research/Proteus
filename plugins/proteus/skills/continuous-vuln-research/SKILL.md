@@ -223,8 +223,9 @@ Coordinator duties:
   It returns only the latest agent text messages from the OpenCode session,
   excluding user messages, tool calls, tool outputs, command output, diffs,
   patches, and file payloads, with bounded message count and bounded size per
-  message. Proteus exports the raw OpenCode session and filters locally before
-  returning the compact snapshot;
+  message. Proteus exports the raw OpenCode session through temporary files,
+  then filters locally before returning the compact snapshot, so long sessions
+  do not fail merely because the raw export exceeds a subprocess stdout buffer;
 - if `workflow-snapshot` reports an OpenCode export failure, do not assume the
   co-agent crashed. Check `poll`, `list --active`, latest snapshots, heartbeat,
   and `recover` before killing, restarting, or creating a replacement session;

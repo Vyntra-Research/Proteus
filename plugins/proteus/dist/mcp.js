@@ -315,15 +315,15 @@ const tools = [
     },
     {
         name: "proteus_chimera_snapshot",
-        title: "Write Chimera Snapshot",
-        description: "Write the latest Chimera snapshot and notify the coordinator.",
+        title: "Write Agent-Authored Chimera Snapshot",
+        description: "Record the agent's own concise state summary and notify the coordinator. This does not capture a live OpenCode transcript; use proteus_chimera_workflow_snapshot for that.",
         inputSchema: schema({ root: stringProp("Target root path."), id: stringProp("Chimera session id."), body: stringProp("Snapshot body.") }, ["root", "id", "body"]),
         handler: (input) => withDb(str(input.root), (db) => toolEnvelope((0, chimera_1.snapshotChimeraSession)(db, str(input.id), str(input.body))))
     },
     {
         name: "proteus_chimera_workflow_snapshot",
         title: "Read Compact Chimera Workflow Snapshot",
-        description: "Export the attached OpenCode session and return only the latest agent text messages, excluding tool calls and tool outputs.",
+        description: "Export the attached OpenCode session and return only the latest agent text messages, excluding tool calls and tool outputs. Message limits apply after export; Proteus streams the export through temporary files to avoid subprocess buffer failures.",
         inputSchema: schema({
             root: stringProp("Target root path."),
             id: stringProp("Chimera session id."),

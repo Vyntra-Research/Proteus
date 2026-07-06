@@ -399,6 +399,13 @@ try {
   if (notificationAfterAgentPoll.pending !== false || notificationAfterAgentPoll.priority !== false || notificationAfterAgentPoll.unreadForAgent !== 0) {
     throw new Error("chimera agent poll did not clear notifications.json");
   }
+  if (
+    notificationAfterAgentPoll.latestControlMessageId === null ||
+    notificationAfterAgentPoll.acknowledgement !== "read_not_confirmed" ||
+    !String(notificationAfterAgentPoll.acknowledgementNote ?? "").includes("does not prove")
+  ) {
+    throw new Error(`chimera notifications.json did not preserve latest control-message acknowledgement semantics: ${JSON.stringify(notificationAfterAgentPoll)}`);
+  }
   const chimeraBroadcast = JSON.parse(run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]));
   if (chimeraBroadcast.delivered.length !== 0 || !chimeraBroadcast.skipped.some((entry) => entry.publicId === "CH-0001" && entry.reason === "status stopped")) {
     throw new Error(`chimera broadcast should skip stopped sessions: ${JSON.stringify(chimeraBroadcast)}`);
@@ -590,9 +597,24 @@ try {
   if (retryWorkflowSnapshot.export.attempts.length < 2 || retryWorkflowSnapshot.export.attempts[0].parsed !== false || retryWorkflowSnapshot.messages.length !== 1) {
     throw new Error(`chimera workflow-snapshot did not retry a transient OpenCode export failure: ${JSON.stringify(retryWorkflowSnapshot.export)}`);
   }
+  const largeExportWorkflowSnapshot = JSON.parse(run(
+    ["chimera", "workflow-snapshot", "--id", "CH-0002", "--limit", "1", "--max-message-chars", "80"],
+    tmpRoot,
+    { MOCK_OPENCODE_EXPORT_PADDING_BYTES: "1500000" }
+  ));
+  if (
+    largeExportWorkflowSnapshot.messages.length !== 1 ||
+    !largeExportWorkflowSnapshot.export.stdoutPreview.includes("parsed OpenCode export") ||
+    JSON.stringify(largeExportWorkflowSnapshot).includes("User prompt that must not appear")
+  ) {
+    throw new Error(`chimera workflow-snapshot did not handle a large OpenCode export safely: ${JSON.stringify(largeExportWorkflowSnapshot.export)}`);
+  }
   const chimeraDirectSend = JSON.parse(run(["chimera", "send", "--id", "CH-0002", "--message", "Smoke direct steer", "--priority"]));
   if (chimeraDirectSend.directDelivery?.ok !== true || !["steer", "queue"].includes(chimeraDirectSend.directDelivery?.mode)) {
     throw new Error(`chimera priority send did not steer or wake the Chimera session: ${JSON.stringify(chimeraDirectSend.directDelivery)}`);
+  }
+  if (!["accepted_by_runtime", "pending_agent_poll"].includes(chimeraDirectSend.directDelivery?.acknowledgement)) {
+    throw new Error(`chimera priority send did not expose runtime-vs-agent acknowledgement state: ${JSON.stringify(chimeraDirectSend.directDelivery)}`);
   }
   run(
     ["chimera", "send", "--root", tmpRoot, "--to-id", "CH-0002", "--message", "Smoke inferred source id"],

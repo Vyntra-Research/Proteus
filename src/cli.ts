@@ -1606,6 +1606,8 @@ Usage:
   proteus chimera send --root <path> --id <CH-ID> --message <text> [--priority]
   proteus chimera send --root <path> --to-id <CH-ID> --message <text> [--from-id <CH-ID>] [--priority]
   proteus chimera post|snapshot|heartbeat --root <path> [--id <CH-ID>]
+  proteus chimera snapshot --root <path> --id <CH-ID> --body <text>   # agent-authored state summary
+  proteus chimera workflow-snapshot --root <path> --id <CH-ID> [--limit <n>] [--max-message-chars <n>]   # compact OpenCode transcript export
   proteus chimera poll --root <path> --unread --agent [--id <CH-ID>]
   proteus ingest [--root <path>] [paths...]
   proteus observe [--root <path>]
@@ -1613,6 +1615,7 @@ Usage:
   proteus campaign create --title <text> [--objective <text>] [--status active|paused|completed|blocked|superseded]
   proteus campaign resume [--id <id>]
   proteus campaign checkpoint --id <id> [--confirmed a,b] [--killed a,b] [--open a,b] [--next <text>]
+  proteus campaign close --id <id> [--status completed|blocked|superseded] [--summary <text>]
   proteus branch add --title <text> [--campaign-id <id>] [--round-id <id>] [--primitive <text>]
   proteus branch list [--campaign-id <id>] [--status open|testing|killed|promoted|blocked]
   proteus branch update --id <id> --status open|testing|killed|promoted|blocked

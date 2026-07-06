@@ -124,7 +124,11 @@ message channel.
 
 `notifications.json` in your Chimera session directory is a lightweight signal
 that the coordinator or another agent sent something. It is not the source of
-truth. When it says `pending: true`, run `proteus chimera poll`.
+truth. When it says `pending: true`, run `proteus chimera poll`. If it shows a
+latest control message but no pending unread messages, that only means the
+Proteus inbox was consumed; it does not prove you acted on the coordinator's
+request. When you receive or poll an explicit request, respond or post a
+snapshot through Proteus when the coordinator asked for one.
 
 If the coordinator sends a priority message, OpenCode may steer you directly
 with a short notification to poll Proteus. Treat that as a request to run the
@@ -162,6 +166,10 @@ Write a compact state snapshot:
 ```text
 proteus chimera snapshot --root <workspace-root> --body "Confirmed / killed / open / next move"
 ```
+
+This is your own written state summary. It is not a live OpenCode transcript
+capture. Do not call `workflow-snapshot` from your own flow unless the
+coordinator explicitly asks for transcript diagnostics.
 
 Heartbeat during longer work:
 
