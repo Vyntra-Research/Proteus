@@ -3,7 +3,7 @@
 ## Install
 
 ```powershell
-npm install -g https://codeload.github.com/rafabd1/Proteus/tar.gz/refs/heads/main
+npm install -g https://codeload.github.com/Vyntra-Research/Proteus/tar.gz/refs/heads/main
 proteus --version
 ```
 
@@ -336,6 +336,7 @@ proteus_chimera_broadcast
 proteus_chimera_send
 proteus_chimera_post
 proteus_chimera_snapshot
+proteus_chimera_latest_snapshot
 proteus_chimera_workflow_snapshot
 proteus_chimera_heartbeat
 proteus_chimera_run

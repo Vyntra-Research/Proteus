@@ -15,14 +15,14 @@ runtime commands.
 ## 1. CLI Install From GitHub
 
 ```powershell
-npm install -g https://codeload.github.com/rafabd1/Proteus/tar.gz/refs/heads/main
+npm install -g https://codeload.github.com/Vyntra-Research/Proteus/tar.gz/refs/heads/main
 proteus --version
 ```
 
 Expected shape:
 
 ```text
-@rafabd1/proteus 2.0.3
+@rafabd1/proteus 2.1.1
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no
@@ -39,7 +39,7 @@ proteus --version
 ## CLI Upgrade
 
 ```powershell
-npm install -g https://codeload.github.com/rafabd1/Proteus/tar.gz/refs/heads/main
+npm install -g https://codeload.github.com/Vyntra-Research/Proteus/tar.gz/refs/heads/main
 ```
 
 After npm publishing:
@@ -51,13 +51,13 @@ npm update -g @rafabd1/proteus
 Pin a branch, tag, or commit:
 
 ```powershell
-npm install -g github:rafabd1/Proteus#main
+npm install -g github:Vyntra-Research/Proteus#main
 ```
 
 ## Local Development Install
 
 ```powershell
-git clone https://github.com/rafabd1/Proteus
+git clone https://github.com/Vyntra-Research/Proteus
 cd Proteus
 npm install
 npm link
@@ -70,13 +70,13 @@ Codex supports marketplace sources in the form `owner/repo[@ref]`, Git URLs,
 SSH URLs, or local marketplace root directories.
 
 ```powershell
-codex plugin marketplace add rafabd1/Proteus
+codex plugin marketplace add Vyntra-Research/Proteus
 ```
 
 Pin a ref:
 
 ```powershell
-codex plugin marketplace add rafabd1/Proteus@main
+codex plugin marketplace add Vyntra-Research/Proteus@main
 ```
 
 The marketplace file is:
@@ -118,7 +118,7 @@ chaining, or other offsec workflows.
 Install directly inside Claude Code:
 
 ```text
-/plugin marketplace add rafabd1/Proteus
+/plugin marketplace add Vyntra-Research/Proteus
 /plugin install proteus@proteus-marketplace
 ```
 

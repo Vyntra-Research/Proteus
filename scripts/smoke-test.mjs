@@ -464,6 +464,10 @@ try {
   if (!largeSnapshotMessage?.bodyTruncated || largeSnapshotMessage.bodyLength <= largeSnapshotMessage.body.length || largeSnapshotMessage.fullBodyPath !== snapshotPath || !fs.readFileSync(largeSnapshotMessage.fullBodyPath, "utf8").includes("GLQL quoted code block")) {
     throw new Error(`chimera poll did not expose large snapshot preview and full body path: ${JSON.stringify(largeSnapshotMessage)}`);
   }
+  const readSnapshot = JSON.parse(run(["chimera", "snapshot", "--id", "CH-0001", "--limit", "1"]));
+  if (readSnapshot.mode !== "read" || !readSnapshot.latestSnapshots?.some((snapshot) => snapshot.publicId === "CH-0001" && snapshot.fullBodyPath === snapshotPath)) {
+    throw new Error(`chimera snapshot without --body did not read latest agent-authored snapshot state: ${JSON.stringify(readSnapshot)}`);
+  }
   const chimeraHeartbeat = JSON.parse(run(["chimera", "heartbeat", "--id", "CH-0001"]));
   if (chimeraHeartbeat.killed !== false || chimeraHeartbeat.session?.publicId !== "CH-0001" || chimeraHeartbeat.session?.status !== "stopped") {
     throw new Error(`chimera heartbeat did not report stopped reusable session state: ${JSON.stringify(chimeraHeartbeat)}`);

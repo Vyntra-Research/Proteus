@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.1 - 2026-07-09
+
+### Fixed
+
+- Updated GitHub repository, marketplace, plugin metadata, and tarball install references for the `Vyntra-Research/Proteus` namespace.
+- Made `proteus chimera snapshot` without `--body` read the latest agent-authored snapshot state instead of failing with a write-only usage error.
+- Added MCP `proteus_chimera_latest_snapshot` for explicit read-only snapshot checks.
+
+### Changed
+
+- Clarified CLI help, Chimera docs, coordinator skill, and Chimera-agent skill wording around `poll`, `snapshot`, and `workflow-snapshot`.
+
 ## 2.1.0 - 2026-07-06
 
 ### Fixed

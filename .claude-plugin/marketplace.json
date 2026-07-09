@@ -1,23 +1,23 @@
 {
   "name": "proteus-marketplace",
   "owner": {
-    "name": "rafabd1",
+    "name": "Vyntra Research",
     "email": "rbd.sye@gmail.com"
   },
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Proteus plugins for Claude Code and Codex focused on structured, exploitability-driven vulnerability research.",
   "plugins": [
     {
       "name": "proteus",
       "source": "./plugins/proteus",
       "description": "A plugin for Claude Code and Codex that coordinates structured, continuous vulnerability research with memory, strategy, and realistic validation.",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "author": {
-        "name": "rafabd1",
+        "name": "Vyntra Research",
         "email": "rbd.sye@gmail.com"
       },
-      "homepage": "https://github.com/rafabd1/Proteus",
-      "repository": "https://github.com/rafabd1/Proteus",
+      "homepage": "https://github.com/Vyntra-Research/Proteus",
+      "repository": "https://github.com/Vyntra-Research/Proteus",
       "license": "GPL-3.0-or-later"
     }
   ]

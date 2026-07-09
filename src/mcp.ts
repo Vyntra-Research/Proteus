@@ -438,6 +438,31 @@ const tools: ToolDefinition[] = [
     handler: (input) => withDb(str(input.root), (db) => toolEnvelope(snapshotChimeraSession(db, str(input.id), str(input.body))))
   },
   {
+    name: "proteus_chimera_latest_snapshot",
+    title: "Read Latest Chimera Snapshot",
+    description: "Read latest agent-authored Chimera snapshot state through the Proteus broker. This does not write a snapshot and does not export the OpenCode transcript; use proteus_chimera_workflow_snapshot for recent transcript messages.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        id: stringProp("Optional Chimera session id."),
+        limit: numberProp("Maximum number of sessions/messages to inspect.")
+      },
+      ["root"]
+    ),
+    handler: (input) =>
+      withDb(str(input.root), (db) => toolEnvelope({
+        mode: "read",
+        hint: "Use proteus_chimera_snapshot only when a Chimera agent is writing its own state summary. Use proteus_chimera_workflow_snapshot for recent OpenCode transcript messages.",
+        ...pollChimeraMessages(db, {
+          publicId: maybeStr(input.id),
+          unreadOnly: false,
+          forAgent: false,
+          peek: true,
+          limit: maybeNum(input.limit)
+        })
+      }))
+  },
+  {
     name: "proteus_chimera_workflow_snapshot",
     title: "Read Compact Chimera Workflow Snapshot",
     description: "Export the attached OpenCode session and return only the latest agent text messages, excluding tool calls and tool outputs. Message limits apply after export; Proteus streams the export through temporary files to avoid subprocess buffer failures.",

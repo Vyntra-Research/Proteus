@@ -1,14 +1,14 @@
 {
   "name": "proteus",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "A plugin for Claude Code and Codex that coordinates structured, continuous, exploitability-driven vulnerability research in arbitrary codebases.",
   "author": {
-    "name": "rafabd1",
+    "name": "Vyntra Research",
     "email": "rbd.sye@gmail.com",
-    "url": "https://github.com/rafabd1"
+    "url": "https://github.com/Vyntra-Research"
   },
-  "homepage": "https://github.com/rafabd1/Proteus",
-  "repository": "https://github.com/rafabd1/Proteus",
+  "homepage": "https://github.com/Vyntra-Research/Proteus",
+  "repository": "https://github.com/Vyntra-Research/Proteus",
   "license": "GPL-3.0-or-later",
   "keywords": [
     "security-research",
@@ -23,16 +23,16 @@
     "displayName": "Proteus",
     "shortDescription": "Coordinate professional vulnerability research with memory, strategy, and realistic validation.",
     "longDescription": "Proteus coordinates structured vulnerability research for arbitrary codebases through named specialist agents: Argus, Loom, Chaos, Libris, Mimic, Artificer, Skeptic, and Cicada. It emphasizes ROI-based surface selection, campaign state, hypothesis branching, anti-revisit memory, realistic validation gates, PoC/lab discipline, and conservative exploitability decisions.",
-    "developerName": "rafabd1",
+    "developerName": "Vyntra Research",
     "category": "Developer Tools",
     "capabilities": [
       "Interactive",
       "Write",
       "Run"
     ],
-    "websiteURL": "https://github.com/rafabd1/Proteus",
-    "privacyPolicyURL": "https://github.com/rafabd1/Proteus",
-    "termsOfServiceURL": "https://github.com/rafabd1/Proteus",
+    "websiteURL": "https://github.com/Vyntra-Research/Proteus",
+    "privacyPolicyURL": "https://github.com/Vyntra-Research/Proteus",
+    "termsOfServiceURL": "https://github.com/Vyntra-Research/Proteus",
     "defaultPrompt": [
       "Initialize continuous vulnerability research for this codebase.",
       "Plan the next high-ROI offensive research round.",
