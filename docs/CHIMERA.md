@@ -90,15 +90,16 @@ proteus chimera recover --root C:\path\to\target --id CH-0001
 Chimera is for parallel co-agent fronts, not step-by-step supervision. The
 coordinator should launch a session with enough context, scope, access limits,
 expected artifact, and stop conditions for the co-agent to reason and probe
-independently. After launch, use `poll`, `workflow-snapshot`, agent-authored
-snapshots, heartbeats, and checkpoints to observe progress. Intervene when
+independently. After launch, use `poll`, `snapshot` without `--body`,
+`workflow-snapshot`, heartbeats, and checkpoints to observe progress. Intervene when
 strategy, scope, duplicate work, low-ROI drift, blockers, new evidence, or user
 instructions require it.
 
-Large agent snapshots are stored in full at
-`.vros/chimera/sessions/<CH-ID>/snapshot.md`. `chimera poll` returns a bounded
-preview plus `bodyLength`, `bodyTruncated`, and `fullBodyPath` so the
-coordinator can inspect the full snapshot only when needed.
+Large agent-authored snapshots are stored in full at
+`.vros/chimera/sessions/<CH-ID>/snapshot.md`. `chimera poll` and `chimera
+snapshot` without `--body` return a bounded preview plus `bodyLength`,
+`bodyTruncated`, and `fullBodyPath` so the coordinator can inspect the full
+snapshot only when needed.
 
 `workflow-snapshot` depends on OpenCode session export. Proteus retries short
 transient export failures and returns export attempt diagnostics, but an export
@@ -277,11 +278,23 @@ that confirmation.
 
 ## Snapshots
 
-Agent-authored research snapshot:
+Read latest agent-authored state snapshot:
+
+```powershell
+proteus chimera snapshot --root C:\path\to\target --id CH-0001
+```
+
+This is a read-only shortcut over the latest snapshot state returned by
+`poll`. It is for coordinator status checks.
+
+Agent-authored research snapshot write:
 
 ```powershell
 proteus chimera snapshot --root C:\path\to\target --body "Confirmed / killed / open / next move"
 ```
+
+Use `--body` only when the Chimera agent is posting its own concise state
+summary.
 
 Coordinator snapshot of recent OpenCode assistant messages:
 
@@ -384,6 +397,7 @@ proteus_chimera_send
 proteus_chimera_broadcast
 proteus_chimera_post
 proteus_chimera_snapshot
+proteus_chimera_latest_snapshot
 proteus_chimera_workflow_snapshot
 proteus_chimera_heartbeat
 proteus_chimera_run

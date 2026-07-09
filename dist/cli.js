@@ -246,12 +246,30 @@ function cmdChimera(db, subcommand, parsed) {
                 message: (0, chimera_1.postChimeraMessage)(db, currentChimeraSessionId(db, parsed, "id"), chimeraMessageKind(parsed, "kind", "message"), requiredString(parsed, "body"), parseJsonFlag(getString(parsed, "metadata")))
             }, null, 2));
             return;
-        case "snapshot":
+        case "snapshot": {
+            const body = getString(parsed, "body");
+            if (body !== undefined) {
+                console.log(JSON.stringify({
+                    ok: true,
+                    mode: "write",
+                    message: (0, chimera_1.snapshotChimeraSession)(db, currentChimeraSessionId(db, parsed, "id"), body)
+                }, null, 2));
+                return;
+            }
             console.log(JSON.stringify({
                 ok: true,
-                message: (0, chimera_1.snapshotChimeraSession)(db, currentChimeraSessionId(db, parsed, "id"), requiredString(parsed, "body"))
+                mode: "read",
+                hint: "No --body was supplied, so Proteus returned the latest agent-authored Chimera snapshot state. Use --body only when the Chimera agent is writing its own state summary. Use workflow-snapshot for recent OpenCode transcript messages.",
+                ...(0, chimera_1.pollChimeraMessages)(db, {
+                    publicId: getString(parsed, "id"),
+                    unreadOnly: false,
+                    forAgent: false,
+                    peek: true,
+                    limit: getNumber(parsed, "limit")
+                })
             }, null, 2));
             return;
+        }
         case "workflow-snapshot":
             console.log(JSON.stringify({
                 ok: true,
@@ -1501,8 +1519,9 @@ Usage:
   proteus chimera list --root <path> [--active] [--status active|starting|running|stopped] [--all] [--limit <n>]
   proteus chimera send --root <path> --id <CH-ID> --message <text> [--priority]
   proteus chimera send --root <path> --to-id <CH-ID> --message <text> [--from-id <CH-ID>] [--priority]
-  proteus chimera post|snapshot|heartbeat --root <path> [--id <CH-ID>]
-  proteus chimera snapshot --root <path> --id <CH-ID> --body <text>   # agent-authored state summary
+  proteus chimera post|heartbeat --root <path> [--id <CH-ID>]
+  proteus chimera snapshot --root <path> [--id <CH-ID>] [--limit <n>]   # read latest agent-authored state snapshot(s)
+  proteus chimera snapshot --root <path> --id <CH-ID> --body <text>   # write agent-authored state summary
   proteus chimera workflow-snapshot --root <path> --id <CH-ID> [--limit <n>] [--max-message-chars <n>]   # compact OpenCode transcript export
   proteus chimera poll --root <path> --unread --agent [--id <CH-ID>]
   proteus ingest [--root <path>] [paths...]

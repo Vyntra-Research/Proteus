@@ -168,8 +168,10 @@ proteus chimera snapshot --root <workspace-root> --body "Confirmed / killed / op
 ```
 
 This is your own written state summary. It is not a live OpenCode transcript
-capture. Do not call `workflow-snapshot` from your own flow unless the
-coordinator explicitly asks for transcript diagnostics.
+capture. The coordinator reads it with `proteus chimera poll` or `proteus
+chimera snapshot --id <your-id>` without `--body`. Do not call
+`workflow-snapshot` from your own flow unless the coordinator explicitly asks
+for transcript diagnostics.
 
 Heartbeat during longer work:
 

@@ -95,6 +95,7 @@ try {
     "proteus_chimera_send",
     "proteus_chimera_post",
     "proteus_chimera_snapshot",
+    "proteus_chimera_latest_snapshot",
     "proteus_chimera_workflow_snapshot",
     "proteus_chimera_heartbeat",
     "proteus_chimera_run",
@@ -413,6 +414,17 @@ try {
   const largeMcpSnapshotMessage = largeMcpSnapshotJson.record?.messages?.find((message) => message.kind === "snapshot");
   if (!largeMcpSnapshotMessage?.bodyTruncated || !largeMcpSnapshotMessage.fullBodyPath || !fs.existsSync(largeMcpSnapshotMessage.fullBodyPath)) {
     throw new Error("proteus_chimera_poll did not expose large snapshot preview and full body path");
+  }
+  const largeMcpLatestSnapshot = await request("tools/call", {
+    name: "proteus_chimera_latest_snapshot",
+    arguments: { root: tmpRoot, id: "CH-0001", limit: 1 }
+  });
+  const largeMcpLatestSnapshotJson = JSON.parse(String(largeMcpLatestSnapshot.content?.[0]?.text ?? "{}"));
+  if (
+    largeMcpLatestSnapshotJson.record?.mode !== "read" ||
+    !largeMcpLatestSnapshotJson.record?.latestSnapshots?.some((snapshot) => snapshot.publicId === "CH-0001" && snapshot.fullBodyPath)
+  ) {
+    throw new Error("proteus_chimera_latest_snapshot did not read latest agent-authored snapshot state");
   }
   const chimeraHeartbeat = await request("tools/call", {
     name: "proteus_chimera_heartbeat",

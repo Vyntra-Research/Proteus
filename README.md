@@ -19,15 +19,15 @@
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.1.0-2f6feb" />
+    <img alt="Version" src="https://img.shields.io/badge/version-2.1.1-2f6feb" />
   <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D24-43853d" />
   <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" />
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-CLI%20%2B%20MCP%20%2B%20Skills-7c3aed" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/rafabd1/Proteus/actions/workflows/ci.yml">
-    <img alt="CI" src="https://github.com/rafabd1/Proteus/actions/workflows/ci.yml/badge.svg" />
+  <a href="https://github.com/Vyntra-Research/Proteus/actions/workflows/ci.yml">
+    <img alt="CI" src="https://github.com/Vyntra-Research/Proteus/actions/workflows/ci.yml/badge.svg" />
   </a>
 </p>
 
@@ -89,20 +89,20 @@ Proteus requires Node.js 24 or newer because it uses `node:sqlite` for local
 structured memory.
 
 ```powershell
-npm install -g https://codeload.github.com/rafabd1/Proteus/tar.gz/refs/heads/main
+npm install -g https://codeload.github.com/Vyntra-Research/Proteus/tar.gz/refs/heads/main
 proteus --version
 ```
 
 Expected:
 
 ```text
-@rafabd1/proteus 2.1.0
+@rafabd1/proteus 2.1.1
 ```
 
 ### Codex
 
 ```powershell
-codex plugin marketplace add rafabd1/Proteus
+codex plugin marketplace add Vyntra-Research/Proteus
 codex mcp add proteus -- proteus-mcp
 ```
 
@@ -117,7 +117,7 @@ models may also apply safety restrictions that affect exploit-development,
 chaining, or other offsec workflows.
 
 ```text
-/plugin marketplace add rafabd1/Proteus
+/plugin marketplace add Vyntra-Research/Proteus
 /plugin install proteus@proteus-marketplace
 ```
 
@@ -239,6 +239,7 @@ Common operations:
 proteus chimera start --root C:\path\to\target --role chaining --goal "Develop non-obvious chains from branch B7"
 proteus chimera list --root C:\path\to\target --active
 proteus chimera poll --root C:\path\to\target --unread
+proteus chimera snapshot --root C:\path\to\target --id CH-0001
 proteus chimera send --root C:\path\to\target --id CH-0001 --message "Focus on policy side effects."
 proteus chimera run --root C:\path\to\target --id CH-0001 --message "Resume this same front with the updated priority."
 proteus chimera workflow-snapshot --root C:\path\to\target --id CH-0001
@@ -338,7 +339,7 @@ global learnings
 ## Development
 
 ```powershell
-git clone https://github.com/rafabd1/Proteus
+git clone https://github.com/Vyntra-Research/Proteus
 cd Proteus
 npm install
 npm run build

@@ -112,9 +112,9 @@ tasks, prefer ordinary subagents when they are available.
 The coordinator leads the campaign, but Chimera is not a step-by-step remote
 control mode. Launch a co-agent with enough context, scope, heuristics, access
 limits, expected artifact, and stop condition for it to reason independently.
-After launch, let it work. Observe through unread polling, workflow snapshots,
-heartbeats, snapshots, and checkpoints instead of interrupting every command or
-minor branch choice.
+After launch, let it work. Observe through unread polling, latest
+agent-authored snapshots, workflow snapshots, heartbeats, and checkpoints
+instead of interrupting every command or minor branch choice.
 
 Before launching Chimera agents:
 
@@ -138,8 +138,8 @@ Before launching Chimera agents:
 - check `proteus chimera list --root <workspace> --active` before creating new
   agents; inspect role, goal, status, `labDir`, and `opencodeSessionId`;
   create a new co-agent only when there is a distinct front, role, model, or
-  lab need, otherwise continue with `poll`, `workflow-snapshot`, `heartbeat`,
-  or a targeted `send`;
+  lab need, otherwise continue with `poll`, `chimera snapshot` without
+  `--body`, `workflow-snapshot`, `heartbeat`, or a targeted `send`;
 - choose the access mode deliberately.
 
 Access modes:
@@ -194,6 +194,9 @@ Coordinator duties:
   historical sessions outside the active campaign set;
 - use `proteus chimera poll` to read Proteus-brokered messages and session
   control status;
+- use `proteus chimera snapshot --id <CH-ID>` without `--body` to read the
+  latest agent-authored state snapshot. Do not add `--body` unless you are the
+  Chimera agent writing your own concise state summary;
 - use `proteus chimera workflow-snapshot` to inspect recent OpenCode assistant
   messages without tool-output noise;
 - use `proteus chimera recover --id <CH-ID>` when status, pid, or OpenCode
@@ -225,6 +228,9 @@ Coordinator duties:
 - treat `proteus chimera poll` as the authoritative Proteus broker history:
   coordinator messages, agent posts, snapshots, heartbeat, kill/close events,
   and latest snapshots. It is not the full raw OpenCode chat transcript;
+- treat `proteus chimera snapshot --id <CH-ID>` with no `--body` as a read-only
+  shortcut for latest agent-authored snapshot state. It is not an OpenCode
+  transcript export;
 - for large co-agent snapshots, read the bounded preview first. If `poll`
   marks a snapshot as `bodyTruncated`, use `fullBodyPath` to inspect the full
   `snapshot.md` only when the complete body is needed for a decision;
@@ -275,8 +281,9 @@ direct questions and messages that materially affect their branch.
 Before creating a new Chimera agent, prefer to reuse an active or stopped
 session with the same role/front/lab context. Use `proteus chimera list` to
 check existing sessions in the active campaign set, then continue with `poll`,
-`workflow-snapshot`, `heartbeat`, `send`, `send --priority`, or `run --message`
-only when the session is actually parked and should start another work cycle.
+`chimera snapshot` without `--body`, `workflow-snapshot`, `heartbeat`, `send`,
+`send --priority`, or `run --message` only when the session is actually parked
+and should start another work cycle.
 Start a new co-agent only when the campaign needs a distinct front, model,
 access mode, or independent lab.
 
