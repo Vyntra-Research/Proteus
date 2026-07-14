@@ -81,6 +81,19 @@ function waitForChimeraWake(root, publicId, messageId, timeoutMs = 10000) {
   throw new Error("timed out waiting for " + publicId + " wake message " + messageId);
 }
 
+function waitForChimeraStatus(root, publicId, expectedStatus, timeoutMs = 10000) {
+  const startedAt = Date.now();
+  const statusPath = path.join(root, ".vros", "chimera", "sessions", publicId, "status.json");
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      if (status.session?.status === expectedStatus) return;
+    } catch {}
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  throw new Error("timed out waiting for " + publicId + " status " + expectedStatus);
+}
+
 function waitForChild(child, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     let stdout = "";
@@ -511,6 +524,7 @@ try {
   if (prioritySend.directDelivery?.autoWake?.started) {
     waitForChimeraWake(tmpRoot, "CH-0001", prioritySend.message.id);
   }
+  waitForChimeraStatus(tmpRoot, "CH-0001", "stopped");
   const chimeraBroadcast = JSON.parse(run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]));
   if (chimeraBroadcast.delivered.length !== 0 || !chimeraBroadcast.skipped.some((entry) => entry.publicId === "CH-0001" && entry.reason === "status stopped")) {
     throw new Error(`chimera broadcast should skip stopped sessions: ${JSON.stringify(chimeraBroadcast)}`);
