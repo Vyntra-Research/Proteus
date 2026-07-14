@@ -2308,6 +2308,7 @@ function nowIso() {
 function packageVersion() {
     for (const candidate of [
         node_path_1.default.resolve(__dirname, "..", "package.json"),
+        node_path_1.default.resolve(__dirname, "..", ".claude-plugin", "plugin.json"),
         node_path_1.default.resolve(__dirname, "..", "..", "..", "package.json")
     ]) {
         if (!node_fs_1.default.existsSync(candidate))

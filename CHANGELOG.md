@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.4 - 2026-07-14
+
+### Fixed
+
+- Preserved the runtime and database version when the MCP server runs from an isolated Claude Code or Codex plugin cache.
+
+### Changed
+
+- Made the MCP smoke test execute from an isolated packaged-plugin copy and assert the advertised server version.
+
 ## 2.1.3 - 2026-07-14
 
 ### Fixed
