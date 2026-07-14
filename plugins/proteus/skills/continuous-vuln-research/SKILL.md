@@ -165,9 +165,11 @@ proteus chimera swarm --root <workspace> --plan chimera-swarm.json
 
 `start` creates the lab, writes the dossier and contract, and starts OpenCode
 bootstrap automatically. Do not follow every `start` with `run`. `starting`
-and `running` are the only live session states. `stopped` means the session is
-persisted and reusable, not necessarily that a live agent is connected and
-listening. `kill`, `close`, failed runs, completed runs, and legacy parked or
+means the runner exists but the co-agent has not emitted reasoning, text, or
+tool progress yet. `running` begins only after that progress is observed.
+`stopped` means the session is persisted and reusable, not necessarily that a
+live agent is connected and listening. `kill`, `close`, failed runs, completed
+runs, and legacy parked or
 error states all resolve to a stopped session with verdict details stored separately.
 Use normal `send` to queue a message in the session inbox. Use `send --priority`
 when the destination should be nudged to poll soon. Use

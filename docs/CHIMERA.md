@@ -22,7 +22,8 @@ When a Chimera run needs the OpenCode server API, Proteus reuses the configured
 server URL if it is healthy. Otherwise it scans the managed local range and
 reuses the first healthy OpenCode server it finds, so multiple coordinator
 chats can share one server. If no healthy server is available, Proteus starts a
-managed local server on the first free port in the range.
+managed local server on the first free port in the range. On Windows, the
+managed server starts without a visible console window.
 
 ## Enable Chimera
 
@@ -42,6 +43,9 @@ test or short probe, and use `chimera kill` or `chimera close` to stop normal
 research sessions. Passing `--timeout 0` stores the no-timeout behavior
 explicitly.
 
+Test-only `mock-opencode` commands are rejected by normal configuration and
+runtime checks.
+
 `doctor`, `start`, `run`, messages, sessions, and labs still receive `--root`
 because they operate on a specific workspace. `config` does not need `--root`.
 
@@ -54,9 +58,11 @@ proteus chimera start --root C:\path\to\target --role chaining --goal "Develop n
 ```
 
 `start` creates the lab, writes the dossier and contract, and starts OpenCode
-bootstrap automatically. `starting` and `running` are live states. `stopped`
-means the Chimera session is persisted and reusable, but no Proteus-controlled
-OpenCode process is necessarily listening. `kill`, `close`, failed runs, and
+bootstrap automatically. `starting` means the runner exists but the agent has
+not emitted reasoning, text, or tool progress yet; `running` begins only after
+that progress is observed. `stopped` means the Chimera session is persisted and
+reusable, but no Proteus-controlled OpenCode process is necessarily listening.
+`kill`, `close`, failed runs, and
 completed runs all leave a reusable stopped session with the verdict or summary
 stored separately. Use `run` only when intentionally resuming or recovering an
 existing non-running session into another work cycle:

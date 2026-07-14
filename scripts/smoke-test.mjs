@@ -23,6 +23,7 @@ const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chi
 const chimeraCampaignListRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-campaign-list-smoke-"));
 const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-smoke-"));
 const opencodeExistingRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-existing-smoke-"));
+const mockOpenCodeLauncher = createMockOpenCodeLauncher(globalRoot);
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
   return execFileSync(process.execPath, [cli, ...args], {
@@ -39,8 +40,17 @@ function smokeEnv(extra = {}) {
     ...extra,
     PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
     PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
-    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
+    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json"),
+    PROTEUS_ALLOW_MOCK_OPENCODE: extra.PROTEUS_ALLOW_MOCK_OPENCODE ?? "1",
+    PROTEUS_CHIMERA_PORT_START: String(43000 + (process.pid % 1000))
   };
+}
+
+function createMockOpenCodeLauncher(root) {
+  if (process.platform !== "win32") return null;
+  const launcher = path.join(root, "mock-opencode.cmd");
+  fs.writeFileSync(launcher, '@echo off\r\n"' + process.execPath + '" "' + mockOpenCode + '" %*\r\n');
+  return launcher;
 }
 
 function waitForFile(filePath, timeoutMs = 5000) {
@@ -50,6 +60,25 @@ function waitForFile(filePath, timeoutMs = 5000) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   }
   throw new Error(`timed out waiting for file: ${filePath}`);
+}
+
+function waitForChimeraWake(root, publicId, messageId, timeoutMs = 10000) {
+  const startedAt = Date.now();
+  const statusPath = path.join(root, ".vros", "chimera", "sessions", publicId, "status.json");
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const status = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      if (
+        status.session?.status === "stopped" &&
+        status.extra?.wakeMessageId === messageId &&
+        status.extra?.lastWakeRun
+      ) {
+        return;
+      }
+    } catch {}
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  }
+  throw new Error("timed out waiting for " + publicId + " wake message " + messageId);
 }
 
 function waitForChild(child, timeoutMs = 10000) {
@@ -274,7 +303,19 @@ try {
   if (!disabledChimeraStart.includes("Chimera is disabled")) {
     throw new Error("chimera start should fail clearly before config init");
   }
-  const opencodeCommand = `"${process.execPath}" "${mockOpenCode}"`;
+  const opencodeCommand = mockOpenCodeLauncher
+    ? '"' + mockOpenCodeLauncher + '"'
+    : '"' + process.execPath + '" "' + mockOpenCode + '"';
+  const rejectedMockConfig = runFail([
+    "chimera",
+    "config",
+    "init",
+    "--opencode-command",
+    opencodeCommand
+  ], tmpRoot, { PROTEUS_ALLOW_MOCK_OPENCODE: "0" });
+  if (!rejectedMockConfig.includes("Mock OpenCode commands are test-only")) {
+    throw new Error("chimera config should reject mock OpenCode outside explicit test mode");
+  }
   const chimeraConfig = run([
     "chimera",
     "config",
@@ -334,6 +375,19 @@ try {
     stdio: ["ignore", "pipe", "pipe"]
   });
   waitForFile(path.join(killRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"));
+  const persistedConfig = fs.readFileSync(path.join(globalRoot, "chimera", "config.json"), "utf8");
+  if (process.platform === "win32") {
+    const managedPid = JSON.parse(persistedConfig).opencodeServerPid;
+    const windowHandle = execFileSync("powershell.exe", [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "(Get-Process -Id " + Number(managedPid) + " -ErrorAction Stop).MainWindowHandle"
+    ], { encoding: "utf8", windowsHide: true }).trim();
+    if (windowHandle !== "0") {
+      throw new Error("managed OpenCode .cmd launcher opened a visible window: handle " + windowHandle);
+    }
+  }
   run(["chimera", "kill", "--root", killRoot, "--id", "CH-0001", "--reason", "Live kill smoke"], killRoot);
   const liveRunResult = await waitForChild(liveRun);
   if (liveRunResult.code !== 0 || !liveRunResult.stdout.includes('"killed": true')) {
@@ -374,13 +428,18 @@ try {
     "editor",
     "--access-notes",
     "Smoke editor grant: non-destructive shell only; edit generated lab files only."
-  ]);
+  ], tmpRoot, { MOCK_OPENCODE_SLEEP_MS: "2000" });
   if (!chimeraStart.includes('"publicId": "CH-0001"') || !chimeraStart.includes('"accessMode": "editor"') || !chimeraStart.includes('"backgroundRun"') || !chimeraStart.includes('"status": "starting"')) {
     throw new Error("chimera start did not create CH-0001 with editor access");
   }
+  waitForFile(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/opencode/opencode.pid"));
   const chimeraRecoverStart = JSON.parse(run(["chimera", "recover", "--id", "CH-0001"]));
-  if (chimeraRecoverStart.session?.publicId !== "CH-0001" || !chimeraRecoverStart.controlStatus) {
-    throw new Error("chimera recover did not return reconciled session and control status");
+  if (
+    chimeraRecoverStart.session?.publicId !== "CH-0001" ||
+    chimeraRecoverStart.session?.status !== "starting" ||
+    chimeraRecoverStart.controlStatus?.deliveryState !== "starting"
+  ) {
+    throw new Error("chimera recover promoted bootstrap before the agent produced progress");
   }
   const attachWithoutSession = runFail(["chimera", "attach-opencode", "--id", "CH-0001", "--server-url", "http://127.0.0.1:4096"]);
   if (!attachWithoutSession.includes("Missing --opencode-session-id")) {
@@ -429,7 +488,7 @@ try {
   if (chimeraUnreadAgain.includes("Smoke Chimera finding")) {
     throw new Error("chimera poll unread did not mark message read");
   }
-  run(["chimera", "send", "--id", "CH-0001", "--kind", "redirect", "--message", "Smoke coordinator redirect", "--priority"]);
+  const prioritySend = JSON.parse(run(["chimera", "send", "--id", "CH-0001", "--kind", "redirect", "--message", "Smoke coordinator redirect", "--priority"]));
   const notificationAfterSend = JSON.parse(fs.readFileSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/notifications.json"), "utf8"));
   if (notificationAfterSend.pending !== true || notificationAfterSend.priority !== true || notificationAfterSend.unreadForAgent < 1) {
     throw new Error("chimera send did not update priority notifications.json");
@@ -448,6 +507,9 @@ try {
     !String(notificationAfterAgentPoll.acknowledgementNote ?? "").includes("does not prove")
   ) {
     throw new Error(`chimera notifications.json did not preserve latest control-message acknowledgement semantics: ${JSON.stringify(notificationAfterAgentPoll)}`);
+  }
+  if (prioritySend.directDelivery?.autoWake?.started) {
+    waitForChimeraWake(tmpRoot, "CH-0001", prioritySend.message.id);
   }
   const chimeraBroadcast = JSON.parse(run(["chimera", "broadcast", "--message", "Smoke shared chat message", "--priority"]));
   if (chimeraBroadcast.delivered.length !== 0 || !chimeraBroadcast.skipped.some((entry) => entry.publicId === "CH-0001" && entry.reason === "status stopped")) {
