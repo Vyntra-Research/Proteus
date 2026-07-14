@@ -2,7 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { ProteusDb, type CampaignRow, type ChimeraMessageRow, type ChimeraSessionRow } from "./db";
-import { chimeraDir, chimeraSessionDir, chimeraSessionsDir, ensureDir, globalChimeraConfigPath, toRelative } from "./paths";
+import {
+  chimeraDir,
+  chimeraSessionDir,
+  chimeraSessionsDir,
+  ensureDir,
+  globalChimeraConfigPath,
+  toRelative
+} from "./paths";
 import type {
   ChimeraConfig,
   ChimeraAccessMode,
@@ -183,6 +190,7 @@ export function initChimeraConfig(input: Partial<ChimeraConfig> = {}): ChimeraCo
     defaultNetwork: input.defaultNetwork ?? current.defaultNetwork,
     skipPermissions: input.skipPermissions ?? current.skipPermissions
   };
+  assertOpenCodeCommandAllowed(next.opencodeCommand);
   saveChimeraConfig(next);
   return next;
 }
@@ -209,6 +217,7 @@ export function chimeraDoctor(db: ProteusDb): {
   checks: Array<{ name: string; ok: boolean; detail: string }>;
 } {
   const config = getChimeraConfig();
+  const commandIntegrity = openCodeCommandIntegrityCheck(config.opencodeCommand);
   ensureDir(chimeraDir(db.targetRoot));
   const checks = [
     {
@@ -226,6 +235,7 @@ export function chimeraDoctor(db: ProteusDb): {
       ok: resolveSkillsDir() !== null,
       detail: resolveSkillsDir() ?? "Could not resolve plugins/proteus/skills."
     },
+    commandIntegrity,
     commandCheck("opencode", config.opencodeCommand, ["--version"]),
     commandCheck("proteus_cli", process.execPath, [resolveProteusCliPath(), "--version"])
   ];
@@ -260,6 +270,7 @@ export function startChimeraSession(db: ProteusDb, input: ChimeraStartInput): {
   if (!input.role?.trim()) throw new Error("Missing Chimera role.");
   if (!input.goal?.trim()) throw new Error("Missing Chimera goal.");
   const config = getChimeraConfig();
+  assertOpenCodeCommandAllowed(config.opencodeCommand);
   if (!config.enabled) {
     throw new Error("Chimera is disabled. Run `proteus chimera config init` once for the user first.");
   }
@@ -960,12 +971,13 @@ export function runChimeraSession(
   const promptPath = path.join(session.sessionDir, "opencode", "prompt.md");
   if (!fs.existsSync(promptPath)) throw new Error(`Missing Chimera prompt: ${promptPath}`);
   clearKillFlag(session);
-  const running = db.updateChimeraSession({ publicId, status: "running", closeVerdict: null, closeSummary: null });
-  writeStatusFile(db, running, { runStartedAt: new Date().toISOString() });
-  const instruction = renderRunInstruction(running, options.instruction);
+  const runStatus: ChimeraStatus = options.internalRun && !hasOpenCodeProgress(session) ? "starting" : "running";
+  const active = db.updateChimeraSession({ publicId, status: runStatus, closeVerdict: null, closeSummary: null });
+  writeStatusFile(db, active, { runStartedAt: new Date().toISOString() });
+  const instruction = renderRunInstruction(active, options.instruction);
   if (options.instruction?.trim()) {
     db.addChimeraMessage({
-      publicId: running.publicId,
+      publicId: active.publicId,
       direction: "coordinator_to_agent",
       kind: "message",
       body: options.instruction.trim(),
@@ -973,7 +985,7 @@ export function runChimeraSession(
       readByAgent: false
     });
   }
-  const run = runOpenCodeOnce(db, running, promptPath, config, resolveRunTimeoutSec(config, timeoutSec), instruction);
+  const run = runOpenCodeOnce(db, active, promptPath, config, resolveRunTimeoutSec(config, timeoutSec), instruction);
   const updated = db.updateChimeraSession({
     publicId,
     status: chimeraStatusAfterRun(run, db.getChimeraSession(publicId)),
@@ -2099,9 +2111,14 @@ function recoverChimeraRuntime(db: ProteusDb, session: ChimeraSessionRow): { ses
   if (current.status === "running" || current.status === "starting") {
     const pid = current.opencodePid ?? readPidFile(path.join(current.sessionDir, "opencode", "opencode.pid"));
     if (pid && isSessionProcessAlive(pid, current.sessionDir)) {
-      if (current.opencodePid !== pid || current.status !== "running") {
-        current = db.updateChimeraSession({ publicId: current.publicId, status: "running", opencodePid: pid });
-        actions.push(`attached live OpenCode pid ${pid}`);
+      const observedStatus: ChimeraStatus = current.status === "starting" && !hasOpenCodeProgress(current)
+        ? "starting"
+        : "running";
+      if (current.opencodePid !== pid || current.status !== observedStatus) {
+        current = db.updateChimeraSession({ publicId: current.publicId, status: observedStatus, opencodePid: pid });
+        actions.push(observedStatus === "starting"
+          ? `attached bootstrap OpenCode pid ${pid}; awaiting agent progress`
+          : `attached live OpenCode pid ${pid}`);
         writeStatusFile(db, current, { recovery: actions, opencodePid: pid });
       }
     } else if (current.status === "starting" && startingGraceActive(current) && !hasCompletedChimeraRun(current)) {
@@ -2144,6 +2161,24 @@ function hasCompletedChimeraRun(session: ChimeraSessionRow): boolean {
   } catch {
     return false;
   }
+}
+
+function hasOpenCodeProgress(session: ChimeraSessionRow): boolean {
+  const stdoutPath = path.join(session.sessionDir, "opencode", "stdout.log");
+  try {
+    const stdout = fs.readFileSync(stdoutPath, "utf8");
+    for (const line of stdout.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line) as { type?: unknown; part?: { type?: unknown; text?: unknown } };
+        const type = String(event.type ?? event.part?.type ?? "");
+        if (["reasoning", "text", "tool", "tool_call", "tool_use"].includes(type)) {
+          if (type !== "text" || String(event.part?.text ?? "").trim()) return true;
+        }
+      } catch {}
+    }
+  } catch {}
+  return false;
 }
 
 function reconcileOpenCodeSession(db: ProteusDb, session: ChimeraSessionRow): ChimeraSessionRow {
@@ -2315,10 +2350,12 @@ function chimeraControlStatus(db: ProteusDb, session: ChimeraSessionRow): Chimer
   const priorityPending = unreadMessages.some(isPriorityMessage);
   const latestControlMessage = controlMessages[controlMessages.length - 1];
   const latestPriorityMessage = [...controlMessages].reverse().find(isPriorityMessage);
-  const deliveryState: ChimeraControlStatus["deliveryState"] = session.status === "running" || session.opencodeSessionId
-      ? "live"
-      : session.status === "starting"
-        ? "starting"
+  const deliveryState: ChimeraControlStatus["deliveryState"] = session.status === "running"
+    ? "live"
+    : session.status === "starting"
+      ? "starting"
+      : session.opencodeSessionId
+        ? "live"
         : "queued";
   let recommendedNextCommand: string | null = null;
   if (priorityPending) {
@@ -2607,10 +2644,21 @@ ${councilTurn ? "This wake is for an ordered council turn. Keep the reply concis
 }
 
 function ensureOpenCodeServer(db: ProteusDb, config: ChimeraConfig): OpenCodeServerState {
+  const release = acquireOpenCodeServerLock();
+  try {
+    return ensureOpenCodeServerUnlocked(db, getChimeraConfig());
+  } finally {
+    release();
+  }
+}
+
+function ensureOpenCodeServerUnlocked(db: ProteusDb, config: ChimeraConfig): OpenCodeServerState {
+  assertOpenCodeCommandAllowed(config.opencodeCommand);
   if (config.opencodeServerUrl && openCodeServerHealthy(config.opencodeServerUrl)) {
     return { url: config.opencodeServerUrl, pid: config.opencodeServerPid, started: false };
   }
-  for (let port = 4096; port <= 4115; port++) {
+  const firstPort = openCodeServerPortStart();
+  for (let port = firstPort; port <= firstPort + 19; port++) {
     const url = `http://127.0.0.1:${port}`;
     if (openCodeServerHealthy(url)) {
       saveChimeraConfig({ ...config, opencodeServerUrl: url, opencodeServerPid: null });
@@ -2633,7 +2681,7 @@ function ensureOpenCodeServer(db: ProteusDb, config: ChimeraConfig): OpenCodeSer
       }
     }
   }
-  throw new Error("Could not start or find an OpenCode server on 127.0.0.1:4096-4115.");
+  throw new Error(`Could not start or find an OpenCode server on 127.0.0.1:${firstPort}-${firstPort + 19}.`);
 }
 
 function startOpenCodeServerProcess(db: ProteusDb, config: ChimeraConfig, port: number): { pid: number | null } {
@@ -2643,7 +2691,7 @@ function startOpenCodeServerProcess(db: ProteusDb, config: ChimeraConfig, port: 
   const command = commandParts(config.opencodeCommand);
   const child = spawn(command.file, [...command.args, "serve", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: db.targetRoot,
-    detached: true,
+    detached: process.platform !== "win32",
     stdio: ["ignore", stdout, stderr],
     shell: needsWindowsShell(command.file),
     windowsHide: true
@@ -2657,6 +2705,37 @@ function startOpenCodeServerProcess(db: ProteusDb, config: ChimeraConfig, port: 
 function openCodeServerHealthy(url: string): boolean {
   const response = httpJson(`${trimSlash(url)}/session`, { method: "GET", timeoutMs: 3000 });
   return response.ok;
+}
+
+function openCodeServerPortStart(): number {
+  const value = Number(process.env.PROTEUS_CHIMERA_PORT_START ?? 4096);
+  return Number.isInteger(value) && value >= 1024 && value <= 65516 ? value : 4096;
+}
+
+function acquireOpenCodeServerLock(): () => void {
+  const lockPath = `${globalChimeraConfigPath()}.server.lock`;
+  ensureDir(path.dirname(lockPath));
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try {
+      const fd = fs.openSync(lockPath, "wx", 0o600);
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }) + "\n");
+      return () => {
+        try { fs.closeSync(fd); } catch {}
+        try { fs.rmSync(lockPath, { force: true }); } catch {}
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > 30_000) {
+          fs.rmSync(lockPath, { force: true });
+          continue;
+        }
+      } catch {}
+      sleepMs(100);
+    }
+  }
+  throw new Error("Timed out waiting for the global OpenCode server manager lock.");
 }
 
 function discoverOpenCodeSession(serverUrl: string, session: ChimeraSessionRow): string | null {
@@ -2762,6 +2841,26 @@ function commandCheck(name: string, command: string, args: string[]): { name: st
     ok: result.status === 0,
     detail: output || result.error?.message || `exit ${result.status}`
   };
+}
+
+function openCodeCommandIntegrityCheck(command: string): { name: string; ok: boolean; detail: string } {
+  const allowed = !isMockOpenCodeCommand(command) || process.env.PROTEUS_ALLOW_MOCK_OPENCODE === "1";
+  return {
+    name: "opencode_command_integrity",
+    ok: allowed,
+    detail: allowed
+      ? "OpenCode command is eligible for normal runtime use."
+      : "Mock OpenCode commands are test-only. Reconfigure Chimera with the real opencode executable."
+  };
+}
+
+function assertOpenCodeCommandAllowed(command: string): void {
+  const check = openCodeCommandIntegrityCheck(command);
+  if (!check.ok) throw new Error(check.detail);
+}
+
+function isMockOpenCodeCommand(command: string): boolean {
+  return /(?:^|[\\/])mock-opencode(?:\.[a-z0-9]+)?(?:\s|$|["'])/i.test(command.trim());
 }
 
 function commandParts(command: string): { file: string; args: string[] } {

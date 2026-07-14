@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.2 - 2026-07-13
+
+### Fixed
+
+- Started managed OpenCode servers without a visible Windows console window.
+- Serialized managed OpenCode server startup across concurrent Chimera sessions.
+- Kept fresh Chimera sessions in `starting` until the agent emits real progress instead of promoting them from PID or session-id presence alone.
+- Rejected test-only `mock-opencode` commands from normal Chimera configuration and runtime use.
+
+### Changed
+
+- Isolated Chimera smoke-test port ranges and added hidden `.cmd` launcher and mock-command guard coverage.
+
 ## 2.1.1 - 2026-07-09
 
 ### Fixed

@@ -12,6 +12,7 @@ const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
 const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
+const mockOpenCodeLauncher = createMockOpenCodeLauncher(globalRoot);
 
 const child = spawn(process.execPath, [serverPath], {
   cwd: repoRoot,
@@ -19,7 +20,9 @@ const child = spawn(process.execPath, [serverPath], {
     ...process.env,
     PROTEUS_GLOBAL_MEMORY_PATH: path.join(globalRoot, "global.sqlite"),
     PROTEUS_GLOBAL_EXPORTS_DIR: path.join(globalRoot, "exports"),
-    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json")
+    PROTEUS_CHIMERA_CONFIG_PATH: path.join(globalRoot, "chimera", "config.json"),
+    PROTEUS_ALLOW_MOCK_OPENCODE: "1",
+    PROTEUS_CHIMERA_PORT_START: String(45000 + (process.pid % 1000))
   },
   stdio: ["pipe", "pipe", "pipe"]
 });
@@ -27,6 +30,14 @@ const child = spawn(process.execPath, [serverPath], {
 let nextId = 1;
 let stdout = "";
 const pending = new Map();
+
+function createMockOpenCodeLauncher(root) {
+  if (process.platform !== "win32") return null;
+  const launcher = path.join(root, "mock-opencode.cmd");
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(launcher, '@echo off\r\n"' + process.execPath + '" "' + mockOpenCode + '" %*\r\n');
+  return launcher;
+}
 
 child.stdout.setEncoding("utf8");
 child.stdout.on("data", (chunk) => {
@@ -221,7 +232,9 @@ try {
     throw new Error("proteus_status did not return Proteus database version state");
   }
 
-  const opencodeCommand = `"${process.execPath}" "${mockOpenCode}"`;
+  const opencodeCommand = mockOpenCodeLauncher
+    ? '"' + mockOpenCodeLauncher + '"'
+    : '"' + process.execPath + '" "' + mockOpenCode + '"';
   const chimeraConfig = await request("tools/call", {
     name: "proteus_chimera_config",
     arguments: { action: "init", opencodeCommand, model: "mock/mock-model", variant: "high", maxAgents: 3 }
