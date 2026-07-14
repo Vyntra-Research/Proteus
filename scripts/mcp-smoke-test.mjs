@@ -7,11 +7,13 @@ import { execFileSync, spawn } from "node:child_process";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
-const serverPath = path.join(repoRoot, "plugins", "proteus", "scripts", "proteus-mcp.cjs");
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
 const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
+const packagedPluginRoot = path.join(globalRoot, "packaged-plugin");
+fs.cpSync(path.join(repoRoot, "plugins", "proteus"), packagedPluginRoot, { recursive: true });
+const serverPath = path.join(packagedPluginRoot, "scripts", "proteus-mcp.cjs");
 const mockOpenCodeLauncher = createMockOpenCodeLauncher(globalRoot);
 
 const child = spawn(process.execPath, [serverPath], {
@@ -84,11 +86,14 @@ async function requestFail(method, params = {}) {
 }
 
 try {
-  await request("initialize", {
+  const initialization = await request("initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},
     clientInfo: { name: "proteus-smoke-client", version: "0.1.0" }
   });
+  if (initialization?.serverInfo?.version !== expectedVersion) {
+    throw new Error(`packaged plugin MCP reported version ${initialization?.serverInfo?.version ?? "missing"}; expected ${expectedVersion}`);
+  }
   const tools = await request("tools/list");
   const toolNames = tools.tools.map((tool) => tool.name);
   for (const expectedTool of [

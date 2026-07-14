@@ -1678,6 +1678,7 @@ function withDb(root: string, fn: (db: ProteusDb) => unknown): unknown {
 function packageVersion(): string {
   for (const candidate of [
     path.resolve(__dirname, "..", "package.json"),
+    path.resolve(__dirname, "..", ".claude-plugin", "plugin.json"),
     path.resolve(__dirname, "..", "..", "..", "package.json")
   ]) {
     if (!fs.existsSync(candidate)) continue;
