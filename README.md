@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-    <img alt="Version" src="https://img.shields.io/badge/version-2.1.2-2f6feb" />
+    <img alt="Version" src="https://img.shields.io/badge/version-2.1.3-2f6feb" />
   <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D24-43853d" />
   <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" />
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-CLI%20%2B%20MCP%20%2B%20Skills-7c3aed" />
@@ -79,7 +79,7 @@ Proteus has three install surfaces:
 
 - CLI/runtime: `proteus` and `proteus-mcp`
 - Codex plugin: coordinator and specialist skills plus MCP configuration
-- Claude Code plugin: `/proteus`, plugin agents, and MCP configuration
+- Claude Code plugin: `/proteus:proteus`, plugin agents, and MCP configuration
 - OpenCode project support: `/proteus`, project skills, specialist agents, and MCP configuration
 
 Install the CLI first. The plugin skills can load without it, but target memory,
@@ -96,7 +96,7 @@ proteus --version
 Expected:
 
 ```text
-@rafabd1/proteus 2.1.2
+@rafabd1/proteus 2.1.3
 ```
 
 ### Codex
@@ -121,9 +121,8 @@ chaining, or other offsec workflows.
 /plugin install proteus@proteus-marketplace
 ```
 
-```powershell
-claude mcp add -s user proteus -- proteus-mcp
-```
+The plugin starts its bundled Proteus MCP server automatically. See
+[Installation](docs/INSTALLATION.md) for the manual CLI fallback.
 
 ### OpenCode
 
@@ -150,7 +149,7 @@ it lets the assistant load the plugin, start from the main coordinator skill,
 and pull in specialist skills only when needed. Slash-style skill references
 are better reserved for cases where you explicitly want one specific skill.
 
-In Claude Code, use `/proteus`. This path is experimental; for offsec-heavy
+In Claude Code, use `/proteus:proteus`. This path is experimental; for offsec-heavy
 research, model-side restrictions may affect some workflows.
 
 In OpenCode, install the project support above and use `/proteus`.

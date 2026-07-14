@@ -25,7 +25,7 @@ coordinator skill, and pull in specialist skills only when needed. Slash-style
 skill references should be reserved for cases where the user intentionally wants
 one specific skill.
 
-In Claude Code, use the plugin command `/proteus`.
+In Claude Code, use the plugin command `/proteus:proteus`.
 
 In OpenCode, install project support and use `/proteus`:
 

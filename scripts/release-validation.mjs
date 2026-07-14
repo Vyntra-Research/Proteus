@@ -120,6 +120,17 @@ try {
     throw new Error("generated changelog used commit fallback instead of latest CHANGELOG.md version notes");
   }
 
+  const claudeMcp = JSON.parse(fs.readFileSync(path.join(repoRoot, "plugins", "proteus", ".mcp.json"), "utf8"));
+  const claudeMcpArgs = claudeMcp?.mcpServers?.proteus?.args;
+  if (!Array.isArray(claudeMcpArgs)) {
+    throw new Error("Claude Code plugin MCP config is missing proteus args");
+  }
+  assertIncludes(
+    claudeMcpArgs.join(" "),
+    "${CLAUDE_PLUGIN_ROOT}/scripts/proteus-mcp.cjs",
+    "Claude Code plugin MCP path"
+  );
+
   if (process.platform === "win32") {
     const wrapperVersion = execFileSync(
       "powershell",

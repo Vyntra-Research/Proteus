@@ -4,14 +4,14 @@
     "name": "Vyntra Research",
     "email": "rbd.sye@gmail.com"
   },
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "Proteus plugins for Claude Code and Codex focused on structured, exploitability-driven vulnerability research.",
   "plugins": [
     {
       "name": "proteus",
       "source": "./plugins/proteus",
       "description": "A plugin for Claude Code and Codex that coordinates structured, continuous vulnerability research with memory, strategy, and realistic validation.",
-      "version": "2.1.2",
+      "version": "2.1.3",
       "author": {
         "name": "Vyntra Research",
         "email": "rbd.sye@gmail.com"

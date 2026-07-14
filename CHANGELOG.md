@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.3 - 2026-07-14
+
+### Fixed
+
+- Resolved the bundled Claude Code MCP runtime through `CLAUDE_PLUGIN_ROOT` so it starts from any workspace.
+
+### Changed
+
+- Documented automatic Claude Code plugin MCP startup and retained CLI registration as a manual fallback.
+- Corrected Claude Code usage examples to the namespaced `/proteus:proteus` plugin command.
+- Added release validation for the Claude Code plugin MCP path.
+
 ## 2.1.2 - 2026-07-13
 
 ### Fixed
