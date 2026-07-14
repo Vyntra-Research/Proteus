@@ -4,7 +4,7 @@ Proteus has three install surfaces:
 
 - CLI/runtime: the `proteus` and `proteus-mcp` commands.
 - Codex plugin: installed through a Codex plugin marketplace.
-- Claude Code plugin: `/proteus`, plugin subagents, and MCP config.
+- Claude Code plugin: `/proteus:proteus`, plugin subagents, and MCP config.
 - OpenCode project support: `/proteus`, project skills, specialist agents,
   templates, and MCP config.
 
@@ -22,7 +22,7 @@ proteus --version
 Expected shape:
 
 ```text
-@rafabd1/proteus 2.1.2
+@rafabd1/proteus 2.1.3
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no
@@ -122,9 +122,11 @@ Install directly inside Claude Code:
 /plugin install proteus@proteus-marketplace
 ```
 
-Then use `/proteus` from Claude Code.
+Then use `/proteus:proteus` from Claude Code.
 
-Then register the MCP server from the CLI install:
+The plugin starts its bundled Proteus MCP server automatically. If a host does
+not load plugin-provided MCP servers, register the CLI runtime as a manual
+fallback:
 
 ```powershell
 claude mcp add -s user proteus -- proteus-mcp
@@ -181,9 +183,9 @@ proteus merge --root C:\path\to\workspace --source .\packages\foo\.vros\memory.s
 proteus-mcp
 ```
 
-For Codex, use `codex mcp add proteus -- proteus-mcp`. For Claude Code, use
-`claude mcp add -s user proteus -- proteus-mcp`. Plugin hosts that support
-plugin-declared MCP servers can also use `plugins/proteus/.mcp.json`. The
+For Codex, use `codex mcp add proteus -- proteus-mcp`. The Claude Code plugin
+loads `plugins/proteus/.mcp.json` automatically; use
+`claude mcp add -s user proteus -- proteus-mcp` only as a manual fallback. The
 wrapper builds the runtime if `dist/` is not present yet.
 
 ## Optional Chimera Runtime
