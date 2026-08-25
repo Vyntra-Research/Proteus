@@ -1290,7 +1290,7 @@ try {
     "# Candidate Register\n\nReplacement revision confirms detached signature trust refresh chain was killed.\n"
   );
   const revisedCoverage = run(["query", "duplicates", "detached signature trust refresh chain"]);
-  if ((revisedCoverage.match(/late-candidate-register\.md/g) ?? []).length !== 1) {
+  if ((revisedCoverage.match(/^source#\d+.*late-candidate-register\.md$/gm) ?? []).length !== 1) {
     throw new Error("duplicate coverage query did not collapse source revisions by path");
   }
   const memoryDb = new DatabaseSync(path.join(tmpRoot, ".vros", "memory.sqlite"));
