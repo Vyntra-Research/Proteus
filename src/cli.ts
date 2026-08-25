@@ -1042,6 +1042,7 @@ function cmdQuery(db: ProteusDb, subcommand: string | undefined, parsed: ParsedA
   requireInitialized(db);
   if (subcommand === "duplicates") {
     const text = parsed.command.slice(2).join(" ") || requiredString(parsed, "text");
+    ingestPaths(db, []);
     const rows = db.queryCoverage(text, getNumber(parsed, "limit") ?? 10);
     if (rows.length === 0) {
       console.log("No prior coverage found.");
@@ -1070,8 +1071,9 @@ function cmdQuery(db: ProteusDb, subcommand: string | undefined, parsed: ParsedA
 
   if (subcommand === "similar") {
     const text = parsed.command.slice(2).join(" ") || requiredString(parsed, "text");
+    ingestPaths(db, []);
     const result = db.querySimilar(text, getNumber(parsed, "limit") ?? 10);
-    console.log("Duplicate/report coverage:");
+    console.log("Prior research coverage:");
     if (result.duplicateCoverage.length === 0) {
       console.log("  none");
     } else {

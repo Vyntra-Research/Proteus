@@ -870,8 +870,12 @@ try {
     arguments: { root: tmpRoot, text: "Smoke daemon protocol surface", limit: 5 }
   });
   const coverageText = String(coverage.content?.[0]?.text ?? "");
-  if (!coverageText.includes('"entityType": "source"') || coverageText.includes('"entityType": "round"')) {
-    throw new Error("proteus_query_duplicates should only return finding/report source coverage");
+  if (
+    !coverageText.includes('"entityType": "source"') ||
+    !coverageText.includes('"entityType": "surface"') ||
+    coverageText.includes('"entityType": "round"')
+  ) {
+    throw new Error("proteus_query_duplicates did not combine source and structured prior research coverage");
   }
   const similar = await request("tools/call", {
     name: "proteus_query_similar",

@@ -515,41 +515,68 @@ class ProteusDb {
         return Number(result.lastInsertRowid);
     }
     search(query, limit = 20) {
-        const escaped = query
-            .split(/\s+/)
-            .filter(Boolean)
+        const escaped = tokenize(query)
             .map((part) => `"${part.replace(/"/g, '""')}"`)
             .join(" OR ");
         if (!escaped)
             return [];
-        return this.db
-            .prepare(`SELECT entity_type, entity_id, snippet(proteus_fts, 2, '[', ']', ' ... ', 12) AS snippet
+        const rows = this.db
+            .prepare(`SELECT entity_type, entity_id,
+                snippet(proteus_fts, 2, '[', ']', ' ... ', 28) AS snippet,
+                bm25(proteus_fts) AS rank
          FROM proteus_fts
          WHERE proteus_fts MATCH ?
+         ORDER BY rank ASC
          LIMIT ?`)
-            .all(escaped, limit)
-            .map((row) => ({
-            entityType: String(row.entity_type),
-            entityId: Number(row.entity_id),
-            snippet: String(row.snippet ?? "")
-        }));
+            .all(escaped, Math.max(limit * 20, 200));
+        const sourcePaths = new Map(this.db.prepare("SELECT id, path_or_url FROM sources").all()
+            .map((row) => [Number(row.id), normalizePathKey(String(row.path_or_url))]));
+        const seen = new Set();
+        const results = [];
+        for (const row of rows) {
+            const entityType = String(row.entity_type);
+            const entityId = Number(row.entity_id);
+            const key = entityType === "source"
+                ? `source:${sourcePaths.get(entityId) ?? entityId}`
+                : `${entityType}:${entityId}`;
+            if (seen.has(key))
+                continue;
+            seen.add(key);
+            results.push({
+                entityType: String(row.entity_type),
+                entityId: Number(row.entity_id),
+                snippet: String(row.snippet ?? ""),
+                rank: Number(row.rank ?? 0)
+            });
+            if (results.length >= limit)
+                break;
+        }
+        return results;
     }
     queryCoverage(query, limit = 10) {
         const queryTerms = tokenize(query);
         if (queryTerms.length === 0)
             return [];
-        const requiredOverlap = queryTerms.length <= 2 ? queryTerms.length : Math.min(4, Math.ceil(queryTerms.length * 0.35));
-        const rows = this.coverageCandidates()
+        const requiredOverlap = queryTerms.length <= 2
+            ? queryTerms.length
+            : Math.max(2, Math.ceil(queryTerms.length * 0.35));
+        const scored = this.coverageCandidates()
             .map((candidate) => scoreCoverageCandidate(candidate, query, queryTerms))
             .filter((candidate) => candidate.matchedTerms.length >= requiredOverlap || candidate.phraseMatched)
             .filter(isActionableCoverageResult)
-            .sort((a, b) => b.score - a.score || entityRank(a.entityType) - entityRank(b.entityType))
-            .slice(0, limit);
-        return rows.map(({ searchText: _searchText, phraseMatched: _phraseMatched, ...row }) => row);
+            .sort((a, b) => b.score - a.score || entityRank(a.entityType) - entityRank(b.entityType));
+        const collapsed = new Map();
+        for (const candidate of scored) {
+            const key = candidate.dedupeKey ?? `${candidate.entityType}:${candidate.entityId}`;
+            if (!collapsed.has(key))
+                collapsed.set(key, candidate);
+        }
+        const rows = Array.from(collapsed.values()).slice(0, limit);
+        return rows.map(({ searchText: _searchText, phraseMatched: _phraseMatched, dedupeKey: _dedupeKey, ...row }) => row);
     }
     querySimilar(query, limit = 10) {
         return {
-            duplicateCoverage: this.queryCoverage(query, Math.max(3, Math.ceil(limit / 2))),
+            duplicateCoverage: this.queryCoverage(query, limit),
             memoryMatches: this.search(query, limit)
         };
     }
@@ -1224,7 +1251,7 @@ class ProteusDb {
     }
     copyFtsRows(source, entityType, oldId, newId) {
         const rows = source.db
-            .prepare("SELECT content FROM proteus_fts WHERE entity_type = ? AND entity_id = ?")
+            .prepare("SELECT content FROM proteus_fts WHERE entity_type = ? AND entity_id = ? ORDER BY rowid DESC LIMIT 1")
             .all(entityType, oldId);
         for (const row of rows) {
             this.indexFts(entityType, newId, String(row.content ?? ""));
@@ -1244,6 +1271,7 @@ class ProteusDb {
             candidates.push({
                 entityType: "source",
                 entityId: Number(row.id),
+                dedupeKey: `source:${normalizePathKey(String(row.path_or_url))}`,
                 kind,
                 title: String(row.title),
                 pathOrUrl: String(row.path_or_url),
@@ -1251,6 +1279,82 @@ class ProteusDb {
                 summary: compactSummary([row.summary]),
                 searchText: compactSummary([row.kind, row.path_or_url, row.title, row.summary, row.body]),
                 baseScore: sourceCoverageWeight(kind)
+            });
+        }
+        for (const row of this.db.prepare("SELECT * FROM hypothesis_branches").all()) {
+            const status = normalizeBranchStatus(String(row.status ?? ""));
+            candidates.push({
+                entityType: "hypothesis_branch",
+                entityId: Number(row.id),
+                title: String(row.title),
+                status,
+                summary: compactSummary([row.hypothesis, row.attack_primitive, row.kill_conditions_json]),
+                searchText: compactSummary([
+                    row.title,
+                    row.hypothesis,
+                    row.attack_primitive,
+                    row.why_non_obvious,
+                    row.preconditions_json,
+                    row.steps_json,
+                    row.success_criteria_json,
+                    row.negative_controls_json,
+                    row.kill_conditions_json
+                ]),
+                baseScore: branchCoverageWeight(status)
+            });
+        }
+        for (const row of this.db.prepare("SELECT * FROM surfaces").all()) {
+            const status = String(row.status ?? "");
+            candidates.push({
+                entityType: "surface",
+                entityId: Number(row.id),
+                title: String(row.name),
+                status,
+                summary: compactSummary([row.description, row.revisit_condition]),
+                searchText: compactSummary([
+                    row.name,
+                    row.family,
+                    row.description,
+                    row.files_json,
+                    row.symbols_json,
+                    row.entrypoints_json,
+                    row.trust_boundaries_json,
+                    row.runtime_modes_json,
+                    row.revisit_condition
+                ]),
+                baseScore: surfaceCoverageWeight(status)
+            });
+        }
+        for (const row of this.db.prepare("SELECT * FROM hypotheses").all()) {
+            const status = String(row.status ?? "");
+            candidates.push({
+                entityType: "hypothesis",
+                entityId: Number(row.id),
+                title: String(row.title),
+                status,
+                summary: compactSummary([row.primitive, row.attacker_boundary, row.impact_claim, row.kill_criteria]),
+                searchText: compactSummary([
+                    row.title,
+                    row.primitive,
+                    row.attacker_boundary,
+                    row.impact_claim,
+                    row.heuristic_family,
+                    row.kill_criteria,
+                    row.revisit_condition
+                ]),
+                baseScore: hypothesisCoverageWeight(status)
+            });
+        }
+        for (const row of this.db.prepare("SELECT * FROM decisions").all()) {
+            const decision = String(row.decision ?? "");
+            candidates.push({
+                entityType: "decision",
+                entityId: Number(row.id),
+                title: `${String(row.entity_type)}#${Number(row.entity_id)}: ${decision}`,
+                status: decision,
+                summary: compactSummary([row.reason]),
+                searchText: compactSummary([row.entity_type, row.entity_id, row.decision, row.reason]),
+                baseScore: decisionCoverageWeight(decision)
             });
         }
         return candidates;
@@ -1275,6 +1379,7 @@ class ProteusDb {
         changed = this.applyMigration("2026-06-27-chimera-mode", CHIMERA_SCHEMA_SQL) || changed;
         changed = this.applyChimeraOpenCodeControlMigration("2026-06-27-chimera-opencode-control") || changed;
         changed = this.applyMigration("2026-06-27-chimera-access-modes", CHIMERA_ACCESS_MODE_SCHEMA_SQL) || changed;
+        changed = this.applyMigration("2026-08-25-deduplicate-fts-entities", "DELETE FROM proteus_fts WHERE rowid NOT IN (SELECT MAX(rowid) FROM proteus_fts GROUP BY entity_type, entity_id);") || changed;
         if (changed || storedVersion !== CURRENT_PROTEUS_VERSION || force) {
             this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
         }
@@ -1349,6 +1454,9 @@ class ProteusDb {
             this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
     }
     indexFts(entityType, entityId, content) {
+        this.db
+            .prepare("DELETE FROM proteus_fts WHERE entity_type = ? AND entity_id = ?")
+            .run(entityType, entityId);
         this.db
             .prepare("INSERT INTO proteus_fts (entity_type, entity_id, content) VALUES (?, ?, ?)")
             .run(entityType, entityId, content);
@@ -1762,7 +1870,14 @@ function mergeMapKey(entityType) {
     };
     return aliases[normalized] ?? normalized;
 }
-const duplicateSourceKinds = new Set(["finding", "report"]);
+const duplicateSourceKinds = new Set([
+    "finding",
+    "report",
+    "discarded",
+    "candidate_register",
+    "research_log",
+    "watchlist"
+]);
 function toSourceRow(row) {
     return {
         id: Number(row.id),
@@ -2071,27 +2186,74 @@ function normalizeChimeraMessageKind(value) {
     return "message";
 }
 function scoreCoverageCandidate(candidate, query, queryTerms) {
-    const normalizedSearch = normalizeText(candidate.searchText);
     const normalizedQuery = normalizeText(query);
-    const matchedTerms = queryTerms.filter((term) => normalizedSearch.includes(term));
-    const phraseMatched = normalizedQuery.length > 0 && normalizedSearch.includes(normalizedQuery);
-    const statusBoost = candidate.status && ["discarded", "covered", "exhausted", "low_roi", "watch", "report_grade", "candidate"].includes(candidate.status)
+    const best = coverageTextChunks(candidate.searchText)
+        .map((chunk) => {
+        const normalizedChunk = normalizeText(chunk);
+        const chunkTerms = new Set(tokenize(normalizedChunk));
+        const matchedTerms = queryTerms.filter((term) => chunkTerms.has(term));
+        const phraseMatched = normalizedQuery.length > 0 && normalizedChunk.includes(normalizedQuery);
+        const densityBonus = matchedTerms.length > 1
+            ? Math.min(18, Math.round((matchedTerms.length / Math.max(chunkTerms.size, 1)) * 180))
+            : 0;
+        return {
+            chunk,
+            matchedTerms,
+            phraseMatched,
+            localScore: matchedTerms.length * 12 + (phraseMatched ? 36 : 0) + densityBonus
+        };
+    })
+        .sort((a, b) => b.localScore - a.localScore || b.matchedTerms.length - a.matchedTerms.length)[0] ?? {
+        chunk: candidate.summary || candidate.searchText,
+        matchedTerms: [],
+        phraseMatched: false,
+        localScore: 0
+    };
+    const statusBoost = candidate.status && [
+        "killed",
+        "discarded",
+        "covered",
+        "exhausted",
+        "low_roi",
+        "blocked",
+        "watch",
+        "watchlist",
+        "promoted",
+        "promoted_to_poc",
+        "report_grade",
+        "candidate"
+    ].includes(candidate.status)
         ? 8
         : 0;
-    const score = candidate.baseScore + matchedTerms.length * 12 + (phraseMatched ? 30 : 0) + statusBoost;
+    const score = candidate.baseScore + best.localScore + statusBoost;
     const reasonParts = [
-        phraseMatched ? "phrase match" : `${matchedTerms.length}/${queryTerms.length} terms matched`,
+        best.phraseMatched ? "local phrase match" : `${best.matchedTerms.length}/${queryTerms.length} terms matched in one local window`,
         candidate.status ? `status=${candidate.status}` : "",
         candidate.pathOrUrl ? `path=${candidate.pathOrUrl}` : ""
     ].filter(Boolean);
     return {
         ...candidate,
         score,
-        matchedTerms,
-        phraseMatched,
+        matchedTerms: best.matchedTerms,
+        phraseMatched: best.phraseMatched,
         reason: reasonParts.join("; "),
-        summary: truncateText(candidate.summary || candidate.searchText, 280)
+        summary: matchingExcerpt(best.chunk, query, best.matchedTerms, 420)
     };
+}
+function coverageTextChunks(value, maxChars = 1600, overlapChars = 300) {
+    const text = String(value ?? "").trim();
+    if (!text)
+        return [];
+    if (text.length <= maxChars)
+        return [text];
+    const chunks = [];
+    const step = Math.max(1, maxChars - overlapChars);
+    for (let start = 0; start < text.length; start += step) {
+        chunks.push(text.slice(start, start + maxChars));
+        if (start + maxChars >= text.length)
+            break;
+    }
+    return chunks;
 }
 function tokenize(value) {
     const stopwords = new Set([
@@ -2116,9 +2278,9 @@ function tokenize(value) {
         "vulnerability",
         "finding"
     ]);
-    return Array.from(new Set(normalizeText(value)
-        .split(/\s+/)
-        .filter((term) => term.length >= 3 && !stopwords.has(term))));
+    const rawTerms = normalizeText(value).match(/[a-z0-9_]+/g) ?? [];
+    const expandedTerms = rawTerms.flatMap((term) => term.includes("_") ? [term, ...term.split("_")] : [term]);
+    return Array.from(new Set(expandedTerms.filter((term) => term.length >= 3 && !stopwords.has(term))));
 }
 function normalizeText(value) {
     return value
@@ -2127,6 +2289,9 @@ function normalizeText(value) {
         .replace(/[\u0300-\u036f]/g, "")
         .replace(/[^a-z0-9_./:-]+/g, " ")
         .trim();
+}
+function normalizePathKey(value) {
+    return value.replace(/\\/g, "/").toLowerCase();
 }
 function compactSummary(values) {
     return values
@@ -2139,6 +2304,32 @@ function compactSummary(values) {
 }
 function truncateText(value, limit) {
     return value.length <= limit ? value : `${value.slice(0, limit - 3)}...`;
+}
+function matchingExcerpt(chunk, query, matchedTerms, limit) {
+    const compact = compactSummary([chunk]);
+    const lower = compact.toLowerCase();
+    const phrase = query.trim().toLowerCase();
+    let matchAt = phrase ? lower.indexOf(phrase) : -1;
+    let matchLength = phrase.length;
+    if (matchAt < 0) {
+        for (const term of matchedTerms) {
+            matchAt = lower.indexOf(term.toLowerCase());
+            if (matchAt >= 0) {
+                matchLength = term.length;
+                break;
+            }
+        }
+    }
+    if (matchAt < 0 || compact.length <= limit)
+        return truncateText(compact, limit);
+    const contextBefore = Math.min(140, Math.floor(limit / 3));
+    let start = Math.max(0, matchAt - contextBefore);
+    let end = Math.min(compact.length, start + limit - 3);
+    if (end - start < limit - 3)
+        start = Math.max(0, end - (limit - 3));
+    const prefix = start > 0 ? "..." : "";
+    const suffix = end < compact.length ? "..." : "";
+    return `${prefix}${compact.slice(start, Math.max(end, matchAt + matchLength))}${suffix}`;
 }
 function entityRank(entityType) {
     return [
@@ -2169,6 +2360,24 @@ function sourceCoverageWeight(kind) {
     if (kind === "doc")
         return 18;
     return 16;
+}
+function branchCoverageWeight(status) {
+    if (status === "killed" || status === "promoted")
+        return 44;
+    if (status === "blocked")
+        return 40;
+    return 34;
+}
+function hypothesisCoverageWeight(status) {
+    if (["killed", "discarded", "candidate", "report_grade"].includes(status))
+        return 38;
+    return 30;
+}
+function decisionCoverageWeight(decision) {
+    const normalized = normalizeText(decision);
+    if (["killed", "discarded", "duplicate", "promoted", "candidate"].some((value) => normalized.includes(value)))
+        return 42;
+    return 34;
 }
 function isActionableCoverageResult(candidate) {
     if (candidate.entityType !== "source")

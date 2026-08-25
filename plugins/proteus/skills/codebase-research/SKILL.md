@@ -30,6 +30,13 @@ material: record it, link it, and use it to steer the next move.
    security-relevant metadata.
 6. Convert plausible vectors into branches with kill criteria. Do not leave
    "interesting" notes unconnected to the campaign map.
+7. Close the selected surface across its relevant layers. Follow wrappers into
+   native code, vendored or upstream dependencies, parser and protocol code,
+   generated artifacts, alternate runtimes, and downstream consumers. Mark a
+   layer not applicable only with a concrete reachability or ownership reason.
+8. Use a narrow harness or calibrated fuzzing when static reading cannot resolve
+   input reactions, state transitions, parser differences, or hidden invariants.
+   Record the oracle, corpus, mutations, and what the run taught you.
 
 ## Research Priorities
 
@@ -56,6 +63,9 @@ material: record it, link it, and use it to steer the next move.
   duplicate-adjacent. Record the reason and move.
 - Do not rely on generic scanner-style findings. Root cause and impact must
   come from the target's actual logic.
+- Do not call a surface covered after checking only the final application
+  wrapper when native, upstream, protocol, or alternate-consumer code remains
+  reachable and relevant.
 
 ## Handoffs
 
@@ -78,6 +88,15 @@ Required output:
   "attackerControlledInputs": [],
   "dataflows": [],
   "stateTransitions": [],
+  "layerCoverage": {
+    "application": [],
+    "nativeOrLowLevel": [],
+    "upstreamDependencies": [],
+    "parsersAndProtocols": [],
+    "alternateRoutesAndGadgets": [],
+    "fuzzing": [],
+    "residualGaps": []
+  },
   "invariants": [],
   "sideEffects": [],
   "recentRiskAreas": [],

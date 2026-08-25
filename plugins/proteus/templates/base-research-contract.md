@@ -10,6 +10,15 @@ Every Proteus role and skill must continuously follow this contract.
 - Use bug classes only as examples or local context, never as the primary search
   frame.
 - Prefer non-obvious paths that can plausibly become realistic exploit chains.
+- Apply a zero-day research standard to each selected surface. Trace the visible
+  application path and the relevant low-level layers: native code, upstream
+  dependencies, parsers, protocols, generated artifacts, runtime boundaries,
+  and alternate consumers or gadgets.
+- Use calibrated fuzzing when code reading cannot settle an input model,
+  invariant, parser boundary, or state machine. Do not leave a relevant layer
+  untested without recording why it is out of scope, unreachable, or low ROI.
+- A quick pass is not completed research. Close the selected surface with
+  evidence, explicit residual gaps, or a concrete blocker.
 
 ## Proteus Memory Root
 
@@ -33,11 +42,21 @@ Every Proteus role and skill must continuously follow this contract.
 - Maintain a realistic attacker model.
 - Do not rely on lab-only help, disabled controls, patched target code, or
   non-standard configuration unless official target documentation requires it.
+- Do not weaken resource limits, trust settings, isolation, authentication, or
+  other deployment controls to manufacture impact. Lowering a memory limit to
+  force OOM is not proof of a vulnerability in the normal product scenario.
 - Validate expected behavior before treating behavior as vulnerable.
 - Check memory, known findings, reports, discarded paths, TODO or known-issue
   context, advisories, issues, and changelogs before investing heavily.
+- Run local dedupe with separate queries for the candidate name, root mechanism,
+  attacker input and sink, affected component, and realistic impact. One long
+  prose query does not close the duplicate gate.
 - Track kill conditions from the beginning and kill weak hypotheses early.
 - Reassess ROI after new evidence.
+- Before delivering any finding, run an impact-elevation pass. Test realistic
+  chains, alternate consumers, privilege or tenant transitions, durable side
+  effects, and stronger CIA outcomes. Keep the highest impact that works in a
+  common, correctly configured scenario without forced assumptions.
 
 ## Promotion Standard
 
@@ -56,6 +75,23 @@ Every final output and checkpoint must include:
     "signedBy": "proteus-role-name",
     "attackerModel": "...",
     "heuristicCoverage": [],
+    "depthCoverage": {
+      "application": "checked|not-applicable|blocked",
+      "nativeOrLowLevel": "checked|not-applicable|blocked",
+      "upstreamDependencies": "checked|not-applicable|blocked",
+      "fuzzing": "checked|not-applicable|blocked",
+      "alternateRoutes": "checked|not-applicable|blocked"
+    },
+    "impactElevation": {
+      "performed": true,
+      "strongestRealisticImpact": "...",
+      "chainsTested": []
+    },
+    "realismCheck": {
+      "scenario": "...",
+      "configuration": "default|documented|normal-practice",
+      "forcedConditions": []
+    },
     "antiSlopCheck": "...",
     "deviations": [],
     "deviationRepair": null

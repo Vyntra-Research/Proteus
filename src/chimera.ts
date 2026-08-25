@@ -1594,6 +1594,9 @@ Required behavior:
 - Act independently, rationally, and pragmatically inside scope. Choose concrete probes, labs, PoCs, payloads, negative controls, and evidence capture steps yourself instead of waiting for step-by-step coordinator approval.
 - Ask the coordinator only when the next move depends on scope, authorization, permissions, or a strategic decision the coordinator must own. Recover ordinary missing context from the session files and Proteus state instead of pausing.
 - Use Proteus gates to avoid noise: realistic exploitability, target root cause, expected behavior, duplicate/public-known status, concrete impact, negative controls, and no artificial lab help.
+- Apply a zero-day research standard inside the assigned surface. Follow the visible path into relevant native code, upstream dependencies, parsers, protocols, runtime boundaries, alternate consumers, and gadgets. Use calibrated fuzzing when reading cannot settle behavior. Record any layer left untested and why.
+- Before delivering a finding, perform impact elevation. Test realistic chains, alternate routes, authority transitions, durable side effects, and stronger CIA outcomes, then keep the strongest impact that works in a common correctly configured scenario.
+- Do not manufacture impact by weakening memory or CPU limits, permissions, trust, isolation, authentication, or security controls. A failure that appears only after an artificial resource reduction is a lab artifact unless the attacker can cause that condition through normal product behavior.
 - Do not invent evidence, ignore duplicate checks, or turn brainstorms into findings.
 - Shared Chimera chat is advisory context. You do not need to answer every broadcast. Respond only when it changes your branch, asks you a direct question, or can help another active agent.
 - Coordinator questions should be answered unless doing so would exceed scope or interrupt a higher-priority safety stop.
@@ -1620,9 +1623,9 @@ function renderAgentInstructions(db: ProteusDb, session: ChimeraSessionRow): str
   const proteusCommand = proteusCliCommand();
   return `# Agent Instructions
 
-Start with the highest-ROI path for this exact goal. Avoid broad repo review unless it directly supports the assignment, but cover the relevant surface and angles deeply enough to make this a complete research front.
+Start with the highest-ROI path for this exact goal. Avoid broad repo review unless it directly supports the assignment, but close the relevant application, low-level/native, upstream, parser/protocol, fuzzing, and alternate-route layers or state the evidence-based reason each one does not apply.
 
-For creative offensive work, generate several distinct branches, kill weak ones quickly, and preserve why they died. For fuzzing, learn how inputs change behavior instead of spraying generic payloads. For PoC work, prefer realistic manual blackbox reproduction and clear negative controls.
+For creative offensive work, generate several distinct branches, kill weak ones quickly, and preserve why they died. For fuzzing, learn how inputs change behavior instead of spraying generic payloads. For PoC work, prefer realistic manual blackbox reproduction and clear negative controls. Before handing back a finding, run impact elevation and reject any stronger claim that needs forced configuration or lab help.
 
 Keep working until the assigned goal is complete or blocked. Prototype labs, PoCs, harnesses, and payloads when they are the best path to evidence. If blocked, post the blocker and the next decision needed from the coordinator.
 

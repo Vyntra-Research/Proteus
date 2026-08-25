@@ -1241,11 +1241,8 @@ try {
     throw new Error("show gate did not return full validation gate record");
   }
   const duplicates = run(["query", "duplicates", "validation gate"]);
-  if (!duplicates.includes("source#") || duplicates.includes("hypothesis#")) {
-    throw new Error("duplicate coverage query should only return finding/report style source records");
-  }
-  if (duplicates.includes("watchlist.md")) {
-    throw new Error("duplicate coverage query returned watchlist source as duplicate coverage");
+  if (!duplicates.includes("source#") || !duplicates.includes("watchlist.md")) {
+    throw new Error("duplicate coverage query did not include prior finding and watchlist coverage");
   }
   if (!duplicates.includes("score=") || !duplicates.includes("matched=")) {
     throw new Error("duplicate coverage query did not return summarized coverage metadata");
@@ -1255,7 +1252,7 @@ try {
     throw new Error("memory query did not return indexed records");
   }
   const similar = run(["query", "similar", "validation gate"]);
-  if (!similar.includes("Duplicate/report coverage:") || !similar.includes("Memory matches:")) {
+  if (!similar.includes("Prior research coverage:") || !similar.includes("Memory matches:")) {
     throw new Error("similar query did not return coverage and memory sections");
   }
   const broadDuplicate = run(["query", "duplicates", "broad-only cache glossary phrase"]);
@@ -1267,12 +1264,56 @@ try {
     throw new Error("memory query did not return generic docs");
   }
   const watchlistDuplicate = run(["query", "duplicates", "watchlist text"]);
-  if (!watchlistDuplicate.includes("No prior coverage found.")) {
-    throw new Error("duplicate coverage query returned watchlist-only memory as duplicate coverage");
+  if (!watchlistDuplicate.includes("watchlist.md")) {
+    throw new Error("duplicate coverage query did not return watchlist research coverage");
   }
   const watchlistMemory = run(["query", "memory", "watchlist text"]);
   if (!watchlistMemory.includes("source#")) {
     throw new Error("memory query did not return watchlist source");
+  }
+  const branchCoverage = run(["query", "duplicates", "smoke branch attacker controlled transition"]);
+  if (!branchCoverage.includes("hypothesis_branch#1") || !branchCoverage.includes("status=killed")) {
+    throw new Error("duplicate coverage query did not return a killed structured branch");
+  }
+  fs.mkdirSync(path.join(tmpRoot, "findings"), { recursive: true });
+  const lateRegisterPath = path.join(tmpRoot, "findings", "late-candidate-register.md");
+  fs.writeFileSync(
+    lateRegisterPath,
+    `# Candidate Register\n\n${"Unrelated coverage context. ".repeat(180)}\n\n## Exact prior branch\n\nOpaque CRL trust refresh signature validation crossed the repository boundary and was killed.\n`
+  );
+  const lateCoverage = run(["query", "duplicates", "opaque CRL trust refresh signature validation"]);
+  if (!lateCoverage.includes("late-candidate-register.md") || !lateCoverage.includes("Opaque CRL trust refresh")) {
+    throw new Error("duplicate coverage query did not auto-index or summarize the local matching section");
+  }
+  fs.writeFileSync(
+    lateRegisterPath,
+    "# Candidate Register\n\nReplacement revision confirms detached signature trust refresh chain was killed.\n"
+  );
+  const revisedCoverage = run(["query", "duplicates", "detached signature trust refresh chain"]);
+  if ((revisedCoverage.match(/late-candidate-register\.md/g) ?? []).length !== 1) {
+    throw new Error("duplicate coverage query did not collapse source revisions by path");
+  }
+  const memoryDb = new DatabaseSync(path.join(tmpRoot, ".vros", "memory.sqlite"));
+  const branchFtsRows = Number(memoryDb.prepare(
+    "SELECT COUNT(*) AS count FROM proteus_fts WHERE entity_type = 'hypothesis_branch' AND entity_id = 1"
+  ).get().count);
+  if (branchFtsRows !== 1) {
+    memoryDb.close();
+    throw new Error(`FTS updates left ${branchFtsRows} rows for one hypothesis branch`);
+  }
+  memoryDb.prepare(
+    "INSERT INTO proteus_fts(entity_type, entity_id, content) VALUES ('hypothesis_branch', 1, 'legacy duplicate row')"
+  ).run();
+  memoryDb.prepare("DELETE FROM schema_migrations WHERE version = ?").run("2026-08-25-deduplicate-fts-entities");
+  memoryDb.close();
+  run(["migrate"]);
+  const migratedMemoryDb = new DatabaseSync(path.join(tmpRoot, ".vros", "memory.sqlite"));
+  const migratedBranchFtsRows = Number(migratedMemoryDb.prepare(
+    "SELECT COUNT(*) AS count FROM proteus_fts WHERE entity_type = 'hypothesis_branch' AND entity_id = 1"
+  ).get().count);
+  migratedMemoryDb.close();
+  if (migratedBranchFtsRows !== 1) {
+    throw new Error("FTS deduplication migration did not clean an existing duplicate entity row");
   }
   const sourceId = memory.match(/source#(\d+)/)?.[1];
   if (!sourceId) {

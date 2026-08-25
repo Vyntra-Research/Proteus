@@ -22,6 +22,13 @@ behavior. Do not reduce research to a fixed bug-class checklist. Work through
 primitives, invariants, trust boundaries, state transitions, interpretation
 gaps, competing sources of truth, side effects, and capability amplification.
 
+For each selected surface, use a zero-day research standard. Cover the relevant
+application path and its fundamental layers: native code, upstream dependencies,
+parsers, protocols, generated artifacts, runtime boundaries, alternate
+consumers, and gadgets. Use calibrated fuzzing when reading alone cannot settle
+behavior. A quick pass is not evidence of coverage. Record each untested layer
+as out of scope, unreachable, low ROI, or blocked, with the reason.
+
 ## Base Contract
 
 All Proteus roles and skills must follow
@@ -36,6 +43,9 @@ Every specialist output, checkpoint, and final round summary must include:
     "signedBy": "proteus-role-name",
     "attackerModel": "...",
     "heuristicCoverage": [],
+    "depthCoverage": {},
+    "impactElevation": {},
+    "realismCheck": {},
     "antiSlopCheck": "...",
     "deviations": [],
     "deviationRepair": null
@@ -58,6 +68,7 @@ The coordinator must:
 - delegate bounded fronts to the right skill or role;
 - keep memory current as work changes future decisions;
 - enforce validation gates and anti-slop checks;
+- require an impact-elevation pass before any finding is delivered;
 - kill, downgrade, watch, or promote based on evidence;
 - checkpoint after meaningful progress or branch-score changes.
 
@@ -372,8 +383,8 @@ Use the runtime for state, not for inventing reasoning:
 - `proteus migrate` when explicit migration verification is needed.
 - `proteus campaign resume` before planning or major recording.
 - `proteus list rounds --status active` before creating a new plan.
-- `proteus query similar` to see duplicate/report coverage and memory matches.
-- `proteus query duplicates` for narrow finding/report dedupe.
+- `proteus query similar` to see ranked prior research coverage and broader memory matches.
+- `proteus query duplicates` for ranked dedupe across findings, reports, research logs, watchlists, surfaces, hypotheses, branches, and decisions.
 - `proteus query memory`, `list ...`, and `show ...` for broader state recovery.
 - `record surface|hypothesis|evidence|decision|gate|agent-output` when a fact,
   branch, validation result, or decision changes future work.
@@ -383,6 +394,11 @@ Use the runtime for state, not for inventing reasoning:
   the decision clearly says killed, promoted, blocked, testing, candidate,
   watchlist, or open.
 - `campaign checkpoint` after meaningful progress.
+
+For dedupe, issue separate searches for the candidate name, mechanism, attacker
+input and sink, component, and impact. Do not rely on one long prose query. Read
+the strongest returned records and repeat the check before promotion if the
+candidate framing changes.
 
 If exactly one campaign is active, Proteus auto-links new hypotheses, evidence,
 decisions, validation gates, and agent outputs to that campaign. If there are
@@ -397,6 +413,7 @@ Each round needs:
 Round objective:
 Current target understanding:
 Selected high-ROI surfaces or branches:
+Relevant low-level, native, upstream, fuzzing, and alternate-route coverage:
 Skipped surfaces and why:
 Prior killed paths to avoid:
 Agent fronts:
@@ -510,8 +527,8 @@ A candidate may become report-grade only if:
 ```text
 G1: root cause is in the target.
 G2: attacker input is realistic and external.
-G3: impact is concrete and security-relevant.
-G4: configuration is documented, default, or normal correct practice.
+G3: the strongest claimed impact survived a documented impact-elevation pass in a common scenario.
+G4: configuration is documented, default, or normal correct practice; no resource, trust, isolation, or security limit was weakened to create the result.
 G5: negative controls pass.
 G6: local findings/reports/logs do not already cover it.
 G7: public-known, advisory, issue, changelog, and expected-behavior checks are complete and documented.
@@ -519,7 +536,14 @@ G8: affected version, likely introduction point, and timeline are understood.
 G9: Skeptic has tried to refute or downgrade the finding and the rebuttal is recorded.
 G10: old/obvious classes have exceptional impact or are killed.
 G11: PoC does not depend on artificial lab help.
+G12: relevant application, low-level/native, upstream, fuzzing, and alternate-route layers were checked or marked not applicable with evidence.
+G13: the final scenario uses the highest realistic CIA impact found without forced assumptions.
 ```
+
+Reducing a memory limit to force OOM, disabling a control, adding a trusted
+certificate, widening permissions, or changing target code does not pass the
+realism gates unless that condition is part of documented normal operation and
+the attacker can cause it through the product itself.
 
 Do not say "novel", "not known", or "report-grade" unless local dedupe,
 public-known/timeline, negative controls, attacker model, and Skeptic review are
@@ -596,6 +620,9 @@ When ending a round or handoff, report:
   "highestRoiNextMove": "...",
   "recordsCreated": [],
   "validationStatus": {},
+  "depthCoverage": {},
+  "impactElevation": {},
+  "realismCheck": {},
   "remainingBlockers": [],
   "contractSignature": {}
 }
