@@ -741,7 +741,7 @@ try {
     arguments: {
       root: tmpRoot,
       title: "MCP smoke hypothesis",
-      primitive: "daemon transition",
+      primitive: "Smoke daemon protocol surface",
       attackerBoundary: "external request",
       impactClaim: "mcp smoke impact",
       heuristicFamily: "state transition",
@@ -750,8 +750,12 @@ try {
     }
   });
   const hypothesisText = String(hypothesis.content?.[0]?.text ?? "");
-  if (!hypothesisText.includes("active_campaign_linked") || !hypothesisText.includes("tracks_hypothesis")) {
-    throw new Error("proteus_record_hypothesis did not auto-link to the active campaign");
+  if (
+    !hypothesisText.includes("active_campaign_linked") ||
+    !hypothesisText.includes("tracks_hypothesis") ||
+    !hypothesisText.includes("similar_records_found")
+  ) {
+    throw new Error("proteus_record_hypothesis did not auto-link or warn about matching prior coverage");
   }
   const evidence = await request("tools/call", {
     name: "proteus_record_evidence",
