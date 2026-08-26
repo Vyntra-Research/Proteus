@@ -741,7 +741,7 @@ try {
     arguments: {
       root: tmpRoot,
       title: "MCP smoke hypothesis",
-      primitive: "daemon transition",
+      primitive: "Smoke daemon protocol surface",
       attackerBoundary: "external request",
       impactClaim: "mcp smoke impact",
       heuristicFamily: "state transition",
@@ -750,8 +750,12 @@ try {
     }
   });
   const hypothesisText = String(hypothesis.content?.[0]?.text ?? "");
-  if (!hypothesisText.includes("active_campaign_linked") || !hypothesisText.includes("tracks_hypothesis")) {
-    throw new Error("proteus_record_hypothesis did not auto-link to the active campaign");
+  if (
+    !hypothesisText.includes("active_campaign_linked") ||
+    !hypothesisText.includes("tracks_hypothesis") ||
+    !hypothesisText.includes("similar_records_found")
+  ) {
+    throw new Error("proteus_record_hypothesis did not auto-link or warn about matching prior coverage");
   }
   const evidence = await request("tools/call", {
     name: "proteus_record_evidence",
@@ -870,8 +874,12 @@ try {
     arguments: { root: tmpRoot, text: "Smoke daemon protocol surface", limit: 5 }
   });
   const coverageText = String(coverage.content?.[0]?.text ?? "");
-  if (!coverageText.includes('"entityType": "source"') || coverageText.includes('"entityType": "round"')) {
-    throw new Error("proteus_query_duplicates should only return finding/report source coverage");
+  if (
+    !coverageText.includes('"entityType": "source"') ||
+    !coverageText.includes('"entityType": "surface"') ||
+    coverageText.includes('"entityType": "round"')
+  ) {
+    throw new Error("proteus_query_duplicates did not combine source and structured prior research coverage");
   }
   const similar = await request("tools/call", {
     name: "proteus_query_similar",

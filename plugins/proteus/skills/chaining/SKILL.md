@@ -28,6 +28,13 @@ Start from primitives, side effects, invariants, and real attacker capability.
    low-signal areas.
 6. Execute or recommend only the top 1-2 probes. Backtrack when evidence kills a
    branch; do not keep a weak idea alive through wording.
+7. Before handing a finding back for delivery, run impact elevation even if the
+   first impact already meets the bar. Test alternate consumers, authority and
+   tenant transitions, persistence, cross-component state, native sinks, and
+   stronger confidentiality, integrity, or availability outcomes.
+8. Select the strongest impact that works in a common, correctly configured
+   scenario. Reject chains that need artificial permissions, weakened limits,
+   non-standard trust, or lab-only help.
 
 ## Creative Heuristics
 
@@ -92,6 +99,12 @@ Required output:
     }
   ],
   "topBranches": [],
+  "impactElevation": {
+    "baselineImpact": "...",
+    "chainsTested": [],
+    "strongestRealisticImpact": "...",
+    "forcedScenariosRejected": []
+  },
   "branchesKilled": [],
   "handoffs": [],
   "memoryToRecord": [],

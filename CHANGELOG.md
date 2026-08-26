@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.1.5 - 2026-08-25
+
+### Fixed
+
+- Refreshed local research files before duplicate queries so new findings and reports cannot remain outside the index.
+- Ranked full-text results by relevance and collapsed repeated entity and source-path revisions.
+- Replaced stale FTS rows on record updates and added a migration that removes existing duplicates.
+- Scored prior coverage within local text windows and returned the matching passage instead of the start of a long document.
+- Included discarded work, research logs, candidate registers, watchlists, surfaces, hypotheses, branches, and decisions in prior-coverage checks.
+
+### Changed
+
+- Added mandatory depth coverage, impact elevation, and realistic-scenario checks to the base, coordinator, specialist, and Chimera contracts.
+- Renamed the CLI package to `@vyntra-research/proteus` while keeping the `proteus` and `proteus-mcp` commands.
+
 ## 2.1.4 - 2026-07-14
 
 ### Fixed

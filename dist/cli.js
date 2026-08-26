@@ -941,6 +941,7 @@ function cmdQuery(db, subcommand, parsed) {
     requireInitialized(db);
     if (subcommand === "duplicates") {
         const text = parsed.command.slice(2).join(" ") || requiredString(parsed, "text");
+        (0, ingest_1.ingestPaths)(db, []);
         const rows = db.queryCoverage(text, getNumber(parsed, "limit") ?? 10);
         if (rows.length === 0) {
             console.log("No prior coverage found.");
@@ -969,8 +970,9 @@ function cmdQuery(db, subcommand, parsed) {
     }
     if (subcommand === "similar") {
         const text = parsed.command.slice(2).join(" ") || requiredString(parsed, "text");
+        (0, ingest_1.ingestPaths)(db, []);
         const result = db.querySimilar(text, getNumber(parsed, "limit") ?? 10);
-        console.log("Duplicate/report coverage:");
+        console.log("Prior research coverage:");
         if (result.duplicateCoverage.length === 0) {
             console.log("  none");
         }

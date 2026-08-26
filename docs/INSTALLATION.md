@@ -22,7 +22,7 @@ proteus --version
 Expected shape:
 
 ```text
-@rafabd1/proteus 2.1.4
+@vyntra-research/proteus 2.1.5
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no
@@ -32,7 +32,7 @@ installing machine.
 After publishing to npm, the registry install should be:
 
 ```powershell
-npm install -g @rafabd1/proteus
+npm install -g @vyntra-research/proteus
 proteus --version
 ```
 
@@ -45,7 +45,7 @@ npm install -g https://codeload.github.com/Vyntra-Research/Proteus/tar.gz/refs/h
 After npm publishing:
 
 ```powershell
-npm update -g @rafabd1/proteus
+npm update -g @vyntra-research/proteus
 ```
 
 Pin a branch, tag, or commit:
@@ -209,8 +209,8 @@ smoke tests or short probes.
 ## Uninstall CLI
 
 ```powershell
-npm uninstall -g @rafabd1/proteus
+npm uninstall -g @vyntra-research/proteus
 ```
 
 If installed directly from GitHub, npm still records the installed package under
-the package name `@rafabd1/proteus`.
+the package name `@vyntra-research/proteus`.

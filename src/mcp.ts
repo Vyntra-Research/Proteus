@@ -963,12 +963,15 @@ const tools: ToolDefinition[] = [
   {
     name: "proteus_query_duplicates",
     title: "Query Possible Duplicates",
-    description: "Search ingested findings and reports for possible duplicate prior coverage. Use proteus_query_memory for broad memory search.",
+    description: "Refresh local research files, then search findings, reports, discarded work, research logs, surfaces, hypotheses, branches, and decisions for possible duplicate coverage.",
     inputSchema: schema(
       { root: stringProp("Target root path."), text: stringProp("Candidate text, primitive, or impact to search."), limit: numberProp("Max rows.") },
       ["root", "text"]
     ),
-    handler: ({ root, text, limit }) => withDb(str(root), (db) => db.queryCoverage(str(text), num(limit, 10)))
+    handler: ({ root, text, limit }) => withDb(str(root), (db) => {
+      ingestPaths(db, []);
+      return db.queryCoverage(str(text), num(limit, 10));
+    })
   },
   {
     name: "proteus_query_memory",
@@ -983,12 +986,15 @@ const tools: ToolDefinition[] = [
   {
     name: "proteus_query_similar",
     title: "Query Similar Records",
-    description: "Return both narrow finding/report duplicate coverage and broad memory matches for a candidate, primitive, branch, or impact claim.",
+    description: "Refresh local research files, then return ranked prior coverage and broad memory matches for a candidate, primitive, branch, or impact claim.",
     inputSchema: schema(
       { root: stringProp("Target root path."), text: stringProp("Candidate, primitive, branch, or impact text."), limit: numberProp("Max rows.") },
       ["root", "text"]
     ),
-    handler: ({ root, text, limit }) => withDb(str(root), (db) => toolEnvelope(db.querySimilar(str(text), num(limit, 10))))
+    handler: ({ root, text, limit }) => withDb(str(root), (db) => {
+      ingestPaths(db, []);
+      return toolEnvelope(db.querySimilar(str(text), num(limit, 10)));
+    })
   },
   {
     name: "proteus_get_record",
@@ -1101,12 +1107,21 @@ const tools: ToolDefinition[] = [
           killCriteria: maybeStr(input.killCriteria) ?? "",
           revisitCondition: maybeStr(input.revisitCondition) ?? ""
         };
+        ingestPaths(db, []);
+        const similarityQueries = [
+          hypothesis.title,
+          hypothesis.primitive,
+          hypothesis.attackerBoundary,
+          hypothesis.impactClaim
+        ].filter((value) => value && value !== "unknown");
+        const priorCoverage = similarityQueries.flatMap((query) => db.queryCoverage(query, 5));
+        const broadMatches = similarityQueries.flatMap((query) => db.search(query, 5));
         const id = db.addHypothesis(hypothesis);
         const campaignLink = linkRecordToActiveCampaign(db, "hypothesis", id, "tracks_hypothesis", `Hypothesis H${id} recorded in active campaign.`);
-        const similar = db
-          .search(`${hypothesis.title} ${hypothesis.primitive} ${hypothesis.attackerBoundary} ${hypothesis.impactClaim}`, 8)
+        const similar = [...priorCoverage, ...broadMatches]
           .filter((row) => !(row.entityType === "hypothesis" && row.entityId === id))
-          .slice(0, 5);
+          .filter((row, index, rows) => rows.findIndex((candidate) => candidate.entityType === row.entityType && candidate.entityId === row.entityId) === index)
+          .slice(0, 8);
         const similarityAdvisories = similar.length > 0
           ? [
               {

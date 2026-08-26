@@ -9,13 +9,14 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
+const expectedPackageName = String(packageJson.name);
 const newCli = path.join(repoRoot, "dist", "cli.js");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-validate-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-global-"));
 
 try {
   const version = run(process.execPath, [newCli, "--version"]);
-  assertIncludes(version, `@rafabd1/proteus ${expectedVersion}`, "new CLI version");
+  assertIncludes(version, `${expectedPackageName} ${expectedVersion}`, "new CLI version");
 
   const oldVersion = runOptional("proteus", ["--version"]);
   const hasOldProteus = oldVersion.ok && !oldVersion.output.includes(expectedVersion);
@@ -137,7 +138,7 @@ try {
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path.join(repoRoot, "plugins", "proteus", "scripts", "proteus.ps1"), "--version"],
       { cwd: repoRoot, encoding: "utf8", env: releaseEnv() }
     );
-    assertIncludes(wrapperVersion, `@rafabd1/proteus ${expectedVersion}`, "PowerShell plugin wrapper");
+    assertIncludes(wrapperVersion, `${expectedPackageName} ${expectedVersion}`, "PowerShell plugin wrapper");
   }
 
   console.log(`Proteus release validation passed: ${tmpRoot}`);
