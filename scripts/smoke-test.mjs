@@ -948,8 +948,9 @@ try {
     throw new Error("merge dry-run did not preview source evidence");
   }
   const mergeResult = run(["merge", "--source", path.join(mergeRoot, ".vros")]);
-  if (!mergeResult.includes('"dryRun": false') || !mergeResult.includes('"surfaces": 1') || !mergeResult.includes('"chimeraMessages": 2')) {
-    throw new Error("merge did not copy source records into destination memory");
+  const mergedCounts = JSON.parse(mergeResult);
+  if (mergedCounts.dryRun !== false || mergedCounts.totals?.surfaces !== 1 || mergedCounts.totals?.chimeraMessages < 2) {
+    throw new Error(`merge did not copy source records into destination memory: ${mergeResult}`);
   }
   const mergedMemory = run(["query", "memory", "Stray merge evidence body"]);
   if (!mergedMemory.includes("evidence#")) {
