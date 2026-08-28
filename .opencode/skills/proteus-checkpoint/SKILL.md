@@ -63,8 +63,34 @@ Required output:
   "contextToPersist": [],
   "nextHighRoiMove": "...",
   "recordsToLink": [],
-  "contractSignature": {}
+  "contractSignature": {
+    "status": "compliant|deviated|blocked",
+    "signedBy": "proteus-role-name",
+    "attackerModel": "...",
+    "heuristicCoverage": ["..."],
+    "depthCoverage": {
+      "application": "checked|not-applicable|blocked",
+      "nativeOrLowLevel": "checked|not-applicable|blocked",
+      "upstreamDependencies": "checked|not-applicable|blocked",
+      "fuzzing": "checked|not-applicable|blocked",
+      "alternateRoutes": "checked|not-applicable|blocked"
+    },
+    "impactElevation": {
+      "performed": true,
+      "strongestRealisticImpact": "...",
+      "chainsTested": []
+    },
+    "realismCheck": {
+      "scenario": "...",
+      "configuration": "default|documented|normal-practice",
+      "forcedConditions": []
+    },
+    "antiSlopCheck": "...",
+    "deviations": [],
+    "deviationRepair": null
+  }
 }
 ```
 
-Record the checkpoint through Proteus campaign tools when available.
+Record the checkpoint through Proteus campaign tools when available. Proteus
+rejects a checkpoint when any contract-signature field is missing or empty.

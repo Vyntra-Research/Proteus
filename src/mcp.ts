@@ -61,6 +61,7 @@ interface ToolDefinition {
   title: string;
   description: string;
   inputSchema: JsonObject;
+  outputSchema?: JsonObject;
   handler(args: JsonObject): unknown;
 }
 
@@ -682,8 +683,22 @@ const tools: ToolDefinition[] = [
   {
     name: "proteus_campaign_resume",
     title: "Resume Campaign",
-    description: "Return a compact campaign digest with active rounds, open branches, recent events, and links.",
-    inputSchema: schema({ root: stringProp("Target root path."), id: numberProp("Campaign id. Defaults to latest active campaign.") }, ["root"]),
+    description: "Return a bounded campaign recovery digest. Campaign and latest checkpoint are always returned first; branches, checkpoint summaries, events, and links use independent cursors.",
+    inputSchema: schema(
+      {
+        root: stringProp("Target root path."),
+        id: numberProp("Campaign id. Defaults to latest active campaign."),
+        limit: numberProp("Rows per paginated section. Defaults to 5 and is capped at 20."),
+        roundCursor: numberProp("Return active rounds with ids below this cursor."),
+        branchCursor: numberProp("Return open branches with ids below this cursor."),
+        killedBranchCursor: numberProp("Return killed branches with ids below this cursor."),
+        checkpointCursor: numberProp("Return checkpoint summaries with ids below this cursor."),
+        eventCursor: numberProp("Return events with ids below this cursor."),
+        linkCursor: numberProp("Return links with ids below this cursor.")
+      },
+      ["root"]
+    ),
+    outputSchema: { type: "object", additionalProperties: true },
     handler: (input) =>
       withDb(str(input.root), (db) => {
         const id = maybeNum(input.id) ?? db.listCampaigns("active")[0]?.id;
@@ -697,7 +712,32 @@ const tools: ToolDefinition[] = [
             }
           ]
         });
-        return toolEnvelope(db.campaignDigest(id));
+        const digest = db.campaignDigest(id, {
+          limit: maybeNum(input.limit),
+          roundCursor: maybeNum(input.roundCursor),
+          branchCursor: maybeNum(input.branchCursor),
+          killedBranchCursor: maybeNum(input.killedBranchCursor),
+          checkpointCursor: maybeNum(input.checkpointCursor),
+          eventCursor: maybeNum(input.eventCursor),
+          linkCursor: maybeNum(input.linkCursor)
+        });
+        const advisories: Advisory[] = digest.latestCheckpoint && !digest.latestCheckpoint.contractAttestation.valid
+          ? [{
+              severity: "blocker",
+              code: "checkpoint_contract_noncompliant",
+              message: `Latest checkpoint K${digest.latestCheckpoint.id} has an incomplete contract signature. Treat it as historical state, not as a completed validation gate.`,
+              links: [{ entityType: "campaign_checkpoint", entityId: digest.latestCheckpoint.id }],
+              reason: digest.latestCheckpoint.contractAttestation.missingFields.length > 0
+                ? `missing: ${digest.latestCheckpoint.contractAttestation.missingFields.join(", ")}`
+                : digest.latestCheckpoint.contractAttestation.errors.join("; ")
+            }]
+          : [];
+        return toolEnvelope(digest, {
+          advisories,
+          nextSuggestedReads: digest.latestCheckpoint
+            ? [{ tool: "proteus_get_record", entityType: "campaign_checkpoint", entityId: digest.latestCheckpoint.id }]
+            : []
+        });
       })
   },
   {
@@ -719,9 +759,9 @@ const tools: ToolDefinition[] = [
         scoreChanges: arrayProp("Branch score changes."),
         contextToPersist: arrayProp("Context to persist."),
         nextHighRoiMove: stringProp("Next high-ROI move."),
-        contractSignature: objectProp("Contract signature object.")
+        contractSignature: objectProp("Complete contract signature with status, signedBy, attackerModel, heuristicCoverage, depthCoverage, impactElevation, realismCheck, antiSlopCheck, deviations, and deviationRepair.")
       },
-      ["root", "id"]
+      ["root", "id", "contractSignature"]
     ),
     handler: (input) =>
       withDb(str(input.root), (db) => {
@@ -1548,7 +1588,8 @@ function handleLine(line: string): void {
           name: tool.name,
           title: tool.title,
           description: tool.description,
-          inputSchema: tool.inputSchema
+          inputSchema: tool.inputSchema,
+          ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {})
         }))
       });
       return;
@@ -1560,7 +1601,7 @@ function handleLine(line: string): void {
       const tool = tools.find((item) => item.name === name);
       if (!tool) throw new Error(`Unknown tool: ${name}`);
       const result = tool.handler(args);
-      sendResult(request.id, toToolResult(result));
+      sendResult(request.id, toToolResult(result, tool));
       return;
     }
     sendError(request.id, -32601, `Method not found: ${request.method}`);
@@ -1569,9 +1610,13 @@ function handleLine(line: string): void {
   }
 }
 
-function toToolResult(value: unknown): JsonObject {
+function toToolResult(value: unknown, tool: ToolDefinition): JsonObject {
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-  return { content: [{ type: "text", text }] };
+  const result: JsonObject = { content: [{ type: "text", text }] };
+  if (tool.outputSchema && value !== null && typeof value === "object" && !Array.isArray(value)) {
+    result.structuredContent = value;
+  }
+  return result;
 }
 
 function toolEnvelope(

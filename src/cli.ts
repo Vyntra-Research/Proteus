@@ -584,12 +584,22 @@ function cmdCampaign(db: ProteusDb, subcommand: string | undefined, parsed: Pars
       console.log("No active campaign found.");
       return;
     }
-    console.log(JSON.stringify(db.campaignDigest(id), null, 2));
+    console.log(JSON.stringify(db.campaignDigest(id, {
+      limit: getNumber(parsed, "limit"),
+      roundCursor: getNumber(parsed, "round-cursor"),
+      branchCursor: getNumber(parsed, "branch-cursor"),
+      killedBranchCursor: getNumber(parsed, "killed-branch-cursor"),
+      checkpointCursor: getNumber(parsed, "checkpoint-cursor"),
+      eventCursor: getNumber(parsed, "event-cursor"),
+      linkCursor: getNumber(parsed, "link-cursor")
+    }), null, 2));
     return;
   }
 
   if (subcommand === "checkpoint") {
     const id = requiredNumber(parsed, "id");
+    const contractSignature = parseJsonFlag(requiredString(parsed, "contract-signature"));
+    if (contractSignature === undefined) throw new Error("--contract-signature must be valid JSON.");
     const checkpointId = db.addCampaignCheckpoint({
       campaignId: id,
       confirmed: splitList(getString(parsed, "confirmed") ?? ""),
@@ -599,7 +609,7 @@ function cmdCampaign(db: ProteusDb, subcommand: string | undefined, parsed: Pars
       scoreChanges: splitList(getString(parsed, "score-changes") ?? ""),
       contextToPersist: splitList(getString(parsed, "context") ?? ""),
       nextHighRoiMove: getString(parsed, "next") ?? "",
-      contractSignature: parseJsonFlag(getString(parsed, "contract-signature")) ?? {},
+      contractSignature,
       summary: getString(parsed, "summary") ?? ""
     });
     db.updateCampaign({
@@ -1655,8 +1665,8 @@ Usage:
   proteus observe [--root <path>]
   proteus plan-round [--root <path>] [--objective <text>] [--context <text>] [--plan-json <path>] [--status active|paused|completed|blocked|planned|superseded] [--write]
   proteus campaign create --title <text> [--objective <text>] [--status active|paused|completed|blocked|superseded]
-  proteus campaign resume [--id <id>]
-  proteus campaign checkpoint --id <id> [--confirmed a,b] [--killed a,b] [--open a,b] [--next <text>]
+  proteus campaign resume [--id <id>] [--limit <1-20>] [--round-cursor <id>] [--branch-cursor <id>] [--killed-branch-cursor <id>] [--checkpoint-cursor <id>] [--event-cursor <id>] [--link-cursor <id>]
+  proteus campaign checkpoint --id <id> --contract-signature <json> [--confirmed a,b] [--killed a,b] [--open a,b] [--next <text>]
   proteus campaign close --id <id> [--status completed|blocked|superseded] [--summary <text>]
   proteus branch add --title <text> [--campaign-id <id>] [--round-id <id>] [--primitive <text>]
   proteus branch list [--campaign-id <id>] [--status open|testing|killed|promoted|blocked]

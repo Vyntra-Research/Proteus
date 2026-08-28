@@ -543,4 +543,11 @@ proteus_query_global_learnings
 proteus_export_global_learnings
 ```
 
+Campaign recovery is bounded. `proteus_campaign_resume` always returns the
+campaign and latest checkpoint first, then compact pages for branches,
+checkpoints, events, and links. Every page includes an independent cursor.
+Checkpoint writes require a complete contract signature; older incomplete
+records remain readable with an explicit invalid attestation. The latest
+checkpoint must be compliant before campaign completion or branch promotion.
+
 The CLI and MCP server share the same SQLite memory layer.

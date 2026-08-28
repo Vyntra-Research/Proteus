@@ -9,6 +9,18 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
+const compliantContractSignature = {
+  status: "compliant",
+  signedBy: "smoke",
+  attackerModel: "External low-privilege attacker using documented product behavior.",
+  heuristicCoverage: ["dedupe", "depth", "impact-elevation", "realism"],
+  depthCoverage: { application: "checked", nativeOrLowLevel: "not-applicable", upstreamDependencies: "checked", fuzzing: "not-applicable", alternateRoutes: "checked" },
+  impactElevation: { performed: true, strongestRealisticImpact: "Smoke-test integrity", chainsTested: [] },
+  realismCheck: { scenario: "Default smoke-test configuration", configuration: "default", forcedConditions: [] },
+  antiSlopCheck: "Assertions and stored records were verified.",
+  deviations: [],
+  deviationRepair: null
+};
 const cli = path.join(repoRoot, "dist", "cli.js");
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
@@ -1061,6 +1073,17 @@ try {
   if (!testingBranches.includes("B1 [testing] Smoke branch")) {
     throw new Error("branch update did not move branch to testing");
   }
+  const rejectedCheckpoint = runFail([
+    "campaign",
+    "checkpoint",
+    "--id",
+    "1",
+    "--contract-signature",
+    "{}"
+  ]);
+  if (!rejectedCheckpoint.includes("Invalid checkpoint contractSignature") || !rejectedCheckpoint.includes("missing attackerModel")) {
+    throw new Error("campaign checkpoint accepted an incomplete contract signature");
+  }
   run([
     "campaign",
     "checkpoint",
@@ -1077,7 +1100,7 @@ try {
     "--next",
     "Validate smoke branch",
     "--contract-signature",
-    "{\"status\":\"compliant\",\"agent\":\"smoke\"}",
+    JSON.stringify(compliantContractSignature),
     "--summary",
     "Smoke checkpoint"
   ]);

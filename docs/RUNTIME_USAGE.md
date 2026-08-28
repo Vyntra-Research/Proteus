@@ -383,6 +383,24 @@ proteus_query_global_learnings
 proteus_export_global_learnings
 ```
 
+### Campaign recovery
+
+`proteus_campaign_resume` returns a bounded recovery digest and structured
+content. The campaign and latest checkpoint come first. Open and killed branch
+summaries, checkpoint summaries, events, and links each expose `hasMore` and a
+`nextCursor`. Pass that cursor back in the matching input field until
+`hasMore` is false. Use `proteus_get_record` when a summary needs its full
+stored payload.
+
+`proteus_campaign_checkpoint` requires a complete `contractSignature`.
+Proteus rejects missing or empty attacker-model, heuristic, depth,
+impact-elevation, realism, anti-slop, deviation, and repair attestations.
+Historical incomplete checkpoints remain readable and are marked through
+`contractAttestation.valid: false`. A campaign cannot be completed and one of
+its branches cannot be promoted until its latest checkpoint is compliant.
+Blocked and superseded campaigns can still be closed without hiding their
+incomplete state.
+
 The Codex plugin declares the external `proteus-mcp` command inline in
 `plugins/proteus/.codex-plugin/plugin.json`.
 

@@ -3,10 +3,23 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
+const compliantContractSignature = {
+  status: "compliant",
+  signedBy: "mcp-smoke",
+  attackerModel: "External low-privilege attacker using documented product behavior.",
+  heuristicCoverage: ["dedupe", "depth", "impact-elevation", "realism"],
+  depthCoverage: { application: "checked", nativeOrLowLevel: "not-applicable", upstreamDependencies: "checked", fuzzing: "not-applicable", alternateRoutes: "checked" },
+  impactElevation: { performed: true, strongestRealisticImpact: "MCP smoke-test integrity", chainsTested: [] },
+  realismCheck: { scenario: "Default MCP smoke-test configuration", configuration: "default", forcedConditions: [] },
+  antiSlopCheck: "Assertions and stored records were verified.",
+  deviations: [],
+  deviationRepair: null
+};
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
@@ -96,6 +109,10 @@ try {
   }
   const tools = await request("tools/list");
   const toolNames = tools.tools.map((tool) => tool.name);
+  const campaignResumeTool = tools.tools.find((tool) => tool.name === "proteus_campaign_resume");
+  if (campaignResumeTool?.outputSchema?.type !== "object") {
+    throw new Error("proteus_campaign_resume does not advertise structured output");
+  }
   for (const expectedTool of [
     "proteus_init",
     "proteus_status",
@@ -598,23 +615,128 @@ try {
       killConditions: ["control fails"]
     }
   });
+  for (let index = 0; index < 12; index += 1) {
+    await request("tools/call", {
+      name: "proteus_record_branch",
+      arguments: {
+        root: tmpRoot,
+        campaignId: 1,
+        roundId: 1,
+        title: `MCP pagination branch ${index}`,
+        attackPrimitive: `bounded primitive ${index}`,
+        whyNonObvious: "x".repeat(1200),
+        steps: ["y".repeat(2500)],
+        killConditions: ["control fails"]
+      }
+    });
+  }
   const checkpoint = await request("tools/call", {
     name: "proteus_campaign_checkpoint",
     arguments: {
       root: tmpRoot,
       id: 1,
       confirmed: ["surface mapped"],
-      open: ["MCP smoke branch"],
+      killed: Array.from({ length: 20 }, (_, index) => `killed path ${index}: ${"z".repeat(120)}`),
+      open: ["q".repeat(600)],
       pivots: ["stay on daemon boundary"],
       contextToPersist: ["MCP checkpoint context"],
       nextHighRoiMove: "Validate MCP smoke branch",
-      contractSignature: { status: "compliant", agent: "mcp-smoke" },
+      contractSignature: compliantContractSignature,
       summary: "MCP smoke checkpoint"
     }
   });
   const checkpointText = String(checkpoint.content?.[0]?.text ?? "");
   if (!checkpointText.includes('"checkpointId"') || !checkpointText.includes('"campaign_checkpoint"')) {
     throw new Error("proteus_campaign_checkpoint did not return the structured checkpoint envelope");
+  }
+  const rejectedCheckpoint = await requestFail("tools/call", {
+    name: "proteus_campaign_checkpoint",
+    arguments: { root: tmpRoot, id: 1, contractSignature: {} }
+  });
+  if (!rejectedCheckpoint.includes("Invalid checkpoint contractSignature") || !rejectedCheckpoint.includes("missing attackerModel")) {
+    throw new Error("proteus_campaign_checkpoint accepted an incomplete contract signature");
+  }
+  const falseCompliance = await requestFail("tools/call", {
+    name: "proteus_campaign_checkpoint",
+    arguments: {
+      root: tmpRoot,
+      id: 1,
+      contractSignature: {
+        ...compliantContractSignature,
+        impactElevation: { ...compliantContractSignature.impactElevation, performed: false }
+      }
+    }
+  });
+  if (!falseCompliance.includes("compliant status requires impactElevation.performed to be true")) {
+    throw new Error("proteus_campaign_checkpoint accepted a false compliant attestation");
+  }
+  const boundedResume = await request("tools/call", {
+    name: "proteus_campaign_resume",
+    arguments: { root: tmpRoot, id: 1, limit: 1 }
+  });
+  const boundedRecord = boundedResume.structuredContent?.record;
+  if (!boundedRecord?.latestCheckpoint || boundedRecord.latestCheckpoint.id !== 1 || boundedRecord.pagination?.checkpoints?.returned !== 1) {
+    throw new Error("proteus_campaign_resume did not preserve the latest checkpoint in structured bounded output");
+  }
+  if (boundedRecord.latestCheckpoint.killed?.total !== 20 || boundedRecord.latestCheckpoint.killed?.truncated !== true) {
+    throw new Error("proteus_campaign_resume did not disclose shortened latest-checkpoint state");
+  }
+  if (boundedRecord.latestCheckpoint.open?.total !== 1 || boundedRecord.latestCheckpoint.open?.truncated !== true) {
+    throw new Error("proteus_campaign_resume did not disclose character-level checkpoint truncation");
+  }
+  if (boundedRecord.openBranches?.length !== 1 || boundedRecord.pagination?.openBranches?.hasMore !== true || boundedRecord.pagination?.openBranches?.nextCursor === null) {
+    throw new Error("proteus_campaign_resume did not paginate open branch summaries");
+  }
+  if ("steps" in boundedRecord.openBranches[0] || JSON.stringify(boundedRecord).includes("y".repeat(100))) {
+    throw new Error("proteus_campaign_resume included full branch payloads in the bounded digest");
+  }
+  const nextBranchPage = await request("tools/call", {
+    name: "proteus_campaign_resume",
+    arguments: { root: tmpRoot, id: 1, limit: 1, branchCursor: boundedRecord.pagination.openBranches.nextCursor }
+  });
+  const nextBranchRecord = nextBranchPage.structuredContent?.record;
+  if (nextBranchRecord?.openBranches?.length !== 1 || nextBranchRecord.openBranches[0].id === boundedRecord.openBranches[0].id) {
+    throw new Error("proteus_campaign_resume branch cursor did not advance");
+  }
+  const defaultResume = await request("tools/call", {
+    name: "proteus_campaign_resume",
+    arguments: { root: tmpRoot, id: 1 }
+  });
+  const defaultResumeText = String(defaultResume.content?.[0]?.text ?? "");
+  if (defaultResumeText.length > 30000 || defaultResume.structuredContent?.record?.pagination?.openBranches?.hasMore !== true) {
+    throw new Error(`proteus_campaign_resume default digest was not bounded: ${defaultResumeText.length} chars`);
+  }
+  const legacyDb = new DatabaseSync(path.join(tmpRoot, ".vros", "memory.sqlite"));
+  legacyDb.prepare("UPDATE campaign_checkpoints SET contract_signature_json = '{}' WHERE id = 1").run();
+  legacyDb.prepare("UPDATE campaigns SET objective = ?, current_state_summary = ?, recent_learning_summary = ? WHERE id = 1")
+    .run("o".repeat(4000), "s".repeat(4000), "l".repeat(4000));
+  legacyDb.close();
+  const legacyResume = await request("tools/call", {
+    name: "proteus_campaign_resume",
+    arguments: { root: tmpRoot, id: 1 }
+  });
+  if (legacyResume.structuredContent?.record?.latestCheckpoint?.contractAttestation?.valid !== false ||
+      !legacyResume.structuredContent?.advisories?.some((advisory) => advisory.code === "checkpoint_contract_noncompliant")) {
+    throw new Error("proteus_campaign_resume did not flag a historical incomplete checkpoint");
+  }
+  if (legacyResume.structuredContent?.record?.campaign?.truncated !== true ||
+      legacyResume.structuredContent.record.campaign.objective.length > 1000 ||
+      legacyResume.structuredContent.record.campaign.currentStateSummary.length > 1500) {
+    throw new Error("proteus_campaign_resume did not bound campaign summary fields");
+  }
+  const promotedWithInvalidCheckpoint = await requestFail("tools/call", {
+    name: "proteus_update_branch",
+    arguments: { root: tmpRoot, id: 1, status: "promoted" }
+  });
+  if (!promotedWithInvalidCheckpoint.includes("latest checkpoint K1 is not contract-compliant")) {
+    throw new Error("Proteus allowed branch promotion from an invalid historical checkpoint");
+  }
+  const closedWithInvalidCheckpoint = await requestFail("tools/call", {
+    name: "proteus_campaign_close",
+    arguments: { root: tmpRoot, id: 1, status: "completed" }
+  });
+  if (!closedWithInvalidCheckpoint.includes("latest checkpoint K1 is not contract-compliant")) {
+    throw new Error("Proteus allowed campaign completion from an invalid historical checkpoint");
   }
   const checkpointRecord = await request("tools/call", {
     name: "proteus_get_record",

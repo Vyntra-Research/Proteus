@@ -381,7 +381,9 @@ Use the runtime for state, not for inventing reasoning:
 - `proteus status` to confirm initialization, current DB version, and memory
   counts.
 - `proteus migrate` when explicit migration verification is needed.
-- `proteus campaign resume` before planning or major recording.
+- `proteus campaign resume` before planning or major recording. Read
+  `latestCheckpoint` first. Follow the section-specific pagination cursors when
+  `hasMore` is true instead of treating the first bounded page as complete.
 - `proteus list rounds --status active` before creating a new plan.
 - `proteus query similar` to see ranked prior research coverage and broader memory matches.
 - `proteus query duplicates` for ranked dedupe across findings, reports, research logs, watchlists, surfaces, hypotheses, branches, and decisions.
@@ -393,7 +395,8 @@ Use the runtime for state, not for inventing reasoning:
   `entity-type hypothesis_branch` or `branch` also updates branch status when
   the decision clearly says killed, promoted, blocked, testing, candidate,
   watchlist, or open.
-- `campaign checkpoint` after meaningful progress.
+- `campaign checkpoint` after meaningful progress. Supply the complete
+  `contractSignature`; Proteus rejects missing or empty attestations.
 
 For dedupe, issue separate searches for the candidate name, mechanism, attacker
 input and sink, component, and impact. Do not rely on one long prose query. Read

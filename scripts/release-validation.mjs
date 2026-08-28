@@ -10,6 +10,18 @@ const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
 const expectedPackageName = String(packageJson.name);
+const compliantContractSignature = JSON.stringify({
+  status: "compliant",
+  signedBy: "release-validation",
+  attackerModel: "External low-privilege attacker using documented product behavior.",
+  heuristicCoverage: ["migration", "depth", "impact-elevation", "realism"],
+  depthCoverage: { application: "checked", nativeOrLowLevel: "not-applicable", upstreamDependencies: "checked", fuzzing: "not-applicable", alternateRoutes: "checked" },
+  impactElevation: { performed: true, strongestRealisticImpact: "Release-state integrity", chainsTested: [] },
+  realismCheck: { scenario: "Default release-validation state", configuration: "default", forcedConditions: [] },
+  antiSlopCheck: "Stored state and migration output were verified.",
+  deviations: [],
+  deviationRepair: null
+});
 const newCli = path.join(repoRoot, "dist", "cli.js");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-validate-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-release-global-"));
@@ -73,7 +85,7 @@ try {
     "--next",
     "verify active-state links",
     "--contract-signature",
-    "status=compliant,agent=release-validation"
+    compliantContractSignature
   ]);
   run(process.execPath, [newCli, "record", "hypothesis", "--root", tmpRoot, "--title", "Release validation hypothesis", "--primitive", "state transition"]);
   run(process.execPath, [newCli, "record", "evidence", "--root", tmpRoot, "--title", "Release validation evidence", "--body", "release validation evidence body"]);
