@@ -152,9 +152,6 @@ Minimal `round-input.json` shape:
   "selectedSurfaces": [
     {
       "id": 1,
-      "name": "Specific bounded surface",
-      "family": "short-family-name",
-      "roiScore": 0,
       "reason": "Coordinator-written selection reason.",
       "files": ["relative/path/from/target/root.ext"],
       "revisitCondition": "When to revisit this surface."
@@ -213,6 +210,23 @@ node dist/cli.js record decision --entity-type hypothesis --entity-id 1 --decisi
 Use `record surface` for target-specific components and areas the coordinator
 has actually selected or reviewed. `update surface` changes status and revisit
 conditions after work has happened; it is not a creation command.
+
+Surface ROI accepts these numeric fields from 0 to 10:
+`impactPotential`, `externalReachability`, `trustBoundaryDensity`,
+`recentChangeWeight`, `unexploredInvariantWeight`, `toolingReadiness`,
+`duplicateRisk`, `expectedBehaviorLikelihood`, `priorExhaustionWeight`,
+`validationCost`, and `lowSignalHistory`. Omitted fields default to zero.
+Unknown ROI fields are rejected.
+
+Round plans can reference a canonical surface with `id`. Proteus then hydrates
+its stored name, family, files, and ROI score. The plan may set its own `reason`,
+file subset, and `revisitCondition`. An inline surface without `id` must provide
+`name`; supported fields are `name`, `family`, `roiScore`, `reason`, `files`, and
+`revisitCondition`. Planner and agent-front objects reject unknown fields.
+
+`record decision` only appends rationale and evidence. It never changes status
+from words in the decision text. Use `branch update` for a branch transition and
+check the returned `fromStatus` and `toStatus`.
 
 ## Query Memory
 
@@ -382,6 +396,24 @@ proteus_record_global_learning
 proteus_query_global_learnings
 proteus_export_global_learnings
 ```
+
+### Campaign recovery
+
+`proteus_campaign_resume` returns a bounded recovery digest and structured
+content. The campaign and latest checkpoint come first. Open and killed branch
+summaries, checkpoint summaries, events, and links each expose `hasMore` and a
+`nextCursor`. Pass that cursor back in the matching input field until
+`hasMore` is false. Use `proteus_get_record` when a summary needs its full
+stored payload.
+
+`proteus_campaign_checkpoint` requires a complete `contractSignature`.
+Proteus rejects missing or empty attacker-model, heuristic, depth,
+impact-elevation, realism, anti-slop, deviation, and repair attestations.
+Historical incomplete checkpoints remain readable and are marked through
+`contractAttestation.valid: false`. A campaign cannot be completed and one of
+its branches cannot be promoted until its latest checkpoint is compliant.
+Blocked and superseded campaigns can still be closed without hiding their
+incomplete state.
 
 The Codex plugin declares the external `proteus-mcp` command inline in
 `plugins/proteus/.codex-plugin/plugin.json`.

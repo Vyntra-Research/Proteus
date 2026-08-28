@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.7 - 2026-08-28
+
+### Fixed
+
+- Bounded campaign recovery output with compact records, independent cursors, explicit counts, and structured MCP content.
+- Kept the latest checkpoint first and marked every shortened checkpoint field with its stored count.
+- Rejected new campaign checkpoints whose mandatory contract signature is missing or incomplete.
+- Marked historical incomplete checkpoint signatures as invalid without changing their stored evidence.
+- Blocked branch promotion and campaign completion when the latest checkpoint is missing or noncompliant.
+- Made decision recording append-only and removed decision-text keyword handling from status transitions and memory ranking.
+- Added strict planner, surface, ROI, and agent-front metadata contracts with canonical surface hydration.
+- Returned explicit `fromStatus` and `toStatus` values for branch transitions.
+
 ## 2.1.6 - 2026-08-28
 
 ### Fixed

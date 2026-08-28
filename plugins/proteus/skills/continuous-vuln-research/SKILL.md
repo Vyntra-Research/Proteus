@@ -381,19 +381,21 @@ Use the runtime for state, not for inventing reasoning:
 - `proteus status` to confirm initialization, current DB version, and memory
   counts.
 - `proteus migrate` when explicit migration verification is needed.
-- `proteus campaign resume` before planning or major recording.
+- `proteus campaign resume` before planning or major recording. Read
+  `latestCheckpoint` first. Follow the section-specific pagination cursors when
+  `hasMore` is true instead of treating the first bounded page as complete.
 - `proteus list rounds --status active` before creating a new plan.
 - `proteus query similar` to see ranked prior research coverage and broader memory matches.
 - `proteus query duplicates` for ranked dedupe across findings, reports, research logs, watchlists, surfaces, hypotheses, branches, and decisions.
 - `proteus query memory`, `list ...`, and `show ...` for broader state recovery.
 - `record surface|hypothesis|evidence|decision|gate|agent-output` when a fact,
   branch, validation result, or decision changes future work.
-- `branch update --id <B> --status open|testing|killed|promoted|blocked` when a
-  branch state changes without a new decision record. Recording a decision on
-  `entity-type hypothesis_branch` or `branch` also updates branch status when
-  the decision clearly says killed, promoted, blocked, testing, candidate,
-  watchlist, or open.
-- `campaign checkpoint` after meaningful progress.
+- `record decision` is append-only. Proteus never derives status from decision
+  wording. When a branch state changes, record the rationale and then call
+  `branch update --id <B> --status open|testing|killed|promoted|blocked`
+  explicitly. Verify the returned `fromStatus` and `toStatus`.
+- `campaign checkpoint` after meaningful progress. Supply the complete
+  `contractSignature`; Proteus rejects missing or empty attestations.
 
 For dedupe, issue separate searches for the candidate name, mechanism, attacker
 input and sink, component, and impact. Do not rely on one long prose query. Read
@@ -427,6 +429,11 @@ Replan trigger:
 autonomous target-selection oracles. For non-trivial targets, the coordinator
 must supply target-specific understanding, selected surfaces, skipped surfaces,
 agent fronts, stop conditions, and replan trigger.
+
+Reference a stored surface by `id`; Proteus hydrates its canonical name, family,
+files, and ROI score. Round-specific `reason`, `files`, and `revisitCondition`
+may override only those plan fields. Without an `id`, supply `name` and the
+documented inline fields. Unsupported metadata is rejected rather than dropped.
 
 Use `superseded` for old or replaced plans that should remain searchable but no
 longer represent active work.

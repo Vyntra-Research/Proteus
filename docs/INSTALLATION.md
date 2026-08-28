@@ -22,7 +22,7 @@ proteus --version
 Expected shape:
 
 ```text
-@vyntra-research/proteus 2.1.6
+@vyntra-research/proteus 2.1.7
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no

@@ -405,6 +405,9 @@ export class ProteusDb {
     const current = this.getCampaign(input.id);
     if (!current) throw new Error(`Campaign not found: ${input.id}`);
     const status = input.status ?? current.status;
+    if (status === "completed" && current.status !== "completed") {
+      this.requireCompliantCampaignCheckpoint(input.id, "complete campaign");
+    }
     const now = nowIso();
     const closedAt = status === "completed" || status === "superseded" ? now : current.closedAt || null;
     const currentStateSummary = input.currentStateSummary ?? current.currentStateSummary;
@@ -555,6 +558,11 @@ export class ProteusDb {
     contractSignature: JsonValue;
     summary?: string;
   }): number {
+    const attestation = validateCheckpointContractSignature(input.contractSignature);
+    if (!attestation.valid) {
+      const details = [...attestation.missingFields.map((field) => `missing ${field}`), ...attestation.errors].join("; ");
+      throw new Error(`Invalid checkpoint contractSignature: ${details}`);
+    }
     const now = nowIso();
     const result = this.db
       .prepare(
@@ -687,6 +695,9 @@ export class ProteusDb {
     const current = this.getHypothesisBranch(input.id);
     if (!current) throw new Error(`Hypothesis branch not found: B${input.id}`);
     const status = input.status ?? current.status;
+    if (status === "promoted" && current.status !== "promoted" && current.campaignId) {
+      this.requireCompliantCampaignCheckpoint(current.campaignId, `promote branch B${current.id}`);
+    }
     const now = nowIso();
     this.db
       .prepare("UPDATE hypothesis_branches SET status = ?, updated_at = ? WHERE id = ?")
@@ -715,26 +726,67 @@ export class ProteusDb {
     return row ? toHypothesisBranchRow(row) : null;
   }
 
-  campaignDigest(campaignId: number): CampaignDigest {
+  campaignDigest(campaignId: number, options: CampaignDigestOptions = {}): CampaignDigest {
     const campaign = this.getCampaign(campaignId);
     if (!campaign) throw new Error(`Campaign not found: ${campaignId}`);
-    const links = this.listEntityLinks({ entityType: "campaign", entityId: campaignId, limit: 50 });
-    const linkedRoundIds = links
+    const limit = normalizeDigestLimit(options.limit);
+    const allLinks = this.listEntityLinks({ entityType: "campaign", entityId: campaignId, limit: Number.MAX_SAFE_INTEGER });
+    const linkedRoundIds = allLinks
       .filter((link) => link.relation === "has_round" && link.toType === "round")
       .map((link) => link.toId);
-    const rounds = this.listRounds().filter((round) => linkedRoundIds.includes(round.id) || round.status === "active").slice(0, 10);
-    const branches = this.listHypothesisBranches({ campaignId, limit: 20 });
-    const events = this.listCampaignEvents(campaignId, 15);
-    const checkpoints = this.listCampaignCheckpoints(campaignId, 5);
+    const branches = this.listHypothesisBranches({ campaignId, limit: Number.MAX_SAFE_INTEGER });
+    const associatedRoundIds = new Set([
+      ...linkedRoundIds,
+      ...branches.flatMap((branch) => branch.roundId === null ? [] : [branch.roundId])
+    ]);
+    const rounds = this.listRounds().filter((round) => associatedRoundIds.has(round.id));
+    const activeRounds = rounds.filter((round) => round.status === "active");
+    const openBranches = branches.filter((branch) => branch.status === "open" || branch.status === "testing");
+    const killedBranches = branches.filter((branch) => branch.status === "killed");
+    const checkpoints = this.listCampaignCheckpoints(campaignId, Number.MAX_SAFE_INTEGER);
+    const events = this.listCampaignEvents(campaignId, Number.MAX_SAFE_INTEGER);
+    const branchPage = digestPage(openBranches, options.branchCursor, limit);
+    const killedPage = digestPage(killedBranches, options.killedBranchCursor, limit);
+    const checkpointPage = digestPage(checkpoints, options.checkpointCursor, limit);
+    const eventPage = digestPage(events, options.eventCursor, limit);
+    const linkPage = digestPage(allLinks, options.linkCursor, limit);
+    const roundPage = digestPage(activeRounds, options.roundCursor, limit);
     return {
-      campaign,
-      activeRounds: rounds.filter((round) => round.status === "active"),
-      openBranches: branches.filter((branch) => branch.status === "open" || branch.status === "testing"),
-      killedBranches: branches.filter((branch) => branch.status === "killed").slice(0, 10),
-      recentEvents: events,
-      recentCheckpoints: checkpoints,
-      links
+      campaign: toCampaignSummary(campaign),
+      latestCheckpoint: checkpoints[0] ? toCampaignCheckpointSummary(checkpoints[0], 6, 200) : null,
+      activeRounds: roundPage.items.map(toCampaignRoundSummary),
+      openBranches: branchPage.items.map(toCampaignBranchSummary),
+      killedBranches: killedPage.items.map(toCampaignBranchSummary),
+      recentCheckpoints: checkpointPage.items.map((checkpoint) => toCampaignCheckpointSummary(checkpoint, 2, 200)),
+      recentEvents: eventPage.items.map(toCampaignEventSummary),
+      links: linkPage.items.map(toCampaignLinkSummary),
+      counts: {
+        activeRounds: activeRounds.length,
+        openBranches: openBranches.length,
+        killedBranches: killedBranches.length,
+        checkpoints: checkpoints.length,
+        events: events.length,
+        links: allLinks.length
+      },
+      pagination: {
+        activeRounds: roundPage.pageInfo,
+        openBranches: branchPage.pageInfo,
+        killedBranches: killedPage.pageInfo,
+        checkpoints: checkpointPage.pageInfo,
+        events: eventPage.pageInfo,
+        links: linkPage.pageInfo
+      }
     };
+  }
+
+  private requireCompliantCampaignCheckpoint(campaignId: number, action: string): void {
+    const latest = this.listCampaignCheckpoints(campaignId, 1)[0];
+    if (!latest) {
+      throw new Error(`Cannot ${action}: campaign C${campaignId} has no contract-attested checkpoint.`);
+    }
+    if (!latest.contractAttestation.valid || latest.contractAttestation.status !== "compliant") {
+      throw new Error(`Cannot ${action}: latest checkpoint K${latest.id} is not contract-compliant.`);
+    }
   }
 
   addRound(round: {
@@ -782,10 +834,10 @@ export class ProteusDb {
     return this.db.prepare("SELECT * FROM rounds ORDER BY id DESC").all().map(toRoundRow);
   }
 
-  updateRound(input: { id: number; status?: RoundStatus; outcome?: string }): void {
+  updateRound(input: { id: number; status?: RoundStatus }): void {
     const current = this.getRound(input.id);
     if (!current) throw new Error(`Round not found: ${input.id}`);
-    const status = input.status ?? normalizeRoundStatus(input.outcome ?? current.status);
+    const status = input.status ?? current.status;
     const completedAt = status === "completed" || status === "superseded" ? nowIso() : null;
     this.db
       .prepare("UPDATE rounds SET outcome = ?, completed_at = ? WHERE id = ?")
@@ -1880,10 +1932,10 @@ export class ProteusDb {
         entityType: "decision",
         entityId: Number(row.id),
         title: `${String(row.entity_type)}#${Number(row.entity_id)}: ${decision}`,
-        status: decision,
+        status: "recorded",
         summary: compactSummary([row.reason]),
         searchText: compactSummary([row.entity_type, row.entity_id, row.decision, row.reason]),
-        baseScore: decisionCoverageWeight(decision)
+        baseScore: 34
       });
     }
     return candidates;
@@ -2460,6 +2512,7 @@ export interface CampaignCheckpointRow {
   contextToPersist: JsonValue;
   nextHighRoiMove: string;
   contractSignature: JsonValue;
+  contractAttestation: ContractSignatureValidation;
   summary: string;
   createdAt: string;
 }
@@ -2485,13 +2538,127 @@ export interface HypothesisBranchRow {
 }
 
 export interface CampaignDigest {
-  campaign: CampaignRow;
-  activeRounds: RoundRow[];
-  openBranches: HypothesisBranchRow[];
-  killedBranches: HypothesisBranchRow[];
-  recentEvents: CampaignEventRow[];
-  recentCheckpoints: CampaignCheckpointRow[];
-  links: EntityLinkRow[];
+  campaign: CampaignSummary;
+  latestCheckpoint: CampaignCheckpointSummary | null;
+  activeRounds: CampaignRoundSummary[];
+  openBranches: CampaignBranchSummary[];
+  killedBranches: CampaignBranchSummary[];
+  recentEvents: CampaignEventSummary[];
+  recentCheckpoints: CampaignCheckpointSummary[];
+  links: CampaignLinkSummary[];
+  counts: CampaignDigestCounts;
+  pagination: CampaignDigestPagination;
+}
+
+export interface CampaignSummary extends CampaignRow {
+  truncated: boolean;
+}
+
+export interface CampaignDigestOptions {
+  limit?: number;
+  roundCursor?: number;
+  branchCursor?: number;
+  killedBranchCursor?: number;
+  checkpointCursor?: number;
+  eventCursor?: number;
+  linkCursor?: number;
+}
+
+export interface CampaignRoundSummary {
+  id: number;
+  objective: string;
+  currentUnderstanding: string;
+  status: RoundStatus;
+  createdAt: string;
+  truncated: boolean;
+}
+
+export interface CampaignBranchSummary {
+  id: number;
+  campaignId: number | null;
+  roundId: number | null;
+  surfaceId: number | null;
+  title: string;
+  attackPrimitive: string;
+  whyNonObvious: string;
+  status: BranchStatus;
+  updatedAt: string;
+  truncated: boolean;
+}
+
+export interface CampaignValueSummary {
+  items: string[];
+  total: number;
+  truncated: boolean;
+}
+
+export interface CampaignCheckpointSummary {
+  id: number;
+  campaignId: number;
+  summary: string;
+  nextHighRoiMove: string;
+  confirmed: CampaignValueSummary;
+  killed: CampaignValueSummary;
+  open: CampaignValueSummary;
+  pivots: CampaignValueSummary;
+  scoreChanges: CampaignValueSummary;
+  contextToPersist: CampaignValueSummary;
+  contractAttestation: ContractSignatureValidation;
+  createdAt: string;
+  truncated: boolean;
+}
+
+export interface CampaignEventSummary {
+  id: number;
+  eventType: string;
+  entityType: string;
+  entityId: number | null;
+  summary: string;
+  createdAt: string;
+  truncated: boolean;
+}
+
+export interface CampaignLinkSummary {
+  id: number;
+  fromType: string;
+  fromId: number;
+  relation: string;
+  toType: string;
+  toId: number;
+  note: string;
+  createdAt: string;
+  truncated: boolean;
+}
+
+export interface CampaignPageInfo {
+  returned: number;
+  hasMore: boolean;
+  nextCursor: number | null;
+}
+
+export interface CampaignDigestCounts {
+  activeRounds: number;
+  openBranches: number;
+  killedBranches: number;
+  checkpoints: number;
+  events: number;
+  links: number;
+}
+
+export interface CampaignDigestPagination {
+  activeRounds: CampaignPageInfo;
+  openBranches: CampaignPageInfo;
+  killedBranches: CampaignPageInfo;
+  checkpoints: CampaignPageInfo;
+  events: CampaignPageInfo;
+  links: CampaignPageInfo;
+}
+
+export interface ContractSignatureValidation {
+  valid: boolean;
+  status: string | null;
+  missingFields: string[];
+  errors: string[];
 }
 
 export interface SearchRow {
@@ -2935,6 +3102,7 @@ function toCampaignEventRow(row: Row): CampaignEventRow {
 }
 
 function toCampaignCheckpointRow(row: Row): CampaignCheckpointRow {
+  const contractSignature = parseJson(String(row.contract_signature_json));
   return {
     id: Number(row.id),
     campaignId: Number(row.campaign_id),
@@ -2945,7 +3113,8 @@ function toCampaignCheckpointRow(row: Row): CampaignCheckpointRow {
     scoreChanges: parseJson(String(row.score_changes_json)),
     contextToPersist: parseJson(String(row.context_to_persist_json)),
     nextHighRoiMove: String(row.next_high_roi_move),
-    contractSignature: parseJson(String(row.contract_signature_json)),
+    contractSignature,
+    contractAttestation: validateCheckpointContractSignature(contractSignature),
     summary: String(row.summary ?? ""),
     createdAt: String(row.created_at)
   };
@@ -3212,6 +3381,121 @@ function truncateText(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 3)}...`;
 }
 
+function normalizeDigestLimit(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 5;
+  return Math.max(1, Math.min(20, Math.trunc(value ?? 5)));
+}
+
+function digestPage<T extends { id: number }>(rows: T[], cursor: number | undefined, limit: number): { items: T[]; pageInfo: CampaignPageInfo } {
+  const eligible = cursor === undefined ? rows : rows.filter((row) => row.id < cursor);
+  const items = eligible.slice(0, limit);
+  const hasMore = eligible.length > items.length;
+  return {
+    items,
+    pageInfo: {
+      returned: items.length,
+      hasMore,
+      nextCursor: hasMore && items.length > 0 ? items[items.length - 1].id : null
+    }
+  };
+}
+
+function toCampaignRoundSummary(round: RoundRow): CampaignRoundSummary {
+  return {
+    id: round.id,
+    objective: truncateText(round.objective, 500),
+    currentUnderstanding: truncateText(round.currentUnderstanding, 1000),
+    status: round.status,
+    createdAt: round.createdAt,
+    truncated: round.objective.length > 500 || round.currentUnderstanding.length > 1000
+  };
+}
+
+function toCampaignSummary(campaign: CampaignRow): CampaignSummary {
+  return {
+    ...campaign,
+    title: truncateText(campaign.title, 200),
+    objective: truncateText(campaign.objective, 1000),
+    currentStateSummary: truncateText(campaign.currentStateSummary, 1500),
+    recentLearningSummary: truncateText(campaign.recentLearningSummary, 1500),
+    truncated: campaign.title.length > 200 || campaign.objective.length > 1000 ||
+      campaign.currentStateSummary.length > 1500 || campaign.recentLearningSummary.length > 1500
+  };
+}
+
+function toCampaignBranchSummary(branch: HypothesisBranchRow): CampaignBranchSummary {
+  return {
+    id: branch.id,
+    campaignId: branch.campaignId,
+    roundId: branch.roundId,
+    surfaceId: branch.surfaceId,
+    title: truncateText(branch.title, 200),
+    attackPrimitive: truncateText(branch.attackPrimitive, 300),
+    whyNonObvious: truncateText(branch.whyNonObvious, 300),
+    status: branch.status,
+    updatedAt: branch.updatedAt,
+    truncated: branch.title.length > 200 || branch.attackPrimitive.length > 300 || branch.whyNonObvious.length > 300
+  };
+}
+
+function toCampaignCheckpointSummary(checkpoint: CampaignCheckpointRow, valueLimit: number, charLimit: number): CampaignCheckpointSummary {
+  const confirmed = summarizeCheckpointValues(checkpoint.confirmed, valueLimit, charLimit);
+  const killed = summarizeCheckpointValues(checkpoint.killed, valueLimit, charLimit);
+  const open = summarizeCheckpointValues(checkpoint.open, valueLimit, charLimit);
+  const pivots = summarizeCheckpointValues(checkpoint.pivots, valueLimit, charLimit);
+  const scoreChanges = summarizeCheckpointValues(checkpoint.scoreChanges, valueLimit, charLimit);
+  const contextToPersist = summarizeCheckpointValues(checkpoint.contextToPersist, valueLimit, charLimit);
+  return {
+    id: checkpoint.id,
+    campaignId: checkpoint.campaignId,
+    summary: truncateText(checkpoint.summary, 1000),
+    nextHighRoiMove: truncateText(checkpoint.nextHighRoiMove, 1000),
+    confirmed,
+    killed,
+    open,
+    pivots,
+    scoreChanges,
+    contextToPersist,
+    contractAttestation: checkpoint.contractAttestation,
+    createdAt: checkpoint.createdAt,
+    truncated: checkpoint.summary.length > 1000 || checkpoint.nextHighRoiMove.length > 1000 ||
+      [confirmed, killed, open, pivots, scoreChanges, contextToPersist].some((value) => value.truncated)
+  };
+}
+
+function summarizeCheckpointValues(value: JsonValue, maxItems: number, maxChars: number): CampaignValueSummary {
+  const raw = Array.isArray(value) ? value : value === null ? [] : [value];
+  const selected = raw.slice(0, maxItems).map((item) => typeof item === "string" ? item : json(item));
+  const items = selected.map((item) => truncateText(item, maxChars));
+  return { items, total: raw.length, truncated: raw.length > items.length || selected.some((item) => item.length > maxChars) };
+}
+
+function toCampaignEventSummary(event: CampaignEventRow): CampaignEventSummary {
+  return {
+    id: event.id,
+    eventType: event.eventType,
+    entityType: event.entityType,
+    entityId: event.entityId,
+    summary: truncateText(event.summary, 500),
+    createdAt: event.createdAt,
+    truncated: event.summary.length > 500
+  };
+}
+
+function toCampaignLinkSummary(link: EntityLinkRow): CampaignLinkSummary {
+  return {
+    id: link.id,
+    fromType: link.fromType,
+    fromId: link.fromId,
+    relation: link.relation,
+    toType: link.toType,
+    toId: link.toId,
+    note: truncateText(link.note, 300),
+    createdAt: link.createdAt,
+    truncated: link.note.length > 300
+  };
+}
+
 function matchingExcerpt(chunk: string, query: string, matchedTerms: string[], limit: number): string {
   const compact = compactSummary([chunk]);
   const lower = compact.toLowerCase();
@@ -3273,12 +3557,6 @@ function branchCoverageWeight(status: string): number {
 function hypothesisCoverageWeight(status: string): number {
   if (["killed", "discarded", "candidate", "report_grade"].includes(status)) return 38;
   return 30;
-}
-
-function decisionCoverageWeight(decision: string): number {
-  const normalized = normalizeText(decision);
-  if (["killed", "discarded", "duplicate", "promoted", "candidate"].some((value) => normalized.includes(value))) return 42;
-  return 34;
 }
 
 function isActionableCoverageResult(candidate: ScoredCoverageCandidate): boolean {
@@ -3403,6 +3681,95 @@ function requireTarget(db: ProteusDb): { id: number } {
 
 function json(value: JsonValue | unknown): string {
   return JSON.stringify(value);
+}
+
+export function validateCheckpointContractSignature(signature: JsonValue): ContractSignatureValidation {
+  const required = [
+    "status",
+    "signedBy",
+    "attackerModel",
+    "heuristicCoverage",
+    "depthCoverage",
+    "impactElevation",
+    "realismCheck",
+    "antiSlopCheck",
+    "deviations",
+    "deviationRepair"
+  ];
+  if (!isJsonObject(signature)) {
+    return { valid: false, status: null, missingFields: required, errors: ["signature must be an object"] };
+  }
+  const missingFields = required.filter((field) => !Object.prototype.hasOwnProperty.call(signature, field));
+  const errors: string[] = [];
+  const status = typeof signature.status === "string" ? signature.status.trim().toLowerCase() : null;
+  if (!status || !["compliant", "deviated", "blocked"].includes(status)) errors.push("status must be compliant, deviated, or blocked");
+  if (!nonEmptyString(signature.signedBy)) errors.push("signedBy must be a non-empty string");
+  if (!nonEmptyString(signature.attackerModel)) errors.push("attackerModel must be a non-empty string");
+  if (!Array.isArray(signature.heuristicCoverage) || signature.heuristicCoverage.length === 0 || signature.heuristicCoverage.some((item) => !nonEmptyString(item))) {
+    errors.push("heuristicCoverage must be a non-empty array of named checks");
+  }
+  const depthCoverage = signature.depthCoverage;
+  if (!isJsonObject(depthCoverage)) {
+    errors.push("depthCoverage must be an object");
+  } else {
+    for (const field of ["application", "nativeOrLowLevel", "upstreamDependencies", "fuzzing", "alternateRoutes"] as const) {
+      if (!["checked", "not-applicable", "blocked"].includes(String(depthCoverage[field] ?? ""))) {
+        errors.push(`depthCoverage.${field} must be checked, not-applicable, or blocked`);
+      }
+    }
+  }
+  const impactElevation = signature.impactElevation;
+  if (!isJsonObject(impactElevation)) {
+    errors.push("impactElevation must be an object");
+  } else {
+    if (typeof impactElevation.performed !== "boolean") errors.push("impactElevation.performed must be boolean");
+    if (!nonEmptyString(impactElevation.strongestRealisticImpact)) errors.push("impactElevation.strongestRealisticImpact must be a non-empty string");
+    if (!Array.isArray(impactElevation.chainsTested)) errors.push("impactElevation.chainsTested must be an array");
+  }
+  const realismCheck = signature.realismCheck;
+  if (!isJsonObject(realismCheck)) {
+    errors.push("realismCheck must be an object");
+  } else {
+    if (!nonEmptyString(realismCheck.scenario)) errors.push("realismCheck.scenario must be a non-empty string");
+    if (!["default", "documented", "normal-practice"].includes(String(realismCheck.configuration ?? ""))) {
+      errors.push("realismCheck.configuration must be default, documented, or normal-practice");
+    }
+    if (!Array.isArray(realismCheck.forcedConditions)) errors.push("realismCheck.forcedConditions must be an array");
+  }
+  if (!nonEmptyString(signature.antiSlopCheck)) errors.push("antiSlopCheck must be a non-empty string");
+  if (!Array.isArray(signature.deviations)) errors.push("deviations must be an array");
+  if (Array.isArray(signature.deviations) && signature.deviations.length > 0 && !meaningfulValue(signature.deviationRepair)) {
+    errors.push("deviationRepair is required when deviations are present");
+  }
+  if (status === "compliant") {
+    if (isJsonObject(impactElevation) && impactElevation.performed !== true) {
+      errors.push("compliant status requires impactElevation.performed to be true");
+    }
+    if (isJsonObject(depthCoverage) && Object.values(depthCoverage).includes("blocked")) {
+      errors.push("compliant status cannot include blocked depthCoverage checks");
+    }
+    if (Array.isArray(signature.deviations) && signature.deviations.length > 0) {
+      errors.push("compliant status cannot include unresolved deviations");
+    }
+  }
+  if (status === "deviated" && Array.isArray(signature.deviations) && signature.deviations.length === 0) {
+    errors.push("deviated status requires at least one deviation");
+  }
+  return { valid: missingFields.length === 0 && errors.length === 0, status, missingFields, errors };
+}
+
+function isJsonObject(value: unknown): value is Record<string, JsonValue> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function meaningfulValue(value: unknown): boolean {
+  if (nonEmptyString(value)) return true;
+  if (Array.isArray(value)) return value.length > 0;
+  return isJsonObject(value) && Object.keys(value).length > 0;
 }
 
 function parseJson(value: string): JsonValue {

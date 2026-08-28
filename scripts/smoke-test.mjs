@@ -9,6 +9,18 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const require = createRequire(import.meta.url);
 const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
 const expectedVersion = String(packageJson.version);
+const compliantContractSignature = {
+  status: "compliant",
+  signedBy: "smoke",
+  attackerModel: "External low-privilege attacker using documented product behavior.",
+  heuristicCoverage: ["dedupe", "depth", "impact-elevation", "realism"],
+  depthCoverage: { application: "checked", nativeOrLowLevel: "not-applicable", upstreamDependencies: "checked", fuzzing: "not-applicable", alternateRoutes: "checked" },
+  impactElevation: { performed: true, strongestRealisticImpact: "Smoke-test integrity", chainsTested: [] },
+  realismCheck: { scenario: "Default smoke-test configuration", configuration: "default", forcedConditions: [] },
+  antiSlopCheck: "Assertions and stored records were verified.",
+  deviations: [],
+  deviationRepair: null
+};
 const cli = path.join(repoRoot, "dist", "cli.js");
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
@@ -1061,6 +1073,17 @@ try {
   if (!testingBranches.includes("B1 [testing] Smoke branch")) {
     throw new Error("branch update did not move branch to testing");
   }
+  const rejectedCheckpoint = runFail([
+    "campaign",
+    "checkpoint",
+    "--id",
+    "1",
+    "--contract-signature",
+    "{}"
+  ]);
+  if (!rejectedCheckpoint.includes("Invalid checkpoint contractSignature") || !rejectedCheckpoint.includes("missing attackerModel")) {
+    throw new Error("campaign checkpoint accepted an incomplete contract signature");
+  }
   run([
     "campaign",
     "checkpoint",
@@ -1077,7 +1100,7 @@ try {
     "--next",
     "Validate smoke branch",
     "--contract-signature",
-    "{\"status\":\"compliant\",\"agent\":\"smoke\"}",
+    JSON.stringify(compliantContractSignature),
     "--summary",
     "Smoke checkpoint"
   ]);
@@ -1192,7 +1215,7 @@ try {
     "--evidence-ids",
     smokeEvidenceId
   ]);
-  const branchKillDecision = run([
+  const branchNegativePromotionDecision = run([
     "record",
     "decision",
     "--entity-type",
@@ -1200,18 +1223,26 @@ try {
     "--entity-id",
     "1",
     "--decision",
-    "killed",
+    "Confirm B1 mechanism and keep it in testing; do not promote the generic candidate as a finding yet.",
     "--reason",
-    "Smoke branch killed by evidence-backed decision",
+    "Smoke negative promotion decision",
     "--evidence-ids",
     smokeEvidenceId
   ]);
-  if (!branchKillDecision.includes("Updated branch B1 to killed")) {
-    throw new Error("record decision on branch did not update branch status");
+  if (!branchNegativePromotionDecision.includes("Recorded decision") || branchNegativePromotionDecision.includes("Updated branch")) {
+    throw new Error("record decision was not append-only");
+  }
+  const branchAfterDecision = run(["show", "branch", "1"]);
+  if (!branchAfterDecision.includes('"status": "testing"')) {
+    throw new Error("record decision inferred branch status from free-form text");
+  }
+  const explicitKill = run(["branch", "update", "--id", "B1", "--status", "killed"]);
+  if (!explicitKill.includes('"fromStatus": "testing"') || !explicitKill.includes('"toStatus": "killed"')) {
+    throw new Error("branch update did not report the explicit transition");
   }
   const killedBranches = run(["branch", "list", "--campaign-id", "1", "--status", "killed"]);
   if (!killedBranches.includes("B1 [killed] Smoke branch")) {
-    throw new Error("branch decision did not persist killed status");
+    throw new Error("explicit branch update did not persist killed status");
   }
   run([
     "record",

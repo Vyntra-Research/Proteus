@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.globalLearningInputSchema = exports.validationGateInputSchema = exports.decisionInputSchema = exports.evidenceInputSchema = exports.hypothesisInputSchema = exports.surfaceInputSchema = exports.targetContractSchema = void 0;
+exports.ROI_FACTOR_KEYS = exports.globalLearningInputSchema = exports.validationGateInputSchema = exports.decisionInputSchema = exports.evidenceInputSchema = exports.hypothesisInputSchema = exports.surfaceInputSchema = exports.targetContractSchema = void 0;
+exports.parseRoiFactors = parseRoiFactors;
 exports.targetContractSchema = {
     parse(input) {
         const value = object(input, "target contract");
@@ -23,6 +24,10 @@ exports.targetContractSchema = {
 exports.surfaceInputSchema = {
     parse(input) {
         const value = object(input, "surface");
+        rejectUnknownKeys(value, [
+            "name", "family", "description", "files", "symbols", "entrypoints",
+            "trustBoundaries", "runtimeModes", "status", "roi", "revisitCondition"
+        ], "surface");
         return {
             name: requiredString(value.name, "name"),
             family: requiredString(value.family, "family"),
@@ -33,7 +38,7 @@ exports.surfaceInputSchema = {
             trustBoundaries: stringArray(value.trustBoundaries),
             runtimeModes: stringArray(value.runtimeModes),
             status: enumValue(value.status, ["unmapped", "active", "covered", "exhausted", "low_roi", "blocked", "watch"], "unmapped"),
-            roi: parseRoi(value.roi),
+            roi: parseRoiFactors(value.roi),
             revisitCondition: optionalString(value.revisitCondition, "")
         };
     }
@@ -120,27 +125,59 @@ exports.globalLearningInputSchema = {
         };
     }
 };
-function parseRoi(input) {
+exports.ROI_FACTOR_KEYS = [
+    "impactPotential",
+    "externalReachability",
+    "trustBoundaryDensity",
+    "recentChangeWeight",
+    "unexploredInvariantWeight",
+    "toolingReadiness",
+    "duplicateRisk",
+    "expectedBehaviorLikelihood",
+    "priorExhaustionWeight",
+    "validationCost",
+    "lowSignalHistory"
+];
+function parseRoiFactors(input) {
+    if (input === undefined || input === null)
+        return zeroRoi();
     const value = object(input, "roi");
+    rejectUnknownKeys(value, exports.ROI_FACTOR_KEYS, "roi");
     return {
-        impactPotential: clampNumber(value.impactPotential, 0, 10, 0),
-        externalReachability: clampNumber(value.externalReachability, 0, 10, 0),
-        trustBoundaryDensity: clampNumber(value.trustBoundaryDensity, 0, 10, 0),
-        recentChangeWeight: clampNumber(value.recentChangeWeight, 0, 10, 0),
-        unexploredInvariantWeight: clampNumber(value.unexploredInvariantWeight, 0, 10, 0),
-        toolingReadiness: clampNumber(value.toolingReadiness, 0, 10, 0),
-        duplicateRisk: clampNumber(value.duplicateRisk, 0, 10, 0),
-        expectedBehaviorLikelihood: clampNumber(value.expectedBehaviorLikelihood, 0, 10, 0),
-        priorExhaustionWeight: clampNumber(value.priorExhaustionWeight, 0, 10, 0),
-        validationCost: clampNumber(value.validationCost, 0, 10, 0),
-        lowSignalHistory: clampNumber(value.lowSignalHistory, 0, 10, 0)
+        impactPotential: roiNumber(value.impactPotential, "impactPotential"),
+        externalReachability: roiNumber(value.externalReachability, "externalReachability"),
+        trustBoundaryDensity: roiNumber(value.trustBoundaryDensity, "trustBoundaryDensity"),
+        recentChangeWeight: roiNumber(value.recentChangeWeight, "recentChangeWeight"),
+        unexploredInvariantWeight: roiNumber(value.unexploredInvariantWeight, "unexploredInvariantWeight"),
+        toolingReadiness: roiNumber(value.toolingReadiness, "toolingReadiness"),
+        duplicateRisk: roiNumber(value.duplicateRisk, "duplicateRisk"),
+        expectedBehaviorLikelihood: roiNumber(value.expectedBehaviorLikelihood, "expectedBehaviorLikelihood"),
+        priorExhaustionWeight: roiNumber(value.priorExhaustionWeight, "priorExhaustionWeight"),
+        validationCost: roiNumber(value.validationCost, "validationCost"),
+        lowSignalHistory: roiNumber(value.lowSignalHistory, "lowSignalHistory")
     };
+}
+function zeroRoi() {
+    return Object.fromEntries(exports.ROI_FACTOR_KEYS.map((key) => [key, 0]));
+}
+function roiNumber(input, name) {
+    if (input === undefined)
+        return 0;
+    if (typeof input !== "number" || !Number.isFinite(input) || input < 0 || input > 10) {
+        throw new Error(`Invalid roi.${name}: expected a number from 0 to 10`);
+    }
+    return input;
 }
 function object(input, name) {
     if (!input || typeof input !== "object" || Array.isArray(input)) {
         throw new Error(`Invalid ${name}: expected object`);
     }
     return input;
+}
+function rejectUnknownKeys(value, allowed, name) {
+    const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+    if (unknown.length > 0)
+        throw new Error(`Invalid ${name}: unsupported field(s): ${unknown.join(", ")}`);
 }
 function requiredString(input, name) {
     if (typeof input !== "string" || input.length === 0)
@@ -184,5 +221,9 @@ function numberArray(input) {
         .filter((item) => Number.isFinite(item) && item > 0);
 }
 function enumValue(input, allowed, fallback) {
-    return typeof input === "string" && allowed.includes(input) ? input : fallback;
+    if (input === undefined || input === null)
+        return fallback;
+    if (typeof input === "string" && allowed.includes(input))
+        return input;
+    throw new Error(`Invalid enum value: expected one of ${allowed.join(", ")}`);
 }
