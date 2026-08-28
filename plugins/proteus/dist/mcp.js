@@ -13,6 +13,7 @@ const global_memory_1 = require("./global-memory");
 const observe_1 = require("./observe");
 const opencode_1 = require("./opencode");
 const planner_1 = require("./planner");
+const schemas_1 = require("./schemas");
 const prompts_1 = require("./prompts");
 const roles_1 = require("./roles");
 const exporter_1 = require("./exporter");
@@ -459,31 +460,35 @@ const tools = [
         name: "proteus_plan_round",
         title: "Plan Research Round",
         description: "Create an empty Proteus research-round scaffold or record a coordinator-authored plan. It does not choose targets, rank surfaces, or generate strategic understanding.",
-        inputSchema: schema({
+        inputSchema: strictSchema({
             root: stringProp("Target root path."),
             objective: stringProp("Round objective."),
-            coordinatorPlan: objectProp("Primary input: coordinator-authored plan to persist and render."),
+            coordinatorPlan: coordinatorPlanProp("Primary input: coordinator-authored plan to persist and render."),
             currentUnderstanding: stringProp("Coordinator-supplied target understanding."),
-            selectedSurfaces: objectArrayProp("Coordinator-selected high-ROI surfaces."),
-            skippedSurfaces: objectArrayProp("Coordinator-supplied skipped surfaces or non-goals."),
-            agentFronts: objectArrayProp("Coordinator-supplied bounded agent fronts."),
+            selectedSurfaces: coordinatorSurfaceArrayProp("Coordinator-selected high-ROI surfaces."),
+            skippedSurfaces: coordinatorSurfaceArrayProp("Coordinator-supplied skipped surfaces or non-goals."),
+            agentFronts: coordinatorAgentFrontArrayProp("Coordinator-supplied bounded agent fronts."),
             stopConditions: arrayProp("Coordinator-supplied stop conditions."),
             replanTrigger: stringProp("Coordinator-supplied replan trigger."),
-            status: stringProp("Plan status: active, paused, completed, blocked, planned, or superseded. Defaults to active."),
+            status: enumProp(["active", "paused", "completed", "blocked", "planned", "superseded"], "Plan status. Defaults to active."),
             markdown: booleanProp("Return Markdown instead of JSON.")
         }, ["root", "objective"]),
-        handler: ({ root, objective, coordinatorPlan, currentUnderstanding, selectedSurfaces, skippedSurfaces, agentFronts, stopConditions, replanTrigger, status, markdown }) => withDb(str(root), (db) => {
+        handler: (input) => withDb(str(input.root), (db) => {
+            assertKnownInputKeys(input, [
+                "root", "objective", "coordinatorPlan", "currentUnderstanding", "selectedSurfaces",
+                "skippedSurfaces", "agentFronts", "stopConditions", "replanTrigger", "status", "markdown"
+            ], "proteus_plan_round");
             const activeBefore = db.listRounds().filter((round) => round.status === "active");
             const plan = (0, planner_1.planRound)(db, {
-                objective: str(objective),
-                status: maybeRoundStatus(status),
-                coordinatorPlan: objectValue(coordinatorPlan),
-                currentUnderstanding: maybeStr(currentUnderstanding),
-                selectedSurfaces: objectArray(selectedSurfaces),
-                skippedSurfaces: objectArray(skippedSurfaces),
-                agentFronts: objectArray(agentFronts),
-                stopConditions: Array.isArray(stopConditions) ? stringArray(stopConditions) : undefined,
-                replanTrigger: maybeStr(replanTrigger)
+                objective: str(input.objective),
+                status: maybeRoundStatus(input.status),
+                coordinatorPlan: input.coordinatorPlan,
+                currentUnderstanding: maybeStr(input.currentUnderstanding),
+                selectedSurfaces: input.selectedSurfaces,
+                skippedSurfaces: input.skippedSurfaces,
+                agentFronts: input.agentFronts,
+                stopConditions: input.stopConditions,
+                replanTrigger: maybeStr(input.replanTrigger)
             });
             const advisories = activeBefore.length > 0
                 ? [
@@ -496,7 +501,7 @@ const tools = [
                     }
                 ]
                 : [];
-            const record = markdown === true ? (0, planner_1.renderRoundPlan)(plan) : plan;
+            const record = input.markdown === true ? (0, planner_1.renderRoundPlan)(plan) : plan;
             const campaignLink = db.linkActiveCampaignTo({
                 toType: "round",
                 toId: plan.id,
@@ -740,18 +745,27 @@ const tools = [
     {
         name: "proteus_update_branch",
         title: "Update Hypothesis Branch",
-        description: "Update a hypothesis branch status after a kill, promote, block, or testing decision.",
+        description: "Explicitly update a hypothesis branch status and return the previous and new status. Free-form decisions never change branch status.",
         inputSchema: schema({
             root: stringProp("Target root path."),
             id: stringProp("Branch id. Accepts 8 or B8."),
             status: stringProp("open, testing, killed, promoted, or blocked.")
         }, ["root", "id", "status"]),
         handler: (input) => withDb(str(input.root), (db) => {
+            const branchId = num(input.id, 0);
+            const before = db.getHypothesisBranch(branchId);
+            if (!before)
+                throw new Error(`Hypothesis branch not found: B${branchId}`);
             const branch = db.updateHypothesisBranch({
-                id: num(input.id, 0),
+                id: branchId,
                 status: parseBranchStatus(str(input.status))
             });
-            return toolEnvelope({ entityType: "hypothesis_branch", entityId: branch.id, branch }, { stateDelta: { created: [], linked: [], updated: [{ entityType: "hypothesis_branch", entityId: branch.id }] } });
+            return toolEnvelope({
+                entityType: "hypothesis_branch",
+                entityId: branch.id,
+                transition: { fromStatus: before.status, toStatus: branch.status },
+                branch
+            }, { stateDelta: { created: [], linked: [], updated: [{ entityType: "hypothesis_branch", entityId: branch.id }] } });
         })
     },
     {
@@ -886,7 +900,7 @@ const tools = [
         name: "proteus_record_surface",
         title: "Record Surface",
         description: "Record a target-specific component, area, or attack surface with files, boundaries, status, and ROI factors.",
-        inputSchema: schema({
+        inputSchema: strictSchema({
             root: stringProp(),
             name: stringProp(),
             family: stringProp(),
@@ -896,26 +910,30 @@ const tools = [
             entrypoints: arrayProp(),
             trustBoundaries: arrayProp(),
             runtimeModes: arrayProp(),
-            status: stringProp(),
+            status: enumProp(["unmapped", "active", "covered", "exhausted", "low_roi", "blocked", "watch"]),
             revisitCondition: stringProp(),
-            roi: objectProp("Optional ROI factor object.")
+            roi: roiFactorsProp("Optional ROI factors. Omitted factors default to zero.")
         }, ["root", "name"]),
-        handler: (input) => withDb(str(input.root), (db) => ({
-            ok: true,
-            id: db.addSurface({
+        handler: (input) => withDb(str(input.root), (db) => {
+            assertKnownInputKeys(input, [
+                "root", "name", "family", "description", "files", "symbols", "entrypoints",
+                "trustBoundaries", "runtimeModes", "status", "revisitCondition", "roi"
+            ], "proteus_record_surface");
+            const id = db.addSurface({
                 name: str(input.name),
                 family: maybeStr(input.family) ?? "coordinator-supplied",
                 description: maybeStr(input.description) ?? "",
-                files: stringArray(input.files),
-                symbols: stringArray(input.symbols),
-                entrypoints: stringArray(input.entrypoints),
-                trustBoundaries: stringArray(input.trustBoundaries),
-                runtimeModes: stringArray(input.runtimeModes),
+                files: strictStringArrayInput(input.files, "proteus_record_surface.files"),
+                symbols: strictStringArrayInput(input.symbols, "proteus_record_surface.symbols"),
+                entrypoints: strictStringArrayInput(input.entrypoints, "proteus_record_surface.entrypoints"),
+                trustBoundaries: strictStringArrayInput(input.trustBoundaries, "proteus_record_surface.trustBoundaries"),
+                runtimeModes: strictStringArrayInput(input.runtimeModes, "proteus_record_surface.runtimeModes"),
                 status: (maybeStr(input.status) ?? "active"),
-                roi: roiFromInput(objectValue(input.roi)),
+                roi: (0, schemas_1.parseRoiFactors)(input.roi),
                 revisitCondition: maybeStr(input.revisitCondition) ?? ""
-            })
-        }))
+            });
+            return { ok: true, id, surface: db.getSurface(id) };
+        })
     },
     {
         name: "proteus_record_hypothesis",
@@ -1019,7 +1037,7 @@ const tools = [
     {
         name: "proteus_record_decision",
         title: "Record Decision",
-        description: "Append a coordinator decision with reason and evidence references.",
+        description: "Append a coordinator decision with reason and evidence references. This tool never infers or changes entity status from free-form text; use the matching update tool for transitions.",
         inputSchema: schema({
             root: stringProp(),
             entityType: stringProp(),
@@ -1040,17 +1058,14 @@ const tools = [
                 actor: maybeStr(input.actor) ?? "coordinator"
             });
             const campaignLink = linkRecordToActiveCampaign(db, "decision", id, "has_decision", `Decision D${id} recorded in active campaign.`);
-            const decision = str(input.decision).toLowerCase();
-            const updatedBranch = updateBranchStatusFromDecision(db, str(input.entityType), num(input.entityId, 0), decision);
-            const isHighImpactDecision = ["promote", "promoted", "report", "reportable", "candidate", "kill", "killed", "discard", "discarded"].some((term) => decision.includes(term));
             const advisories = campaignLinkAdvisories(db, campaignLink);
-            if (isHighImpactDecision && evidenceIds.length === 0) {
+            if (evidenceIds.length === 0) {
                 advisories.push({
                     severity: "warn",
                     code: "decision_without_evidence",
                     message: "This decision has no evidence ids attached. Add evidence before relying on it as a campaign memory anchor.",
                     links: [{ entityType: str(input.entityType), entityId: num(input.entityId, 0) }],
-                    reason: "promotion, kill, or candidate decisions should remain auditable"
+                    reason: "durable decisions should remain auditable without interpreting their free-form text"
                 });
             }
             return toolEnvelope({ entityType: "decision", entityId: id }, {
@@ -1058,7 +1073,7 @@ const tools = [
                 stateDelta: {
                     created: [{ entityType: "decision", entityId: id }],
                     linked: campaignLink ? [campaignLink] : [],
-                    updated: updatedBranch ? [{ entityType: "hypothesis_branch", entityId: updatedBranch.id }] : []
+                    updated: []
                 }
             });
         })
@@ -1560,6 +1575,9 @@ function listRecords(db, recordType, options) {
 function schema(properties, required = []) {
     return { type: "object", properties, required, additionalProperties: true };
 }
+function strictSchema(properties, required = []) {
+    return { type: "object", properties, required, additionalProperties: false };
+}
 function stringProp(description) {
     return { type: "string", ...(description ? { description } : {}) };
 }
@@ -1578,11 +1596,65 @@ function arrayProp(description) {
 function numberArrayProp(description) {
     return { type: "array", items: { type: "number" }, ...(description ? { description } : {}) };
 }
-function objectArrayProp(description) {
-    return { type: "array", items: { type: "object", additionalProperties: true }, ...(description ? { description } : {}) };
+function enumProp(values, description) {
+    return { type: "string", enum: values, ...(description ? { description } : {}) };
 }
 function objectProp(description) {
     return { type: "object", additionalProperties: true, ...(description ? { description } : {}) };
+}
+function coordinatorSurfaceArrayProp(description) {
+    return {
+        type: "array",
+        items: strictSchema({
+            id: { type: "integer", minimum: 1, description: "Canonical surface id. Canonical name, family, and ROI are hydrated from memory." },
+            name: stringProp("Required only for an inline surface without id."),
+            family: stringProp("Inline surface family. For canonical ids, it must match the stored family."),
+            roiScore: numberProp("Inline ROI score. For canonical ids, it must match the stored score."),
+            reason: stringProp("Round-specific selection or skip reason."),
+            files: arrayProp("Optional round-specific file subset. Canonical files are used when omitted."),
+            revisitCondition: stringProp("Optional round-specific revisit condition.")
+        }),
+        ...(description ? { description } : {})
+    };
+}
+function coordinatorAgentFrontArrayProp(description) {
+    return {
+        type: "array",
+        items: strictSchema({
+            codename: stringProp("Proteus role codename or coordinator-defined front name."),
+            assignedSurfaceIds: { type: "array", items: { type: "integer", minimum: 1 } },
+            purpose: stringProp("Bounded purpose for this front."),
+            requiredOutput: arrayProp("Required output fields.")
+        }, ["codename"]),
+        ...(description ? { description } : {})
+    };
+}
+function coordinatorPlanProp(description) {
+    return {
+        ...strictSchema({
+            status: enumProp(["active", "paused", "completed", "blocked", "planned", "superseded"]),
+            currentUnderstanding: stringProp("Coordinator-supplied target understanding."),
+            selectedSurfaces: coordinatorSurfaceArrayProp(),
+            skippedSurfaces: coordinatorSurfaceArrayProp(),
+            agentFronts: coordinatorAgentFrontArrayProp(),
+            stopConditions: arrayProp("Coordinator-supplied stop conditions."),
+            replanTrigger: stringProp("Coordinator-supplied replan trigger.")
+        }),
+        ...(description ? { description } : {})
+    };
+}
+function roiFactorsProp(description) {
+    const properties = Object.fromEntries(schemas_1.ROI_FACTOR_KEYS.map((key) => [key, {
+            type: "number",
+            minimum: 0,
+            maximum: 10
+        }]));
+    return { ...strictSchema(properties), ...(description ? { description } : {}) };
+}
+function assertKnownInputKeys(input, allowed, tool) {
+    const unknown = Object.keys(input).filter((key) => !allowed.includes(key));
+    if (unknown.length > 0)
+        throw new Error(`${tool} received unsupported field(s): ${unknown.join(", ")}`);
 }
 function str(value) {
     if (typeof value !== "string" || value.length === 0)
@@ -1679,24 +1751,6 @@ function parseBranchStatus(status) {
     }
     throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
 }
-function updateBranchStatusFromDecision(db, entityType, entityId, decision) {
-    if (entityType !== "hypothesis_branch" && entityType !== "branch")
-        return null;
-    const status = branchStatusFromDecision(decision);
-    return status ? db.updateHypothesisBranch({ id: entityId, status }) : null;
-}
-function branchStatusFromDecision(decision) {
-    const value = decision.toLowerCase();
-    if (/\b(kill|killed|discard|discarded|dead)\b/.test(value))
-        return "killed";
-    if (/\b(promote|promoted|report|reportable)\b/.test(value))
-        return "promoted";
-    if (/\b(block|blocked)\b/.test(value))
-        return "blocked";
-    if (/\b(test|testing|candidate|watch|watchlist|open)\b/.test(value))
-        return "testing";
-    return null;
-}
 function chimeraAccess(value) {
     if (value === undefined || value === null || value === "")
         return "explorer";
@@ -1726,6 +1780,14 @@ function chimeraKind(value, fallback) {
 function stringArray(value) {
     return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
+function strictStringArrayInput(value, name) {
+    if (value === undefined || value === null)
+        return [];
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+        throw new Error(`${name} must be an array of strings`);
+    }
+    return value;
+}
 function numberArray(value) {
     const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
     return values
@@ -1738,24 +1800,6 @@ function numberArray(value) {
     })
         .filter((item) => Number.isFinite(item) && item > 0);
 }
-function objectArray(value) {
-    return Array.isArray(value) ? value.filter((item) => typeof item === "object" && item !== null && !Array.isArray(item)) : undefined;
-}
 function objectValue(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value : undefined;
-}
-function roiFromInput(input) {
-    return {
-        impactPotential: num(input?.impactPotential, 0),
-        externalReachability: num(input?.externalReachability, 0),
-        trustBoundaryDensity: num(input?.trustBoundaryDensity, 0),
-        recentChangeWeight: num(input?.recentChangeWeight, 0),
-        unexploredInvariantWeight: num(input?.unexploredInvariantWeight, 0),
-        toolingReadiness: num(input?.toolingReadiness, 0),
-        duplicateRisk: num(input?.duplicateRisk, 0),
-        expectedBehaviorLikelihood: num(input?.expectedBehaviorLikelihood, 0),
-        priorExhaustionWeight: num(input?.priorExhaustionWeight, 0),
-        validationCost: num(input?.validationCost, 0),
-        lowSignalHistory: num(input?.lowSignalHistory, 0)
-    };
 }

@@ -614,8 +614,17 @@ function cmdBranch(db, subcommand, parsed) {
         const status = branchStatus(parsed);
         if (!status)
             throw new Error("branch update requires --status open|testing|killed|promoted|blocked");
+        const before = db.getHypothesisBranch(id);
+        if (!before)
+            throw new Error(`Hypothesis branch not found: B${id}`);
         const updated = db.updateHypothesisBranch({ id, status });
-        console.log(`Updated branch B${updated.id} to ${updated.status}`);
+        console.log(JSON.stringify({
+            ok: true,
+            entityType: "hypothesis_branch",
+            entityId: updated.id,
+            transition: { fromStatus: before.status, toStatus: updated.status },
+            branch: updated
+        }, null, 2));
         return;
     }
     throw new Error("branch requires one of: add, create, list, update");
@@ -730,11 +739,8 @@ function cmdRecord(db, subcommand, parsed) {
             evidenceIds: splitList(getString(parsed, "evidence-ids") ?? "").map((item) => Number(item)).filter(Boolean),
             actor: getString(parsed, "actor") ?? "coordinator"
         });
-        const updatedBranch = updateBranchStatusFromDecision(db, entityType, entityId, decision);
         autoLinkActiveCampaign(db, "decision", id, "has_decision", `Decision D${id} recorded in active campaign.`);
         console.log(`Recorded decision D${id}`);
-        if (updatedBranch)
-            console.log(`Updated branch B${updatedBranch.id} to ${updatedBranch.status}`);
         return;
     }
     if (subcommand === "gate") {
@@ -929,8 +935,7 @@ function cmdUpdate(db, subcommand, parsed) {
         const id = requiredNumber(parsed, "id");
         db.updateRound({
             id,
-            status: roundStatus(parsed),
-            outcome: getString(parsed, "outcome")
+            status: roundStatus(parsed)
         });
         console.log(`Updated round R${id}`);
         return;
@@ -1412,24 +1417,6 @@ function parseBranchStatus(status) {
         return status;
     }
     throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
-}
-function updateBranchStatusFromDecision(db, entityType, entityId, decision) {
-    if (entityType !== "hypothesis_branch" && entityType !== "branch")
-        return null;
-    const status = branchStatusFromDecision(decision);
-    return status ? db.updateHypothesisBranch({ id: entityId, status }) : null;
-}
-function branchStatusFromDecision(decision) {
-    const value = decision.toLowerCase();
-    if (/\b(kill|killed|discard|discarded|dead)\b/.test(value))
-        return "killed";
-    if (/\b(promote|promoted|report|reportable)\b/.test(value))
-        return "promoted";
-    if (/\b(block|blocked)\b/.test(value))
-        return "blocked";
-    if (/\b(test|testing|candidate|watch|watchlist|open)\b/.test(value))
-        return "testing";
-    return null;
 }
 function chimeraAccessMode(parsed) {
     const access = getString(parsed, "access") ?? "explorer";

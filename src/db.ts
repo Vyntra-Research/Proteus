@@ -834,10 +834,10 @@ export class ProteusDb {
     return this.db.prepare("SELECT * FROM rounds ORDER BY id DESC").all().map(toRoundRow);
   }
 
-  updateRound(input: { id: number; status?: RoundStatus; outcome?: string }): void {
+  updateRound(input: { id: number; status?: RoundStatus }): void {
     const current = this.getRound(input.id);
     if (!current) throw new Error(`Round not found: ${input.id}`);
-    const status = input.status ?? normalizeRoundStatus(input.outcome ?? current.status);
+    const status = input.status ?? current.status;
     const completedAt = status === "completed" || status === "superseded" ? nowIso() : null;
     this.db
       .prepare("UPDATE rounds SET outcome = ?, completed_at = ? WHERE id = ?")
@@ -1932,10 +1932,10 @@ export class ProteusDb {
         entityType: "decision",
         entityId: Number(row.id),
         title: `${String(row.entity_type)}#${Number(row.entity_id)}: ${decision}`,
-        status: decision,
+        status: "recorded",
         summary: compactSummary([row.reason]),
         searchText: compactSummary([row.entity_type, row.entity_id, row.decision, row.reason]),
-        baseScore: decisionCoverageWeight(decision)
+        baseScore: 34
       });
     }
     return candidates;
@@ -3557,12 +3557,6 @@ function branchCoverageWeight(status: string): number {
 function hypothesisCoverageWeight(status: string): number {
   if (["killed", "discarded", "candidate", "report_grade"].includes(status)) return 38;
   return 30;
-}
-
-function decisionCoverageWeight(decision: string): number {
-  const normalized = normalizeText(decision);
-  if (["killed", "discarded", "duplicate", "promoted", "candidate"].some((value) => normalized.includes(value))) return 42;
-  return 34;
 }
 
 function isActionableCoverageResult(candidate: ScoredCoverageCandidate): boolean {

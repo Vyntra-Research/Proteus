@@ -35,6 +35,10 @@ export const targetContractSchema: Parser<TargetContract> = {
 export const surfaceInputSchema: Parser<SurfaceInput> = {
   parse(input: unknown): SurfaceInput {
     const value = object(input, "surface");
+    rejectUnknownKeys(value, [
+      "name", "family", "description", "files", "symbols", "entrypoints",
+      "trustBoundaries", "runtimeModes", "status", "roi", "revisitCondition"
+    ], "surface");
     return {
       name: requiredString(value.name, "name"),
       family: requiredString(value.family, "family"),
@@ -45,7 +49,7 @@ export const surfaceInputSchema: Parser<SurfaceInput> = {
       trustBoundaries: stringArray(value.trustBoundaries),
       runtimeModes: stringArray(value.runtimeModes),
       status: enumValue(value.status, ["unmapped", "active", "covered", "exhausted", "low_roi", "blocked", "watch"], "unmapped"),
-      roi: parseRoi(value.roi),
+      roi: parseRoiFactors(value.roi),
       revisitCondition: optionalString(value.revisitCondition, "")
     };
   }
@@ -146,21 +150,49 @@ export const globalLearningInputSchema: Parser<GlobalLearningInput> = {
   }
 };
 
-function parseRoi(input: unknown): RoiFactors {
+export const ROI_FACTOR_KEYS = [
+  "impactPotential",
+  "externalReachability",
+  "trustBoundaryDensity",
+  "recentChangeWeight",
+  "unexploredInvariantWeight",
+  "toolingReadiness",
+  "duplicateRisk",
+  "expectedBehaviorLikelihood",
+  "priorExhaustionWeight",
+  "validationCost",
+  "lowSignalHistory"
+] as const;
+
+export function parseRoiFactors(input: unknown): RoiFactors {
+  if (input === undefined || input === null) return zeroRoi();
   const value = object(input, "roi");
+  rejectUnknownKeys(value, ROI_FACTOR_KEYS, "roi");
   return {
-    impactPotential: clampNumber(value.impactPotential, 0, 10, 0),
-    externalReachability: clampNumber(value.externalReachability, 0, 10, 0),
-    trustBoundaryDensity: clampNumber(value.trustBoundaryDensity, 0, 10, 0),
-    recentChangeWeight: clampNumber(value.recentChangeWeight, 0, 10, 0),
-    unexploredInvariantWeight: clampNumber(value.unexploredInvariantWeight, 0, 10, 0),
-    toolingReadiness: clampNumber(value.toolingReadiness, 0, 10, 0),
-    duplicateRisk: clampNumber(value.duplicateRisk, 0, 10, 0),
-    expectedBehaviorLikelihood: clampNumber(value.expectedBehaviorLikelihood, 0, 10, 0),
-    priorExhaustionWeight: clampNumber(value.priorExhaustionWeight, 0, 10, 0),
-    validationCost: clampNumber(value.validationCost, 0, 10, 0),
-    lowSignalHistory: clampNumber(value.lowSignalHistory, 0, 10, 0)
+    impactPotential: roiNumber(value.impactPotential, "impactPotential"),
+    externalReachability: roiNumber(value.externalReachability, "externalReachability"),
+    trustBoundaryDensity: roiNumber(value.trustBoundaryDensity, "trustBoundaryDensity"),
+    recentChangeWeight: roiNumber(value.recentChangeWeight, "recentChangeWeight"),
+    unexploredInvariantWeight: roiNumber(value.unexploredInvariantWeight, "unexploredInvariantWeight"),
+    toolingReadiness: roiNumber(value.toolingReadiness, "toolingReadiness"),
+    duplicateRisk: roiNumber(value.duplicateRisk, "duplicateRisk"),
+    expectedBehaviorLikelihood: roiNumber(value.expectedBehaviorLikelihood, "expectedBehaviorLikelihood"),
+    priorExhaustionWeight: roiNumber(value.priorExhaustionWeight, "priorExhaustionWeight"),
+    validationCost: roiNumber(value.validationCost, "validationCost"),
+    lowSignalHistory: roiNumber(value.lowSignalHistory, "lowSignalHistory")
   };
+}
+
+function zeroRoi(): RoiFactors {
+  return Object.fromEntries(ROI_FACTOR_KEYS.map((key) => [key, 0])) as unknown as RoiFactors;
+}
+
+function roiNumber(input: unknown, name: string): number {
+  if (input === undefined) return 0;
+  if (typeof input !== "number" || !Number.isFinite(input) || input < 0 || input > 10) {
+    throw new Error(`Invalid roi.${name}: expected a number from 0 to 10`);
+  }
+  return input;
 }
 
 function object(input: unknown, name: string): Record<string, unknown> {
@@ -168,6 +200,11 @@ function object(input: unknown, name: string): Record<string, unknown> {
     throw new Error(`Invalid ${name}: expected object`);
   }
   return input as Record<string, unknown>;
+}
+
+function rejectUnknownKeys(value: Record<string, unknown>, allowed: readonly string[], name: string): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) throw new Error(`Invalid ${name}: unsupported field(s): ${unknown.join(", ")}`);
 }
 
 function requiredString(input: unknown, name: string): string {
@@ -217,5 +254,7 @@ function numberArray(input: unknown): number[] {
 }
 
 function enumValue<const T extends string>(input: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof input === "string" && (allowed as readonly string[]).includes(input) ? (input as T) : fallback;
+  if (input === undefined || input === null) return fallback;
+  if (typeof input === "string" && (allowed as readonly string[]).includes(input)) return input as T;
+  throw new Error(`Invalid enum value: expected one of ${allowed.join(", ")}`);
 }

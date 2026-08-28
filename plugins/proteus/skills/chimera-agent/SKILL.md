@@ -297,13 +297,14 @@ confidence language. Do not say "novel", "not known", "report-grade", or
 separately.
 
 When a branch is killed, promoted, blocked, or moved to testing, preserve the
-reason. Prefer recording a decision on the branch when you have evidence:
+reason. Record the decision on the branch when you have evidence:
 
 ```text
 proteus record decision --root <workspace-root> --entity-type hypothesis_branch --entity-id <B> --decision killed --reason "..." --evidence-ids <ids>
 ```
 
-If the coordinator explicitly asks only for a state correction, use:
+Decision records are append-only and never change branch status. Change status
+only when the coordinator explicitly authorizes it, using:
 
 ```text
 proteus branch update --root <workspace-root> --id <B> --status killed

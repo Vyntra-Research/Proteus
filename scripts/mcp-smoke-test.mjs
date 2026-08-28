@@ -20,6 +20,19 @@ const compliantContractSignature = {
   deviations: [],
   deviationRepair: null
 };
+const canonicalRoi = {
+  impactPotential: 8,
+  externalReachability: 7,
+  trustBoundaryDensity: 6,
+  recentChangeWeight: 5,
+  unexploredInvariantWeight: 5,
+  toolingReadiness: 5,
+  duplicateRisk: 1,
+  expectedBehaviorLikelihood: 0,
+  priorExhaustionWeight: 0,
+  validationCost: 1,
+  lowSignalHistory: 0
+};
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
 const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
@@ -112,6 +125,18 @@ try {
   const campaignResumeTool = tools.tools.find((tool) => tool.name === "proteus_campaign_resume");
   if (campaignResumeTool?.outputSchema?.type !== "object") {
     throw new Error("proteus_campaign_resume does not advertise structured output");
+  }
+  const planRoundTool = tools.tools.find((tool) => tool.name === "proteus_plan_round");
+  const recordSurfaceTool = tools.tools.find((tool) => tool.name === "proteus_record_surface");
+  if (planRoundTool?.inputSchema?.additionalProperties !== false ||
+      planRoundTool?.inputSchema?.properties?.coordinatorPlan?.additionalProperties !== false ||
+      planRoundTool?.inputSchema?.properties?.selectedSurfaces?.items?.additionalProperties !== false) {
+    throw new Error("proteus_plan_round does not advertise strict coordinator metadata schemas");
+  }
+  if (recordSurfaceTool?.inputSchema?.additionalProperties !== false ||
+      recordSurfaceTool?.inputSchema?.properties?.roi?.additionalProperties !== false ||
+      !recordSurfaceTool.inputSchema.properties.roi.properties?.impactPotential) {
+    throw new Error("proteus_record_surface does not advertise the concrete ROI schema");
   }
   for (const expectedTool of [
     "proteus_init",
@@ -749,6 +774,35 @@ try {
     name: "proteus_link_entities",
     arguments: { root: tmpRoot, fromType: "campaign", fromId: 1, relation: "has_round", toType: "round", toId: 1 }
   });
+  const recordedSurface = await request("tools/call", {
+    name: "proteus_record_surface",
+    arguments: {
+      root: tmpRoot,
+      name: "Smoke daemon protocol surface",
+      family: "daemon-protocol",
+      description: "MCP target-specific surface",
+      files: ["daemon.ts"],
+      status: "active",
+      revisitCondition: "mcp revisit",
+      roi: canonicalRoi
+    }
+  });
+  const recordedSurfaceJson = JSON.parse(String(recordedSurface.content?.[0]?.text ?? "{}"));
+  const canonicalSurfaceId = recordedSurfaceJson.id;
+  if (!canonicalSurfaceId || recordedSurfaceJson.surface?.roiScore !== 34) {
+    throw new Error("proteus_record_surface did not return the normalized ROI 34 surface");
+  }
+  const rejectedSurfaceMetadata = await requestFail("tools/call", {
+    name: "proteus_record_surface",
+    arguments: {
+      root: tmpRoot,
+      name: "Invalid descriptive ROI surface",
+      roi: { impactCeiling: "high", priority: "high" }
+    }
+  });
+  if (!rejectedSurfaceMetadata.includes("unsupported field(s): impactCeiling, priority")) {
+    throw new Error("proteus_record_surface silently discarded unsupported ROI metadata");
+  }
   const suppliedPlan = await request("tools/call", {
     name: "proteus_plan_round",
     arguments: {
@@ -758,21 +812,20 @@ try {
         currentUnderstanding: "Smoke coordinator context",
         selectedSurfaces: [
           {
-            id: 1,
-            name: "Smoke daemon protocol surface",
-            family: "daemon-protocol",
-            reason: "Coordinator supplied a narrow surface"
+            id: canonicalSurfaceId,
+            reason: "Coordinator supplied a narrow surface",
+            files: ["daemon.ts"]
           }
         ],
         agentFronts: [
           {
             codename: "argus",
-            assignedSurfaceIds: [1],
+            assignedSurfaceIds: [canonicalSurfaceId],
             purpose: "Inspect the supplied smoke surface"
           },
           {
             codename: "coordinator-main",
-            assignedSurfaceIds: [1],
+            assignedSurfaceIds: [canonicalSurfaceId],
             purpose: "Coordinator-owned execution front",
             requiredOutput: ["operator status", "next move"]
           }
@@ -788,8 +841,22 @@ try {
   if (!suppliedText.includes('"status": "active"')) {
     throw new Error("proteus_plan_round did not create an active plan by default");
   }
-  if (!suppliedText.includes('"codename": "coordinator-main"') || !suppliedText.includes('"family": "coordinator-supplied"')) {
-    throw new Error("proteus_plan_round did not preserve custom coordinator-supplied agent fronts");
+  if (!suppliedText.includes('"codename": "coordinator-main"') || !suppliedText.includes('"family": "daemon-protocol"')) {
+    throw new Error("proteus_plan_round did not preserve the custom front and canonical surface family");
+  }
+  if (!suppliedText.includes('"roiScore": 34') || !suppliedText.includes('"reason": "Coordinator supplied a narrow surface"') || !suppliedText.includes('"daemon.ts"')) {
+    throw new Error("proteus_plan_round did not hydrate canonical ROI while preserving documented round overrides");
+  }
+  const rejectedPlanMetadata = await requestFail("tools/call", {
+    name: "proteus_plan_round",
+    arguments: {
+      root: tmpRoot,
+      objective: "Reject unsupported coordinator metadata",
+      selectedSurfaces: [{ id: canonicalSurfaceId, priority: "high", rationale: "unsupported alias" }]
+    }
+  });
+  if (!rejectedPlanMetadata.includes("unsupported field(s): priority, rationale")) {
+    throw new Error("proteus_plan_round silently discarded unsupported surface metadata");
   }
   const activePlans = await request("tools/call", {
     name: "proteus_list_records",
@@ -838,19 +905,6 @@ try {
   if (!String(bulkRoundUpdate.content?.[0]?.text ?? "").includes('"updated": 1')) {
     throw new Error("proteus_update_rounds did not update planned rounds");
   }
-  await request("tools/call", {
-    name: "proteus_record_surface",
-    arguments: {
-      root: tmpRoot,
-      name: "Smoke daemon protocol surface",
-      family: "daemon-protocol",
-      description: "MCP target-specific surface",
-      files: ["daemon.ts"],
-      status: "active",
-      revisitCondition: "mcp revisit",
-      roi: { impactPotential: 8, externalReachability: 7, trustBoundaryDensity: 6 }
-    }
-  });
   const surfaces = await request("tools/call", {
     name: "proteus_list_records",
     arguments: { root: tmpRoot, recordType: "surfaces", text: "daemon" }
@@ -923,21 +977,29 @@ try {
       root: tmpRoot,
       entityType: "hypothesis_branch",
       entityId: 1,
-      decision: "killed",
-      reason: "MCP smoke branch killed by evidence-backed decision",
+      decision: "Confirm B1 mechanism and keep it in testing; do not promote the generic candidate as a finding yet.",
+      reason: "MCP smoke negative promotion decision",
       evidenceIds: ["1"]
     }
   });
   const branchDecisionText = String(branchDecision.content?.[0]?.text ?? "");
-  if (!branchDecisionText.includes('"entityType": "hypothesis_branch"') || !branchDecisionText.includes('"updated"')) {
-    throw new Error("proteus_record_decision did not report branch status update");
+  if (!branchDecisionText.includes('"entityType": "decision"') || !branchDecisionText.includes('"updated": []')) {
+    throw new Error("proteus_record_decision was not append-only");
   }
-  const killedBranch = await request("tools/call", {
+  const unchangedBranch = await request("tools/call", {
     name: "proteus_get_record",
     arguments: { root: tmpRoot, entityType: "branch", entityId: 1 }
   });
-  if (!String(killedBranch.content?.[0]?.text ?? "").includes('"status": "killed"')) {
-    throw new Error("proteus_record_decision on branch did not persist killed status");
+  if (!String(unchangedBranch.content?.[0]?.text ?? "").includes('"status": "testing"')) {
+    throw new Error("proteus_record_decision inferred branch status from free-form text");
+  }
+  const explicitKill = await request("tools/call", {
+    name: "proteus_update_branch",
+    arguments: { root: tmpRoot, id: 1, status: "killed" }
+  });
+  const explicitKillText = String(explicitKill.content?.[0]?.text ?? "");
+  if (!explicitKillText.includes('"fromStatus": "testing"') || !explicitKillText.includes('"toStatus": "killed"')) {
+    throw new Error("proteus_update_branch did not report the explicit status transition");
   }
   const agentOutput = await request("tools/call", {
     name: "proteus_record_agent_output",

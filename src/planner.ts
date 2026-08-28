@@ -117,7 +117,7 @@ export interface PlanRoundInput {
 
 export interface CoordinatorSurfaceInput {
   id?: number;
-  name: string;
+  name?: string;
   family?: string;
   roiScore?: number;
   reason?: string;
@@ -191,16 +191,19 @@ export function ensureInitialSurfaces(db: ProteusDb): number {
 export function planRound(db: ProteusDb, input: string | PlanRoundInput): RoundPlan {
   const planInput = typeof input === "string" ? { objective: input } : input;
   const objective = planInput.objective;
-  const coordinatorPlan = planInput.coordinatorPlan;
+  const coordinatorPlan = normalizeCoordinatorPlan(planInput.coordinatorPlan);
+  const directSelectedSurfaces = normalizeCoordinatorSurfaces(planInput.selectedSurfaces, "selectedSurfaces");
+  const directSkippedSurfaces = normalizeCoordinatorSurfaces(planInput.skippedSurfaces, "skippedSurfaces");
+  const directAgentFronts = normalizeCoordinatorAgentFronts(planInput.agentFronts, "agentFronts");
   const selected =
-    (coordinatorPlan?.selectedSurfaces ?? planInput.selectedSurfaces)?.map((surface) => plannedSurfaceFromCoordinator(surface)) ??
+    (coordinatorPlan?.selectedSurfaces ?? directSelectedSurfaces)?.map((surface) => plannedSurfaceFromCoordinator(db, surface)) ??
     [];
   const skipped =
-    (coordinatorPlan?.skippedSurfaces ?? planInput.skippedSurfaces)?.map((surface) => plannedSurfaceFromCoordinator(surface)) ??
+    (coordinatorPlan?.skippedSurfaces ?? directSkippedSurfaces)?.map((surface) => plannedSurfaceFromCoordinator(db, surface)) ??
     [];
 
   const agentFronts =
-    (coordinatorPlan?.agentFronts ?? planInput.agentFronts)?.map((front) => agentFrontFromCoordinator(front)) ??
+    (coordinatorPlan?.agentFronts ?? directAgentFronts)?.map((front) => agentFrontFromCoordinator(front)) ??
     [];
   const hasCoordinatorInput = Boolean(
     coordinatorPlan ??
@@ -280,9 +283,32 @@ export function renderRoundPlan(plan: RoundPlan): string {
   return `# Proteus Round Plan\n\nRound: R${plan.id}\n\nStatus: ${plan.status}\n\nObjective: ${plan.objective}\n\nPlanning mode: ${plan.planningMode}\n\n## Current Understanding\n\n${plan.currentUnderstanding || "-"}\n\n## Selected Surfaces\n\n| ID | Surface | Family | ROI | Reason |\n| --- | --- | --- | ---: | --- |\n${selected || "| - | - | - | - | - |"}\n\n## Skipped Surfaces\n\n| ID | Surface | Family | ROI | Reason |\n| --- | --- | --- | ---: | --- |\n${skipped || "| - | - | - | - | - |"}\n\n## Agent Fronts\n\n${fronts || "-"}\n\n## Validation Gates\n\n${plan.validationGates.map((gate) => `- ${gate}`).join("\n")}\n\n## Stop Conditions\n\n${plan.stopConditions.length > 0 ? plan.stopConditions.map((condition) => `- ${condition}`).join("\n") : "-"}\n\n## Replan Trigger\n\n${plan.replanTrigger || "-"}\n`;
 }
 
-function plannedSurfaceFromCoordinator(surface: CoordinatorSurfaceInput): PlannedSurface {
+function plannedSurfaceFromCoordinator(db: ProteusDb, surface: CoordinatorSurfaceInput): PlannedSurface {
+  if (surface.id !== undefined) {
+    const canonical = db.getSurface(surface.id);
+    if (!canonical) throw new Error(`Coordinator surface references unknown canonical surface S${surface.id}`);
+    if (surface.name !== undefined && surface.name !== canonical.name) {
+      throw new Error(`Coordinator surface S${surface.id} cannot override canonical name`);
+    }
+    if (surface.family !== undefined && surface.family !== canonical.family) {
+      throw new Error(`Coordinator surface S${surface.id} cannot override canonical family`);
+    }
+    if (surface.roiScore !== undefined && surface.roiScore !== canonical.roiScore) {
+      throw new Error(`Coordinator surface S${surface.id} cannot override canonical roiScore ${canonical.roiScore}`);
+    }
+    return {
+      id: canonical.id,
+      name: canonical.name,
+      family: canonical.family,
+      roiScore: canonical.roiScore,
+      reason: surface.reason ?? canonical.description ?? "Coordinator-selected canonical surface.",
+      files: surface.files ?? canonical.files,
+      revisitCondition: surface.revisitCondition ?? canonical.revisitCondition
+    };
+  }
+  if (!surface.name) throw new Error("Coordinator inline surface requires name when id is omitted");
   return {
-    id: surface.id ?? 0,
+    id: 0,
     name: surface.name,
     family: surface.family ?? "coordinator-supplied",
     roiScore: surface.roiScore ?? 0,
@@ -290,6 +316,119 @@ function plannedSurfaceFromCoordinator(surface: CoordinatorSurfaceInput): Planne
     files: surface.files ?? [],
     revisitCondition: surface.revisitCondition ?? ""
   };
+}
+
+function normalizeCoordinatorPlan(input: unknown): CoordinatorPlanInput | undefined {
+  if (input === undefined) return undefined;
+  const value = strictObject(input, "coordinatorPlan");
+  rejectUnknownKeys(value, [
+    "status", "currentUnderstanding", "selectedSurfaces", "skippedSurfaces",
+    "agentFronts", "stopConditions", "replanTrigger"
+  ], "coordinatorPlan");
+  return {
+    status: optionalRoundStatus(value.status, "coordinatorPlan.status"),
+    currentUnderstanding: optionalString(value.currentUnderstanding, "coordinatorPlan.currentUnderstanding"),
+    selectedSurfaces: normalizeCoordinatorSurfaces(value.selectedSurfaces, "coordinatorPlan.selectedSurfaces"),
+    skippedSurfaces: normalizeCoordinatorSurfaces(value.skippedSurfaces, "coordinatorPlan.skippedSurfaces"),
+    agentFronts: normalizeCoordinatorAgentFronts(value.agentFronts, "coordinatorPlan.agentFronts"),
+    stopConditions: optionalStringArray(value.stopConditions, "coordinatorPlan.stopConditions"),
+    replanTrigger: optionalString(value.replanTrigger, "coordinatorPlan.replanTrigger")
+  };
+}
+
+function normalizeCoordinatorSurfaces(input: unknown, name: string): CoordinatorSurfaceInput[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input)) throw new Error(`Invalid ${name}: expected array`);
+  return input.map((item, index) => {
+    const value = strictObject(item, `${name}[${index}]`);
+    rejectUnknownKeys(value, ["id", "name", "family", "roiScore", "reason", "files", "revisitCondition"], `${name}[${index}]`);
+    const id = optionalPositiveInteger(value.id, `${name}[${index}].id`);
+    const surface: CoordinatorSurfaceInput = {
+      id,
+      name: optionalNonEmptyString(value.name, `${name}[${index}].name`),
+      family: optionalNonEmptyString(value.family, `${name}[${index}].family`),
+      roiScore: optionalFiniteNumber(value.roiScore, `${name}[${index}].roiScore`),
+      reason: optionalString(value.reason, `${name}[${index}].reason`),
+      files: optionalStringArray(value.files, `${name}[${index}].files`),
+      revisitCondition: optionalString(value.revisitCondition, `${name}[${index}].revisitCondition`)
+    };
+    if (id === undefined && !surface.name) throw new Error(`Invalid ${name}[${index}]: name is required when id is omitted`);
+    return surface;
+  });
+}
+
+function normalizeCoordinatorAgentFronts(input: unknown, name: string): CoordinatorAgentFrontInput[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input)) throw new Error(`Invalid ${name}: expected array`);
+  return input.map((item, index) => {
+    const value = strictObject(item, `${name}[${index}]`);
+    rejectUnknownKeys(value, ["codename", "assignedSurfaceIds", "purpose", "requiredOutput"], `${name}[${index}]`);
+    if (typeof value.codename !== "string" || value.codename.length === 0) {
+      throw new Error(`Invalid ${name}[${index}].codename: expected non-empty string`);
+    }
+    return {
+      codename: value.codename,
+      assignedSurfaceIds: optionalPositiveIntegerArray(value.assignedSurfaceIds, `${name}[${index}].assignedSurfaceIds`),
+      purpose: optionalString(value.purpose, `${name}[${index}].purpose`),
+      requiredOutput: optionalStringArray(value.requiredOutput, `${name}[${index}].requiredOutput`)
+    };
+  });
+}
+
+function strictObject(input: unknown, name: string): Record<string, unknown> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(`Invalid ${name}: expected object`);
+  return input as Record<string, unknown>;
+}
+
+function rejectUnknownKeys(value: Record<string, unknown>, allowed: readonly string[], name: string): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) throw new Error(`Invalid ${name}: unsupported field(s): ${unknown.join(", ")}`);
+}
+
+function optionalString(input: unknown, name: string): string | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input !== "string") throw new Error(`Invalid ${name}: expected string`);
+  return input;
+}
+
+function optionalNonEmptyString(input: unknown, name: string): string | undefined {
+  const value = optionalString(input, name);
+  if (value !== undefined && value.length === 0) throw new Error(`Invalid ${name}: expected non-empty string`);
+  return value;
+}
+
+function optionalFiniteNumber(input: unknown, name: string): number | undefined {
+  if (input === undefined) return undefined;
+  if (typeof input !== "number" || !Number.isFinite(input)) throw new Error(`Invalid ${name}: expected finite number`);
+  return input;
+}
+
+function optionalPositiveInteger(input: unknown, name: string): number | undefined {
+  const value = optionalFiniteNumber(input, name);
+  if (value !== undefined && (!Number.isInteger(value) || value <= 0)) throw new Error(`Invalid ${name}: expected positive integer`);
+  return value;
+}
+
+function optionalStringArray(input: unknown, name: string): string[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input) || input.some((item) => typeof item !== "string")) throw new Error(`Invalid ${name}: expected string array`);
+  return input as string[];
+}
+
+function optionalPositiveIntegerArray(input: unknown, name: string): number[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input) || input.some((item) => typeof item !== "number" || !Number.isInteger(item) || item <= 0)) {
+    throw new Error(`Invalid ${name}: expected positive integer array`);
+  }
+  return input as number[];
+}
+
+function optionalRoundStatus(input: unknown, name: string): RoundStatus | undefined {
+  if (input === undefined) return undefined;
+  if (input === "active" || input === "paused" || input === "completed" || input === "blocked" || input === "planned" || input === "superseded") {
+    return input;
+  }
+  throw new Error(`Invalid ${name}: unsupported round status`);
 }
 
 function agentFrontFromCoordinator(front: CoordinatorAgentFrontInput): AgentFront {

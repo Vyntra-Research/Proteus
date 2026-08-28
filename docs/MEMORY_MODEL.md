@@ -550,4 +550,10 @@ Checkpoint writes require a complete contract signature; older incomplete
 records remain readable with an explicit invalid attestation. The latest
 checkpoint must be compliant before campaign completion or branch promotion.
 
+Decision records are append-only. Their free-form text never changes branch,
+round, surface, campaign, hypothesis, or gate status. Status transitions use an
+explicit update command and return their previous and new values. Round plans
+hydrate canonical surface identity and ROI by surface id; unsupported planner
+and ROI fields are rejected instead of discarded.
+
 The CLI and MCP server share the same SQLite memory layer.

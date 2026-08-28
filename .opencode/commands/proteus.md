@@ -196,9 +196,6 @@ must write the JSON first. The packaged template is
   "selectedSurfaces": [
     {
       "id": 1,
-      "name": "Specific bounded surface",
-      "family": "short-family-name",
-      "roiScore": 0,
       "reason": "Coordinator-written selection reason.",
       "files": ["relative/path/from/target/root.ext"],
       "revisitCondition": "When to revisit this surface."

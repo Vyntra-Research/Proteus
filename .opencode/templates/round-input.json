@@ -4,9 +4,6 @@
   "selectedSurfaces": [
     {
       "id": 1,
-      "name": "Specific bounded surface selected by the coordinator",
-      "family": "short-family-name",
-      "roiScore": 0,
       "reason": "Coordinator-written reason for selecting this surface now.",
       "files": [
         "relative/path/from/target/root.ext"
@@ -17,9 +14,6 @@
   "skippedSurfaces": [
     {
       "id": 2,
-      "name": "Specific surface skipped this round",
-      "family": "short-family-name",
-      "roiScore": 0,
       "reason": "Coordinator-written reason for skipping, such as duplicate, low ROI, blocked, already covered, or out of scope.",
       "files": [],
       "revisitCondition": "Condition that would make this worth revisiting."

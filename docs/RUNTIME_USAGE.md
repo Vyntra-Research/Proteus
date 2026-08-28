@@ -152,9 +152,6 @@ Minimal `round-input.json` shape:
   "selectedSurfaces": [
     {
       "id": 1,
-      "name": "Specific bounded surface",
-      "family": "short-family-name",
-      "roiScore": 0,
       "reason": "Coordinator-written selection reason.",
       "files": ["relative/path/from/target/root.ext"],
       "revisitCondition": "When to revisit this surface."
@@ -213,6 +210,23 @@ node dist/cli.js record decision --entity-type hypothesis --entity-id 1 --decisi
 Use `record surface` for target-specific components and areas the coordinator
 has actually selected or reviewed. `update surface` changes status and revisit
 conditions after work has happened; it is not a creation command.
+
+Surface ROI accepts these numeric fields from 0 to 10:
+`impactPotential`, `externalReachability`, `trustBoundaryDensity`,
+`recentChangeWeight`, `unexploredInvariantWeight`, `toolingReadiness`,
+`duplicateRisk`, `expectedBehaviorLikelihood`, `priorExhaustionWeight`,
+`validationCost`, and `lowSignalHistory`. Omitted fields default to zero.
+Unknown ROI fields are rejected.
+
+Round plans can reference a canonical surface with `id`. Proteus then hydrates
+its stored name, family, files, and ROI score. The plan may set its own `reason`,
+file subset, and `revisitCondition`. An inline surface without `id` must provide
+`name`; supported fields are `name`, `family`, `roiScore`, `reason`, `files`, and
+`revisitCondition`. Planner and agent-front objects reject unknown fields.
+
+`record decision` only appends rationale and evidence. It never changes status
+from words in the decision text. Use `branch update` for a branch transition and
+check the returned `fromStatus` and `toStatus`.
 
 ## Query Memory
 

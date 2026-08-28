@@ -1215,7 +1215,7 @@ try {
     "--evidence-ids",
     smokeEvidenceId
   ]);
-  const branchKillDecision = run([
+  const branchNegativePromotionDecision = run([
     "record",
     "decision",
     "--entity-type",
@@ -1223,18 +1223,26 @@ try {
     "--entity-id",
     "1",
     "--decision",
-    "killed",
+    "Confirm B1 mechanism and keep it in testing; do not promote the generic candidate as a finding yet.",
     "--reason",
-    "Smoke branch killed by evidence-backed decision",
+    "Smoke negative promotion decision",
     "--evidence-ids",
     smokeEvidenceId
   ]);
-  if (!branchKillDecision.includes("Updated branch B1 to killed")) {
-    throw new Error("record decision on branch did not update branch status");
+  if (!branchNegativePromotionDecision.includes("Recorded decision") || branchNegativePromotionDecision.includes("Updated branch")) {
+    throw new Error("record decision was not append-only");
+  }
+  const branchAfterDecision = run(["show", "branch", "1"]);
+  if (!branchAfterDecision.includes('"status": "testing"')) {
+    throw new Error("record decision inferred branch status from free-form text");
+  }
+  const explicitKill = run(["branch", "update", "--id", "B1", "--status", "killed"]);
+  if (!explicitKill.includes('"fromStatus": "testing"') || !explicitKill.includes('"toStatus": "killed"')) {
+    throw new Error("branch update did not report the explicit transition");
   }
   const killedBranches = run(["branch", "list", "--campaign-id", "1", "--status", "killed"]);
   if (!killedBranches.includes("B1 [killed] Smoke branch")) {
-    throw new Error("branch decision did not persist killed status");
+    throw new Error("explicit branch update did not persist killed status");
   }
   run([
     "record",
