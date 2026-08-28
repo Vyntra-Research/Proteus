@@ -474,6 +474,14 @@ try {
       throw new Error(`missing Chimera artifact: ${required}`);
     }
   }
+  for (const copiedSkill of [
+    ".vros/chimera/sessions/CH-0001/skills/chimera-agent.md",
+    ".vros/chimera/sessions/CH-0001/.opencode/skills/chimera-agent"
+  ]) {
+    if (fs.lstatSync(path.join(tmpRoot, copiedSkill)).isSymbolicLink()) {
+      throw new Error(`Chimera skill injection must use an isolated copy: ${copiedSkill}`);
+    }
+  }
   if (fs.existsSync(path.join(tmpRoot, ".vros/chimera/sessions/CH-0001/skills/continuous-vuln-research.md"))) {
     throw new Error("Chimera sessions should not inject the coordinator continuous-vuln-research skill");
   }

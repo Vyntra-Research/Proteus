@@ -22,7 +22,7 @@ proteus --version
 Expected shape:
 
 ```text
-@vyntra-research/proteus 2.1.5
+@vyntra-research/proteus 2.1.6
 ```
 
 The GitHub tarball install uses the committed `dist/` runtime and has no
@@ -91,11 +91,9 @@ It exposes the plugin at:
 plugins/proteus
 ```
 
-Then register the MCP server from the CLI install:
-
-```powershell
-codex mcp add proteus -- proteus-mcp
-```
+The Codex plugin manifest starts the MCP server through the separately installed
+`proteus-mcp` runtime. No manual MCP registration is needed after the CLI package
+is installed.
 
 In Codex, invoke the plugin with `@proteus`, for example:
 
@@ -183,8 +181,8 @@ proteus merge --root C:\path\to\workspace --source .\packages\foo\.vros\memory.s
 proteus-mcp
 ```
 
-For Codex, use `codex mcp add proteus -- proteus-mcp`. The Claude Code plugin
-loads `plugins/proteus/.mcp.json` automatically; use
+For Codex, the plugin manifest calls the external `proteus-mcp` runtime. The
+Claude Code plugin loads `plugins/proteus/.mcp.json` automatically; use
 `claude mcp add -s user proteus -- proteus-mcp` only as a manual fallback. The
 wrapper builds the runtime if `dist/` is not present yet.
 

@@ -132,6 +132,11 @@ try {
     "Claude Code plugin MCP path"
   );
 
+  const codexPlugin = JSON.parse(fs.readFileSync(path.join(repoRoot, "plugins", "proteus", ".codex-plugin", "plugin.json"), "utf8"));
+  if (codexPlugin?.mcpServers?.proteus?.command !== "proteus-mcp") {
+    throw new Error("Codex plugin manifest does not declare the external Proteus runtime inline");
+  }
+
   if (process.platform === "win32") {
     const wrapperVersion = execFileSync(
       "powershell",

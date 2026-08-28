@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.6 - 2026-08-28
+
+### Fixed
+
+- Declared the Codex MCP runtime inline while keeping the Claude Code MCP bundle separate.
+- Copied Chimera skills into each session so session changes and cleanup cannot affect installed skill sources.
+- Added release and smoke checks for the Codex MCP declaration and isolated Chimera skill copies.
+
 ## 2.1.5 - 2026-08-25
 
 ### Fixed
