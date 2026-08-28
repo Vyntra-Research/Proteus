@@ -383,16 +383,13 @@ proteus_query_global_learnings
 proteus_export_global_learnings
 ```
 
-The Codex plugin-level MCP configuration lives at:
+The Codex plugin declares the external `proteus-mcp` command inline in
+`plugins/proteus/.codex-plugin/plugin.json`.
+
+Claude Code uses the plugin-level MCP configuration at:
 
 ```text
 plugins/proteus/.mcp.json
-```
-
-Claude Code uses the project-level MCP configuration at:
-
-```text
-.mcp.json
 ```
 
 ## Anti-Revisit Updates

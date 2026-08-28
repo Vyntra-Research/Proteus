@@ -1363,41 +1363,26 @@ function copySkillFiles(session) {
         const source = node_path_1.default.join(skillsDir, name, "SKILL.md");
         if (!node_fs_1.default.existsSync(source))
             continue;
-        linkOrCopyFile(source, node_path_1.default.join(session.sessionDir, "skills", `${name}.md`));
+        copySkillFile(source, node_path_1.default.join(session.sessionDir, "skills", `${name}.md`));
         const opencodeSkillDir = node_path_1.default.join(session.sessionDir, ".opencode", "skills", name);
-        linkOrCopyDir(node_path_1.default.dirname(source), opencodeSkillDir);
+        copySkillDir(node_path_1.default.dirname(source), opencodeSkillDir);
         injected.push(name);
     }
     const index = renderChimeraSkillsIndex(session, skillsDir, available, injected);
     node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, "skills", "README.md"), index);
     node_fs_1.default.writeFileSync(node_path_1.default.join(session.sessionDir, ".opencode", "skills", "README.md"), index);
 }
-function linkOrCopyFile(source, destination) {
+function copySkillFile(source, destination) {
     (0, paths_1.ensureDir)(node_path_1.default.dirname(destination));
-    try {
-        if (node_fs_1.default.existsSync(destination) && node_fs_1.default.lstatSync(destination).isSymbolicLink())
-            node_fs_1.default.unlinkSync(destination);
-        if (!node_fs_1.default.existsSync(destination))
-            node_fs_1.default.symlinkSync(source, destination, "file");
-        return;
-    }
-    catch {
-        node_fs_1.default.copyFileSync(source, destination);
-    }
+    if (node_fs_1.default.existsSync(destination) && node_fs_1.default.lstatSync(destination).isSymbolicLink())
+        node_fs_1.default.unlinkSync(destination);
+    node_fs_1.default.copyFileSync(source, destination);
 }
-function linkOrCopyDir(source, destination) {
+function copySkillDir(source, destination) {
     (0, paths_1.ensureDir)(node_path_1.default.dirname(destination));
-    try {
-        if (node_fs_1.default.existsSync(destination) && node_fs_1.default.lstatSync(destination).isSymbolicLink())
-            node_fs_1.default.unlinkSync(destination);
-        if (!node_fs_1.default.existsSync(destination))
-            node_fs_1.default.symlinkSync(source, destination, process.platform === "win32" ? "junction" : "dir");
-        return;
-    }
-    catch {
-        (0, paths_1.ensureDir)(destination);
-        node_fs_1.default.copyFileSync(node_path_1.default.join(source, "SKILL.md"), node_path_1.default.join(destination, "SKILL.md"));
-    }
+    if (node_fs_1.default.existsSync(destination))
+        node_fs_1.default.rmSync(destination, { recursive: true, force: true });
+    node_fs_1.default.cpSync(source, destination, { recursive: true, force: true, dereference: true });
 }
 function listAvailableSkillNames(skillsDir) {
     return node_fs_1.default

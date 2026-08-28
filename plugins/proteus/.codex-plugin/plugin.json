@@ -1,6 +1,6 @@
 {
   "name": "proteus",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "A plugin for Claude Code and Codex that coordinates structured, continuous, exploitability-driven vulnerability research in arbitrary codebases.",
   "author": {
     "name": "Vyntra Research",
@@ -18,7 +18,11 @@
     "codebase-analysis"
   ],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": {
+    "proteus": {
+      "command": "proteus-mcp"
+    }
+  },
   "interface": {
     "displayName": "Proteus",
     "shortDescription": "Coordinate professional vulnerability research with memory, strategy, and realistic validation.",
