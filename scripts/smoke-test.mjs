@@ -1209,12 +1209,26 @@ try {
     "--entity-id",
     "1",
     "--decision",
-    "candidate",
+    "killed",
     "--reason",
-    "Smoke candidate decision",
+    "Smoke hypothesis killed by evidence",
     "--evidence-ids",
     smokeEvidenceId
   ]);
+  const hypothesisAfterDecision = run(["show", "hypothesis", "1"]);
+  if (!hypothesisAfterDecision.includes('"status": "live"')) {
+    throw new Error("record decision implicitly changed hypothesis status");
+  }
+  const rejectedBranchIdAsHypothesis = runFail(["update", "hypothesis", "--id", "B1", "--status", "discarded"]);
+  if (!rejectedBranchIdAsHypothesis.includes("positive hypothesis id")) {
+    throw new Error("update hypothesis accepted a branch-prefixed id");
+  }
+  const discardedHypothesis = run(["update", "hypothesis", "--id", "H1", "--status", "discarded"]);
+  if (!discardedHypothesis.includes('"fromStatus": "live"') ||
+      !discardedHypothesis.includes('"toStatus": "discarded"') ||
+      !discardedHypothesis.includes('"status": "discarded"')) {
+    throw new Error("update hypothesis did not return and persist the explicit transition");
+  }
   const branchNegativePromotionDecision = run([
     "record",
     "decision",

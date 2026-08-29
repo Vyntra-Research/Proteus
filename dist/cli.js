@@ -921,6 +921,21 @@ function cmdList(db, subcommand, parsed) {
 }
 function cmdUpdate(db, subcommand, parsed) {
     requireInitialized(db);
+    if (subcommand === "hypothesis") {
+        const id = requiredHypothesisId(parsed, "id");
+        const before = db.getHypothesis(id);
+        if (!before)
+            throw new Error(`Hypothesis not found: H${id}`);
+        const updated = db.updateHypothesis({ id, status: requiredHypothesisStatus(parsed, "status") });
+        console.log(JSON.stringify({
+            ok: true,
+            entityType: "hypothesis",
+            entityId: updated.id,
+            transition: { fromStatus: before.status, toStatus: updated.status },
+            hypothesis: updated
+        }, null, 2));
+        return;
+    }
     if (subcommand === "surface") {
         db.updateSurface({
             id: requiredNumber(parsed, "id"),
@@ -951,7 +966,7 @@ function cmdUpdate(db, subcommand, parsed) {
         console.log(`Updated ${result.updated} rounds from ${from} to ${status}${result.keptId ? `; kept R${result.keptId} as ${from}` : ""}`);
         return;
     }
-    throw new Error("update requires one of: surface, round, rounds");
+    throw new Error("update requires one of: hypothesis, surface, round, rounds");
 }
 function cmdQuery(db, subcommand, parsed) {
     requireInitialized(db);
@@ -1418,6 +1433,25 @@ function parseBranchStatus(status) {
     }
     throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
 }
+function requiredHypothesisStatus(parsed, key) {
+    const status = requiredString(parsed, key);
+    if (status === "live" ||
+        status === "candidate" ||
+        status === "watchlist" ||
+        status === "discarded" ||
+        status === "promoted_to_poc" ||
+        status === "report_grade") {
+        return status;
+    }
+    throw new Error(`--${key} must be one of: live, candidate, watchlist, discarded, promoted_to_poc, report_grade`);
+}
+function requiredHypothesisId(parsed, key) {
+    const value = requiredString(parsed, key).trim();
+    const match = /^(?:H)?([1-9][0-9]*)$/i.exec(value);
+    if (!match)
+        throw new Error(`--${key} must be a positive hypothesis id such as 8 or H8`);
+    return Number(match[1]);
+}
 function chimeraAccessMode(parsed) {
     const access = getString(parsed, "access") ?? "explorer";
     if (access === "explorer" || access === "editor")
@@ -1543,6 +1577,7 @@ Usage:
   proteus record decision --entity-type <type> --entity-id <id> --decision <text> --reason <text>
   proteus record gate --entity-type <type> --entity-id <id> --gate <G1|...> [--status pending|pass|fail|blocked|not_applicable]
   proteus record agent-output --round-id <id> --role <codename> --surface <text>
+  proteus update hypothesis --id <id> --status live|candidate|watchlist|discarded|promoted_to_poc|report_grade
   proteus list surfaces|hypotheses|evidence|decisions|gates|rounds|campaigns|branches|links|checkpoints [--status <status>] [--limit <n>]
   proteus update surface --id <id> [--status exhausted|low_roi|covered|blocked|watch] [--revisit <text>]
   proteus update round --id <id> --status active|paused|completed|blocked|planned|superseded

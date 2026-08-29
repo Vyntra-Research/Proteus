@@ -310,6 +310,16 @@ only when the coordinator explicitly authorizes it, using:
 proteus branch update --root <workspace-root> --id <B> --status killed
 ```
 
+For a structured hypothesis, use its separate typed lifecycle when the
+coordinator authorizes the change:
+
+```text
+proteus update hypothesis --root <workspace-root> --id <H> --status discarded
+```
+
+Use `discarded` for a disproved hypothesis and `killed` for a hypothesis-tree
+branch. Check `fromStatus` and `toStatus` after either update.
+
 Do not manually edit campaigns, rounds, or campaign links. Ask the coordinator
 when branch state affects campaign strategy.
 

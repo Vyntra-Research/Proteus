@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.8 - 2026-08-29
+
+### Fixed
+
+- Added explicit, typed hypothesis status transitions to the CLI and MCP with complete normalized output and `fromStatus`/`toStatus` values.
+- Kept hypothesis decisions append-only while documenting `discarded` as the canonical closed status for a disproved hypothesis.
+- Added field-level checkpoint contract diagnostics when branch promotion or campaign completion fails closed.
+
 ## 2.1.7 - 2026-08-28
 
 ### Fixed

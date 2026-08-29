@@ -43,7 +43,7 @@ import { planRound, renderRoundPlan } from "./planner";
 import { renderAgentPrompt } from "./prompts";
 import { ROLE_ORDER, ROLES, normalizeAgentCodename, validRoleList } from "./roles";
 import { ensureDir, exportsDir, resolveTargetRoot } from "./paths";
-import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, ChimeraStatus, HypothesisInput, JsonValue, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
+import type { AgentCodename, BranchStatus, CampaignStatus, ChimeraAccessMode, ChimeraMessageKind, ChimeraStatus, HypothesisInput, HypothesisStatus, JsonValue, RoiFactors, RoundStatus, SurfaceStatus } from "./types";
 
 interface ParsedArgs {
   command: string[];
@@ -1020,6 +1020,20 @@ function cmdList(db: ProteusDb, subcommand: string | undefined, parsed: ParsedAr
 
 function cmdUpdate(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
   requireInitialized(db);
+  if (subcommand === "hypothesis") {
+    const id = requiredHypothesisId(parsed, "id");
+    const before = db.getHypothesis(id);
+    if (!before) throw new Error(`Hypothesis not found: H${id}`);
+    const updated = db.updateHypothesis({ id, status: requiredHypothesisStatus(parsed, "status") });
+    console.log(JSON.stringify({
+      ok: true,
+      entityType: "hypothesis",
+      entityId: updated.id,
+      transition: { fromStatus: before.status, toStatus: updated.status },
+      hypothesis: updated
+    }, null, 2));
+    return;
+  }
   if (subcommand === "surface") {
     db.updateSurface({
       id: requiredNumber(parsed, "id"),
@@ -1050,7 +1064,7 @@ function cmdUpdate(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
     console.log(`Updated ${result.updated} rounds from ${from} to ${status}${result.keptId ? `; kept R${result.keptId} as ${from}` : ""}`);
     return;
   }
-  throw new Error("update requires one of: surface, round, rounds");
+  throw new Error("update requires one of: hypothesis, surface, round, rounds");
 }
 
 function cmdQuery(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
@@ -1533,6 +1547,28 @@ function parseBranchStatus(status: string): BranchStatus {
   throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
 }
 
+function requiredHypothesisStatus(parsed: ParsedArgs, key: string): HypothesisStatus {
+  const status = requiredString(parsed, key);
+  if (
+    status === "live" ||
+    status === "candidate" ||
+    status === "watchlist" ||
+    status === "discarded" ||
+    status === "promoted_to_poc" ||
+    status === "report_grade"
+  ) {
+    return status;
+  }
+  throw new Error(`--${key} must be one of: live, candidate, watchlist, discarded, promoted_to_poc, report_grade`);
+}
+
+function requiredHypothesisId(parsed: ParsedArgs, key: string): number {
+  const value = requiredString(parsed, key).trim();
+  const match = /^(?:H)?([1-9][0-9]*)$/i.exec(value);
+  if (!match) throw new Error(`--${key} must be a positive hypothesis id such as 8 or H8`);
+  return Number(match[1]);
+}
+
 function chimeraAccessMode(parsed: ParsedArgs): ChimeraAccessMode {
   const access = getString(parsed, "access") ?? "explorer";
   if (access === "explorer" || access === "editor") return access;
@@ -1665,6 +1701,7 @@ Usage:
   proteus record decision --entity-type <type> --entity-id <id> --decision <text> --reason <text>
   proteus record gate --entity-type <type> --entity-id <id> --gate <G1|...> [--status pending|pass|fail|blocked|not_applicable]
   proteus record agent-output --round-id <id> --role <codename> --surface <text>
+  proteus update hypothesis --id <id> --status live|candidate|watchlist|discarded|promoted_to_poc|report_grade
   proteus list surfaces|hypotheses|evidence|decisions|gates|rounds|campaigns|branches|links|checkpoints [--status <status>] [--limit <n>]
   proteus update surface --id <id> [--status exhausted|low_roi|covered|blocked|watch] [--revisit <text>]
   proteus update round --id <id> --status active|paused|completed|blocked|planned|superseded

@@ -391,11 +391,17 @@ Use the runtime for state, not for inventing reasoning:
 - `record surface|hypothesis|evidence|decision|gate|agent-output` when a fact,
   branch, validation result, or decision changes future work.
 - `record decision` is append-only. Proteus never derives status from decision
-  wording. When a branch state changes, record the rationale and then call
-  `branch update --id <B> --status open|testing|killed|promoted|blocked`
-  explicitly. Verify the returned `fromStatus` and `toStatus`.
+  wording. After recording the rationale, change the matching entity with an
+  explicit typed command. Use
+  `update hypothesis --id <H> --status live|candidate|watchlist|discarded|promoted_to_poc|report_grade`
+  for structured hypotheses and
+  `branch update --id <B> --status open|testing|killed|promoted|blocked` for
+  hypothesis-tree branches. A disproved hypothesis uses `discarded`; a killed
+  branch uses `killed`. Verify the returned `fromStatus` and `toStatus`.
 - `campaign checkpoint` after meaningful progress. Supply the complete
-  `contractSignature`; Proteus rejects missing or empty attestations.
+  `contractSignature`; Proteus rejects missing or empty attestations. If a
+  promotion or completion gate rejects the latest checkpoint, repair the exact
+  fields named in `Contract diagnostics` rather than guessing at the schema.
 
 For dedupe, issue separate searches for the candidate name, mechanism, attacker
 input and sink, component, and impact. Do not rely on one long prose query. Read

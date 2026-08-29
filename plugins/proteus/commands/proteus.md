@@ -60,6 +60,7 @@ proteus show --root <target-root> <entityType> <id>
 proteus record hypothesis --root <target-root> --title "<title>" --impact "<impact>"
 proteus branch add --root <target-root> --campaign-id <id> --title "<title>" --primitive "<primitive>"
 proteus branch update --root <target-root> --id <id> --status killed
+proteus update hypothesis --root <target-root> --id <id> --status discarded
 proteus record agent-output --root <target-root> --round-id <id> --role argus --surface "<surface>"
 proteus update round --root <target-root> --id <id> --status completed
 proteus update rounds --root <target-root> --from planned --status superseded --keep-latest
