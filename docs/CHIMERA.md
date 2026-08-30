@@ -414,6 +414,7 @@ proteus_chimera_recover
 proteus_chimera_kill
 proteus_chimera_close
 proteus_update_branch
+proteus_update_hypothesis
 ```
 
 ## Validation

@@ -153,6 +153,24 @@ class ProteusDb {
             .all()
             .map(toHypothesisRow);
     }
+    getHypothesis(id) {
+        const row = this.db.prepare("SELECT * FROM hypotheses WHERE id = ?").get(id);
+        return row ? toHypothesisRow(row) : null;
+    }
+    updateHypothesis(input) {
+        const current = this.getHypothesis(input.id);
+        if (!current)
+            throw new Error(`Hypothesis not found: H${input.id}`);
+        const now = nowIso();
+        this.db
+            .prepare("UPDATE hypotheses SET status = ?, updated_at = ? WHERE id = ?")
+            .run(input.status, now, input.id);
+        const updated = this.getHypothesis(input.id);
+        if (!updated)
+            throw new Error(`Hypothesis not found after update: H${input.id}`);
+        this.indexFts("hypothesis", updated.id, `${updated.status}\n${updated.title}\n${updated.primitive}\n${updated.attackerBoundary}\n${updated.impactClaim}`);
+        return updated;
+    }
     listEvidence() {
         return this.db.prepare("SELECT * FROM evidence ORDER BY id DESC").all().map(toEvidenceRow);
     }
@@ -492,7 +510,8 @@ class ProteusDb {
             throw new Error(`Cannot ${action}: campaign C${campaignId} has no contract-attested checkpoint.`);
         }
         if (!latest.contractAttestation.valid || latest.contractAttestation.status !== "compliant") {
-            throw new Error(`Cannot ${action}: latest checkpoint K${latest.id} is not contract-compliant.`);
+            const diagnostics = contractSignatureDiagnostics(latest.contractAttestation);
+            throw new Error(`Cannot ${action}: latest checkpoint K${latest.id} is not contract-compliant. ${diagnostics}`);
         }
     }
     addRound(round) {
@@ -2003,7 +2022,7 @@ function toHypothesisRow(row) {
         attackerBoundary: String(row.attacker_boundary),
         impactClaim: String(row.impact_claim),
         heuristicFamily: String(row.heuristic_family),
-        status: String(row.status),
+        status: normalizeHypothesisStatus(String(row.status)),
         score: Number(row.score),
         killCriteria: String(row.kill_criteria ?? ""),
         revisitCondition: String(row.revisit_condition ?? "")
@@ -2169,6 +2188,17 @@ function normalizeBranchStatus(value) {
         return value;
     }
     return value.length > 0 ? "blocked" : "open";
+}
+function normalizeHypothesisStatus(value) {
+    if (value === "live" ||
+        value === "candidate" ||
+        value === "watchlist" ||
+        value === "discarded" ||
+        value === "promoted_to_poc" ||
+        value === "report_grade") {
+        return value;
+    }
+    throw new Error(`Invalid persisted hypothesis status: ${value || "<empty>"}`);
 }
 function normalizeChimeraConfig(input) {
     return {
@@ -2746,6 +2776,16 @@ function validateCheckpointContractSignature(signature) {
         errors.push("deviated status requires at least one deviation");
     }
     return { valid: missingFields.length === 0 && errors.length === 0, status, missingFields, errors };
+}
+function contractSignatureDiagnostics(attestation) {
+    const details = [
+        ...attestation.missingFields.map((field) => `missing ${field}`),
+        ...attestation.errors
+    ];
+    if (attestation.status !== "compliant" && !(attestation.status === null && attestation.missingFields.includes("status"))) {
+        details.unshift(`status is ${attestation.status ?? "missing"}; expected compliant`);
+    }
+    return `Contract diagnostics: ${details.join("; ") || "unknown incompatibility"}.`;
 }
 function isJsonObject(value) {
     return Boolean(value) && typeof value === "object" && !Array.isArray(value);

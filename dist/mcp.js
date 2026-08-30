@@ -948,7 +948,7 @@ const tools = [
             heuristicFamily: stringProp(),
             surfaceId: numberProp(),
             score: numberProp(),
-            status: stringProp(),
+            status: enumProp(["live", "candidate", "watchlist", "discarded", "promoted_to_poc", "report_grade"]),
             killCriteria: stringProp(),
             revisitCondition: stringProp()
         }, ["root", "title"]),
@@ -1150,6 +1150,38 @@ const tools = [
                 advisories: campaignLinkAdvisories(db, campaignLink),
                 stateDelta: { created: [{ entityType: "agent_output", entityId: id }], linked: campaignLink ? [campaignLink] : [], updated: [] }
             });
+        })
+    },
+    {
+        name: "proteus_update_hypothesis",
+        title: "Update Hypothesis Status",
+        description: "Explicitly update a structured hypothesis status and return the previous and new status. Use discarded for a killed hypothesis; free-form decisions never change status.",
+        inputSchema: strictSchema({
+            root: stringProp("Target root path."),
+            id: {
+                oneOf: [
+                    { type: "integer", minimum: 1 },
+                    { type: "string", pattern: "^(?:H|h)?[1-9][0-9]*$" }
+                ],
+                description: "Hypothesis id. Accepts 8 or H8; branch ids are rejected."
+            },
+            status: enumProp(["live", "candidate", "watchlist", "discarded", "promoted_to_poc", "report_grade"])
+        }, ["root", "id", "status"]),
+        handler: (input) => withDb(str(input.root), (db) => {
+            const hypothesisId = parseHypothesisId(input.id);
+            const before = db.getHypothesis(hypothesisId);
+            if (!before)
+                throw new Error(`Hypothesis not found: H${hypothesisId}`);
+            const hypothesis = db.updateHypothesis({
+                id: hypothesisId,
+                status: parseHypothesisStatus(str(input.status))
+            });
+            return toolEnvelope({
+                entityType: "hypothesis",
+                entityId: hypothesis.id,
+                transition: { fromStatus: before.status, toStatus: hypothesis.status },
+                hypothesis
+            }, { stateDelta: { created: [], linked: [], updated: [{ entityType: "hypothesis", entityId: hypothesis.id }] } });
         })
     },
     {
@@ -1750,6 +1782,27 @@ function parseBranchStatus(status) {
         return status;
     }
     throw new Error("Branch status must be one of: open, testing, killed, promoted, blocked");
+}
+function parseHypothesisStatus(status) {
+    if (status === "live" ||
+        status === "candidate" ||
+        status === "watchlist" ||
+        status === "discarded" ||
+        status === "promoted_to_poc" ||
+        status === "report_grade") {
+        return status;
+    }
+    throw new Error("Hypothesis status must be one of: live, candidate, watchlist, discarded, promoted_to_poc, report_grade");
+}
+function parseHypothesisId(value) {
+    if (typeof value === "number" && Number.isInteger(value) && value > 0)
+        return value;
+    if (typeof value === "string") {
+        const match = /^(?:H)?([1-9][0-9]*)$/i.exec(value.trim());
+        if (match)
+            return Number(match[1]);
+    }
+    throw new Error("Hypothesis id must be a positive integer or H-prefixed id");
 }
 function chimeraAccess(value) {
     if (value === undefined || value === null || value === "")

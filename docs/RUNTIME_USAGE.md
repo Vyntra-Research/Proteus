@@ -205,6 +205,8 @@ node dist/cli.js record evidence --title "Negative control output" --kind comman
 node dist/cli.js record gate --entity-type hypothesis --entity-id 1 --gate "G2 realistic external attacker input" --status pass --summary "Reproduced through normal request input" --evidence-ids 1
 
 node dist/cli.js record decision --entity-type hypothesis --entity-id 1 --decision discarded --reason "Expected behavior documented in official guide"
+
+node dist/cli.js update hypothesis --id H1 --status discarded
 ```
 
 Use `record surface` for target-specific components and areas the coordinator
@@ -225,8 +227,10 @@ file subset, and `revisitCondition`. An inline surface without `id` must provide
 `revisitCondition`. Planner and agent-front objects reject unknown fields.
 
 `record decision` only appends rationale and evidence. It never changes status
-from words in the decision text. Use `branch update` for a branch transition and
-check the returned `fromStatus` and `toStatus`.
+from words in the decision text. Use `update hypothesis` for a structured
+hypothesis and `branch update` for a hypothesis-tree branch. The negative closed
+status is `discarded` for hypotheses and `killed` for branches. Both operations
+return `fromStatus` and `toStatus` with the normalized record.
 
 ## Query Memory
 
@@ -371,6 +375,7 @@ proteus_campaign_checkpoint
 proteus_campaign_close
 proteus_record_branch
 proteus_update_branch
+proteus_update_hypothesis
 proteus_link_entities
 proteus_roles
 proteus_prompt
@@ -412,6 +417,8 @@ impact-elevation, realism, anti-slop, deviation, and repair attestations.
 Historical incomplete checkpoints remain readable and are marked through
 `contractAttestation.valid: false`. A campaign cannot be completed and one of
 its branches cannot be promoted until its latest checkpoint is compliant.
+Rejected promotion and completion attempts include `Contract diagnostics` with
+the missing fields and failed nested rules from that checkpoint.
 Blocked and superseded campaigns can still be closed without hiding their
 incomplete state.
 

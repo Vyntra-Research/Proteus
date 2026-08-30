@@ -128,6 +128,7 @@ try {
   }
   const planRoundTool = tools.tools.find((tool) => tool.name === "proteus_plan_round");
   const recordSurfaceTool = tools.tools.find((tool) => tool.name === "proteus_record_surface");
+  const updateHypothesisTool = tools.tools.find((tool) => tool.name === "proteus_update_hypothesis");
   if (planRoundTool?.inputSchema?.additionalProperties !== false ||
       planRoundTool?.inputSchema?.properties?.coordinatorPlan?.additionalProperties !== false ||
       planRoundTool?.inputSchema?.properties?.selectedSurfaces?.items?.additionalProperties !== false) {
@@ -137,6 +138,11 @@ try {
       recordSurfaceTool?.inputSchema?.properties?.roi?.additionalProperties !== false ||
       !recordSurfaceTool.inputSchema.properties.roi.properties?.impactPotential) {
     throw new Error("proteus_record_surface does not advertise the concrete ROI schema");
+  }
+  if (updateHypothesisTool?.inputSchema?.additionalProperties !== false ||
+      !updateHypothesisTool?.inputSchema?.properties?.status?.enum?.includes("discarded") ||
+      updateHypothesisTool.inputSchema.properties.status.enum.includes("killed")) {
+    throw new Error("proteus_update_hypothesis does not advertise the canonical strict status schema");
   }
   for (const expectedTool of [
     "proteus_init",
@@ -172,6 +178,7 @@ try {
     "proteus_campaign_close",
     "proteus_record_branch",
     "proteus_update_branch",
+    "proteus_update_hypothesis",
     "proteus_link_entities",
     "proteus_roles",
     "proteus_prompt",
@@ -753,15 +760,19 @@ try {
     name: "proteus_update_branch",
     arguments: { root: tmpRoot, id: 1, status: "promoted" }
   });
-  if (!promotedWithInvalidCheckpoint.includes("latest checkpoint K1 is not contract-compliant")) {
-    throw new Error("Proteus allowed branch promotion from an invalid historical checkpoint");
+  if (!promotedWithInvalidCheckpoint.includes("latest checkpoint K1 is not contract-compliant") ||
+      !promotedWithInvalidCheckpoint.includes("missing attackerModel") ||
+      !promotedWithInvalidCheckpoint.includes("depthCoverage must be an object")) {
+    throw new Error("Proteus did not return field-level diagnostics for invalid-checkpoint promotion");
   }
   const closedWithInvalidCheckpoint = await requestFail("tools/call", {
     name: "proteus_campaign_close",
     arguments: { root: tmpRoot, id: 1, status: "completed" }
   });
-  if (!closedWithInvalidCheckpoint.includes("latest checkpoint K1 is not contract-compliant")) {
-    throw new Error("Proteus allowed campaign completion from an invalid historical checkpoint");
+  if (!closedWithInvalidCheckpoint.includes("latest checkpoint K1 is not contract-compliant") ||
+      !closedWithInvalidCheckpoint.includes("missing attackerModel") ||
+      !closedWithInvalidCheckpoint.includes("depthCoverage must be an object")) {
+    throw new Error("Proteus did not return field-level diagnostics for invalid-checkpoint completion");
   }
   const checkpointRecord = await request("tools/call", {
     name: "proteus_get_record",
@@ -952,8 +963,8 @@ try {
       root: tmpRoot,
       entityType: "hypothesis",
       entityId: 1,
-      decision: "candidate",
-      reason: "MCP smoke candidate decision",
+      decision: "killed",
+      reason: "MCP smoke hypothesis killed by evidence",
       evidenceIds: ["1"]
     }
   });
@@ -970,6 +981,30 @@ try {
   });
   if (!String(decisionRecord.content?.[0]?.text ?? "").includes('"evidenceIds": [\n    1\n  ]')) {
     throw new Error("proteus_get_record did not preserve numeric-string decision evidenceIds");
+  }
+  const hypothesisAfterDecision = await request("tools/call", {
+    name: "proteus_get_record",
+    arguments: { root: tmpRoot, entityType: "hypothesis", entityId: 1 }
+  });
+  if (!String(hypothesisAfterDecision.content?.[0]?.text ?? "").includes('"status": "live"')) {
+    throw new Error("proteus_record_decision implicitly changed hypothesis status");
+  }
+  const rejectedBranchIdAsHypothesis = await requestFail("tools/call", {
+    name: "proteus_update_hypothesis",
+    arguments: { root: tmpRoot, id: "B1", status: "discarded" }
+  });
+  if (!rejectedBranchIdAsHypothesis.includes("Hypothesis id must be")) {
+    throw new Error("proteus_update_hypothesis accepted a branch-prefixed id");
+  }
+  const discardedHypothesis = await request("tools/call", {
+    name: "proteus_update_hypothesis",
+    arguments: { root: tmpRoot, id: "H1", status: "discarded" }
+  });
+  const discardedHypothesisText = String(discardedHypothesis.content?.[0]?.text ?? "");
+  if (!discardedHypothesisText.includes('"fromStatus": "live"') ||
+      !discardedHypothesisText.includes('"toStatus": "discarded"') ||
+      !discardedHypothesisText.includes('"status": "discarded"')) {
+    throw new Error("proteus_update_hypothesis did not return and persist the explicit transition");
   }
   const branchDecision = await request("tools/call", {
     name: "proteus_record_decision",

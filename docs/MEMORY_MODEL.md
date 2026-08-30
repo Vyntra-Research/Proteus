@@ -519,6 +519,7 @@ proteus_campaign_checkpoint
 proteus_campaign_close
 proteus_record_branch
 proteus_update_branch
+proteus_update_hypothesis
 proteus_link_entities
 proteus_query_duplicates
 proteus_query_memory
@@ -549,10 +550,15 @@ checkpoints, events, and links. Every page includes an independent cursor.
 Checkpoint writes require a complete contract signature; older incomplete
 records remain readable with an explicit invalid attestation. The latest
 checkpoint must be compliant before campaign completion or branch promotion.
+Failed gates return the missing contract fields and nested validation errors so
+the next checkpoint can repair the stored attestation directly.
 
 Decision records are append-only. Their free-form text never changes branch,
 round, surface, campaign, hypothesis, or gate status. Status transitions use an
-explicit update command and return their previous and new values. Round plans
+explicit update command and return their previous and new values. Structured
+hypotheses use `proteus_update_hypothesis`, with `discarded` as their negative
+closed status; hypothesis-tree branches use `proteus_update_branch`, with
+`killed` as their negative closed status. Round plans
 hydrate canonical surface identity and ROI by surface id; unsupported planner
 and ROI fields are rejected instead of discarded.
 
