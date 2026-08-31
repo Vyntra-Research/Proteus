@@ -232,6 +232,14 @@ hypothesis and `branch update` for a hypothesis-tree branch. The negative closed
 status is `discarded` for hypotheses and `killed` for branches. Both operations
 return `fromStatus` and `toStatus` with the normalized record.
 
+Duplicate queries and hypothesis or branch registration return a
+`lifecycleReview` for structured matches. `pendingReview: true` means at least
+one decision was recorded after the last explicit status reconciliation. Read
+the listed decisions and call the action in `nextSuggestedActions` with a
+chosen status. The action points to the prior record; it does not infer a status
+or replace that record. An explicit update, including one that keeps the same
+status, marks the listed decisions as reconciled.
+
 ## Query Memory
 
 ```powershell
@@ -250,13 +258,12 @@ node dist/cli.js show round 1
 node dist/cli.js query revisit "auth"
 ```
 
-`query duplicates` is intentionally narrow. It searches only ingested finding
-and report source records for possible duplicate prior coverage. It does not
-search hypotheses, decisions, evidence, rounds, generic docs, watchlists,
-discarded paths, or candidate registers.
+`query duplicates` searches ingested findings, reports, discarded work,
+research logs, watchlists, candidate registers, surfaces, hypotheses, branches,
+and decisions for possible prior coverage.
 
 Use `query similar` as the normal first pass for a candidate, primitive, or
-impact claim because it returns both narrow duplicate coverage and broad memory
+impact claim because it returns both ranked duplicate coverage and broad memory
 matches. Use `query memory` for broad FTS recall across hypotheses, decisions,
 evidence, gates, rounds, surfaces, reports, docs, watchlists, discarded paths,
 candidate registers, and agent outputs. Use `list` commands when the agent

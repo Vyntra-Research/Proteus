@@ -975,6 +975,12 @@ try {
   if (decisionText.includes("decision_without_evidence")) {
     throw new Error("proteus_record_decision dropped numeric-string evidenceIds");
   }
+  if (!decisionText.includes("record_status_requires_explicit_update") ||
+      !decisionText.includes('"currentStatus": "live"') ||
+      !decisionText.includes('"tool": "proteus_update_hypothesis"') ||
+      !decisionText.includes('"pendingReview": true')) {
+    throw new Error("proteus_record_decision did not expose the pending explicit lifecycle repair");
+  }
   const decisionRecord = await request("tools/call", {
     name: "proteus_get_record",
     arguments: { root: tmpRoot, entityType: "decision", entityId: 1 }
@@ -988,6 +994,43 @@ try {
   });
   if (!String(hypothesisAfterDecision.content?.[0]?.text ?? "").includes('"status": "live"')) {
     throw new Error("proteus_record_decision implicitly changed hypothesis status");
+  }
+  const duplicateHypothesis = await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: tmpRoot,
+      title: "MCP smoke hypothesis",
+      primitive: "Smoke daemon protocol surface",
+      attackerBoundary: "external request",
+      impactClaim: "mcp smoke impact",
+      heuristicFamily: "state transition",
+      surfaceId: 1,
+      score: 7
+    }
+  });
+  const duplicateHypothesisText = String(duplicateHypothesis.content?.[0]?.text ?? "");
+  if (!duplicateHypothesisText.includes("possible_stale_structured_status") ||
+      !duplicateHypothesisText.includes('"entityId": 1') ||
+      !duplicateHypothesisText.includes('"tool": "proteus_update_hypothesis"') ||
+      !duplicateHypothesisText.includes('"newerDecisionCount": 1') ||
+      !duplicateHypothesisText.includes('"entityType": "decision"')) {
+    throw new Error("proteus_record_hypothesis did not direct a possible duplicate to the prior stale record");
+  }
+  const sameStatusReconciliation = await request("tools/call", {
+    name: "proteus_update_hypothesis",
+    arguments: { root: tmpRoot, id: "H1", status: "live" }
+  });
+  const sameStatusReconciliationText = String(sameStatusReconciliation.content?.[0]?.text ?? "");
+  if (!sameStatusReconciliationText.includes('"fromStatus": "live"') ||
+      !sameStatusReconciliationText.includes('"toStatus": "live"')) {
+    throw new Error("proteus_update_hypothesis did not allow explicit same-status reconciliation");
+  }
+  const reconciledSameStatusQuery = await request("tools/call", {
+    name: "proteus_query_similar",
+    arguments: { root: tmpRoot, text: "MCP smoke hypothesis", limit: 5 }
+  });
+  if (String(reconciledSameStatusQuery.content?.[0]?.text ?? "").includes("possible_stale_structured_status")) {
+    throw new Error("same-status hypothesis update did not reconcile the pending decision marker");
   }
   const rejectedBranchIdAsHypothesis = await requestFail("tools/call", {
     name: "proteus_update_hypothesis",
@@ -1006,6 +1049,15 @@ try {
       !discardedHypothesisText.includes('"status": "discarded"')) {
     throw new Error("proteus_update_hypothesis did not return and persist the explicit transition");
   }
+  const reconciledSimilar = await request("tools/call", {
+    name: "proteus_query_similar",
+    arguments: { root: tmpRoot, text: "MCP smoke hypothesis", limit: 5 }
+  });
+  const reconciledSimilarText = String(reconciledSimilar.content?.[0]?.text ?? "");
+  if (reconciledSimilarText.includes("possible_stale_structured_status") ||
+      !reconciledSimilarText.includes('"reconciledDecisionId": 1')) {
+    throw new Error("proteus_update_hypothesis did not reconcile the earlier decision marker");
+  }
   const branchDecision = await request("tools/call", {
     name: "proteus_record_decision",
     arguments: {
@@ -1021,6 +1073,12 @@ try {
   if (!branchDecisionText.includes('"entityType": "decision"') || !branchDecisionText.includes('"updated": []')) {
     throw new Error("proteus_record_decision was not append-only");
   }
+  if (!branchDecisionText.includes("record_status_requires_explicit_update") ||
+      !branchDecisionText.includes('"currentStatus": "testing"') ||
+      !branchDecisionText.includes('"tool": "proteus_update_branch"') ||
+      !branchDecisionText.includes('"pendingReview": true')) {
+    throw new Error("proteus_record_decision did not expose the pending branch lifecycle repair");
+  }
   const unchangedBranch = await request("tools/call", {
     name: "proteus_get_record",
     arguments: { root: tmpRoot, entityType: "branch", entityId: 1 }
@@ -1035,6 +1093,13 @@ try {
   const explicitKillText = String(explicitKill.content?.[0]?.text ?? "");
   if (!explicitKillText.includes('"fromStatus": "testing"') || !explicitKillText.includes('"toStatus": "killed"')) {
     throw new Error("proteus_update_branch did not report the explicit status transition");
+  }
+  const reconciledBranchSimilar = await request("tools/call", {
+    name: "proteus_query_similar",
+    arguments: { root: tmpRoot, text: "Smoke branch", limit: 5 }
+  });
+  if (String(reconciledBranchSimilar.content?.[0]?.text ?? "").includes("possible_stale_structured_status")) {
+    throw new Error("proteus_update_branch did not reconcile the pending decision marker");
   }
   const agentOutput = await request("tools/call", {
     name: "proteus_record_agent_output",

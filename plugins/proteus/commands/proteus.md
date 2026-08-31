@@ -70,12 +70,18 @@ proteus export --root <target-root>
 ```
 
 Use `query similar` as the normal local dedupe and memory-recovery first pass.
-Use `query duplicates` only for compact finding/report duplicate checks. Use
+Use `query duplicates` for compact checks across prior structured records and
+ingested research sources. Use
 `query memory` for broad text search, and use structured lists such as
 `list decisions`, `list evidence`, `list gates`, `list surfaces`, and
 `list rounds --status active` to decide whether an area was already killed,
 blocked, downgraded, covered, or part of the current plan. Use `show` to inspect
 a full record from a returned `entityType#id`.
+
+Dedupe results may include `lifecycleReview`. A pending review means the record
+has decisions newer than its last explicit status reconciliation. Read those
+decisions and use `nextSuggestedActions` to update the existing record. Proteus
+never chooses a status from free-form text.
 
 Use `superseded` for old or replaced plans that should remain searchable but
 must not be treated as active or queued work. For legacy workspaces with many

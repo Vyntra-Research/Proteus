@@ -684,7 +684,7 @@ const tools = [
     {
         name: "proteus_record_branch",
         title: "Record Hypothesis Branch",
-        description: "Record an explicit hypothesis-tree branch with attack primitive, steps, controls, kill conditions, ROI, and status.",
+        description: "Record an explicit hypothesis-tree branch with attack primitive, steps, controls, kill conditions, ROI, and status. Returns possible prior coverage and typed lifecycle repair actions.",
         inputSchema: schema({
             root: stringProp("Target root path."),
             campaignId: numberProp("Campaign id."),
@@ -705,13 +705,23 @@ const tools = [
         handler: (input) => withDb(str(input.root), (db) => {
             const activeCampaigns = db.listCampaigns("active");
             const campaignId = maybeNum(input.campaignId) ?? (activeCampaigns.length === 1 ? activeCampaigns[0].id : undefined);
+            const title = str(input.title);
+            const hypothesis = maybeStr(input.hypothesis) ?? title;
+            const attackPrimitive = maybeStr(input.attackPrimitive) ?? "unknown";
+            (0, ingest_1.ingestPaths)(db, []);
+            const priorCoverage = decorateCoverageWithLifecycle(db, str(input.root), [title, hypothesis, attackPrimitive]
+                .filter((value) => value && value !== "unknown")
+                .flatMap((value) => db.queryCoverage(value, 5))
+                .filter((row, index, rows) => rows.findIndex((candidate) => candidate.entityType === row.entityType && candidate.entityId === row.entityId) === index)
+                .slice(0, 8));
+            const reviews = lifecycleReviews(priorCoverage);
             const id = db.addHypothesisBranch({
                 campaignId,
                 roundId: maybeNum(input.roundId),
                 surfaceId: maybeNum(input.surfaceId),
-                title: str(input.title),
-                hypothesis: maybeStr(input.hypothesis) ?? str(input.title),
-                attackPrimitive: maybeStr(input.attackPrimitive) ?? "unknown",
+                title,
+                hypothesis,
+                attackPrimitive,
                 whyNonObvious: maybeStr(input.whyNonObvious) ?? "",
                 preconditions: stringArray(input.preconditions),
                 steps: stringArray(input.steps),
@@ -733,7 +743,27 @@ const tools = [
                 })
                 : null;
             return toolEnvelope({ entityType: "hypothesis_branch", entityId: id }, {
-                advisories: activeCampaignAdvisories(db),
+                advisories: [
+                    ...(priorCoverage.length > 0 ? [{
+                            severity: "warn",
+                            code: "similar_records_found",
+                            message: "Similar memory records exist. Read them before investing more. If a prior record represents the same work, update that record explicitly instead of creating a replacement only to change its status.",
+                            links: priorCoverage.map((row) => ({ entityType: row.entityType, entityId: row.entityId })),
+                            reason: "matched current branch title, hypothesis, or attack primitive"
+                        }] : []),
+                    ...lifecycleReviewAdvisories(reviews),
+                    ...activeCampaignAdvisories(db)
+                ],
+                relatedRecords: priorCoverage,
+                nextSuggestedReads: [
+                    ...priorCoverage.map((row) => ({
+                        tool: "proteus_get_record",
+                        entityType: row.entityType,
+                        entityId: row.entityId
+                    })),
+                    ...lifecycleSuggestedReads(reviews)
+                ],
+                nextSuggestedActions: lifecycleSuggestedActions(reviews),
                 stateDelta: {
                     created: [{ entityType: "hypothesis_branch", entityId: id }],
                     linked: campaignLink ? [{ entityType: "entity_link", entityId: campaignLink }] : [],
@@ -844,11 +874,18 @@ const tools = [
     {
         name: "proteus_query_duplicates",
         title: "Query Possible Duplicates",
-        description: "Refresh local research files, then search findings, reports, discarded work, research logs, surfaces, hypotheses, branches, and decisions for possible duplicate coverage.",
+        description: "Refresh local research files, then search findings, reports, discarded work, research logs, surfaces, hypotheses, branches, and decisions for possible duplicate coverage. Structured matches include pending lifecycle reviews and typed repair actions.",
         inputSchema: schema({ root: stringProp("Target root path."), text: stringProp("Candidate text, primitive, or impact to search."), limit: numberProp("Max rows.") }, ["root", "text"]),
         handler: ({ root, text, limit }) => withDb(str(root), (db) => {
             (0, ingest_1.ingestPaths)(db, []);
-            return db.queryCoverage(str(text), num(limit, 10));
+            const matches = decorateCoverageWithLifecycle(db, str(root), db.queryCoverage(str(text), num(limit, 10)));
+            const reviews = lifecycleReviews(matches);
+            return toolEnvelope(matches, {
+                advisories: lifecycleReviewAdvisories(reviews),
+                relatedRecords: matches,
+                nextSuggestedReads: lifecycleSuggestedReads(reviews),
+                nextSuggestedActions: lifecycleSuggestedActions(reviews)
+            });
         })
     },
     {
@@ -861,11 +898,19 @@ const tools = [
     {
         name: "proteus_query_similar",
         title: "Query Similar Records",
-        description: "Refresh local research files, then return ranked prior coverage and broad memory matches for a candidate, primitive, branch, or impact claim.",
+        description: "Refresh local research files, then return ranked prior coverage and broad memory matches for a candidate, primitive, branch, or impact claim. Structured matches include pending lifecycle reviews and typed repair actions.",
         inputSchema: schema({ root: stringProp("Target root path."), text: stringProp("Candidate, primitive, branch, or impact text."), limit: numberProp("Max rows.") }, ["root", "text"]),
         handler: ({ root, text, limit }) => withDb(str(root), (db) => {
             (0, ingest_1.ingestPaths)(db, []);
-            return toolEnvelope(db.querySimilar(str(text), num(limit, 10)));
+            const result = db.querySimilar(str(text), num(limit, 10));
+            const duplicateCoverage = decorateCoverageWithLifecycle(db, str(root), result.duplicateCoverage);
+            const reviews = lifecycleReviews(duplicateCoverage);
+            return toolEnvelope({ ...result, duplicateCoverage }, {
+                advisories: lifecycleReviewAdvisories(reviews),
+                relatedRecords: duplicateCoverage,
+                nextSuggestedReads: lifecycleSuggestedReads(reviews),
+                nextSuggestedActions: lifecycleSuggestedActions(reviews)
+            });
         })
     },
     {
@@ -938,7 +983,7 @@ const tools = [
     {
         name: "proteus_record_hypothesis",
         title: "Record Hypothesis",
-        description: "Record a hypothesis, candidate, watchlist item, or discard into structured memory.",
+        description: "Record a hypothesis, candidate, watchlist item, or discard into structured memory. Returns possible prior coverage and typed lifecycle repair actions.",
         inputSchema: schema({
             root: stringProp(),
             title: stringProp(),
@@ -975,7 +1020,7 @@ const tools = [
                 hypothesis.attackerBoundary,
                 hypothesis.impactClaim
             ].filter((value) => value && value !== "unknown");
-            const priorCoverage = similarityQueries.flatMap((query) => db.queryCoverage(query, 5));
+            const priorCoverage = decorateCoverageWithLifecycle(db, str(input.root), similarityQueries.flatMap((query) => db.queryCoverage(query, 5)));
             const broadMatches = similarityQueries.flatMap((query) => db.search(query, 5));
             const id = db.addHypothesis(hypothesis);
             const campaignLink = linkRecordToActiveCampaign(db, "hypothesis", id, "tracks_hypothesis", `Hypothesis H${id} recorded in active campaign.`);
@@ -983,26 +1028,35 @@ const tools = [
                 .filter((row) => !(row.entityType === "hypothesis" && row.entityId === id))
                 .filter((row, index, rows) => rows.findIndex((candidate) => candidate.entityType === row.entityType && candidate.entityId === row.entityId) === index)
                 .slice(0, 8);
+            const reviews = lifecycleReviews(priorCoverage);
             const similarityAdvisories = similar.length > 0
                 ? [
                     {
                         severity: "warn",
                         code: "similar_records_found",
-                        message: "Similar memory records exist. Read them before investing more in this hypothesis.",
+                        message: "Similar memory records exist. Read them before investing more. If a prior record represents the same work, update that record explicitly instead of creating a replacement only to change its status.",
                         links: similar.map((row) => ({ entityType: row.entityType, entityId: row.entityId })),
                         reason: "matched current hypothesis title, primitive, attacker boundary, or impact terms"
                     }
                 ]
                 : [];
-            const advisories = [...similarityAdvisories, ...campaignLinkAdvisories(db, campaignLink)];
+            const advisories = [
+                ...similarityAdvisories,
+                ...lifecycleReviewAdvisories(reviews),
+                ...campaignLinkAdvisories(db, campaignLink)
+            ];
             return toolEnvelope({ entityType: "hypothesis", entityId: id }, {
                 advisories,
                 relatedRecords: similar,
-                nextSuggestedReads: similar.map((row) => ({
-                    tool: "proteus_get_record",
-                    entityType: row.entityType,
-                    entityId: row.entityId
-                })),
+                nextSuggestedReads: [
+                    ...similar.map((row) => ({
+                        tool: "proteus_get_record",
+                        entityType: row.entityType,
+                        entityId: row.entityId
+                    })),
+                    ...lifecycleSuggestedReads(reviews)
+                ],
+                nextSuggestedActions: lifecycleSuggestedActions(reviews),
                 stateDelta: { created: [{ entityType: "hypothesis", entityId: id }], linked: campaignLink ? [campaignLink] : [], updated: [] }
             });
         })
@@ -1059,6 +1113,8 @@ const tools = [
             });
             const campaignLink = linkRecordToActiveCampaign(db, "decision", id, "has_decision", `Decision D${id} recorded in active campaign.`);
             const advisories = campaignLinkAdvisories(db, campaignLink);
+            const targetReview = db.reviewRecordStatus(str(input.entityType), num(input.entityId, 0));
+            const targetAction = targetReview ? statusUpdateAction(str(input.root), targetReview) : null;
             if (evidenceIds.length === 0) {
                 advisories.push({
                     severity: "warn",
@@ -1068,8 +1124,26 @@ const tools = [
                     reason: "durable decisions should remain auditable without interpreting their free-form text"
                 });
             }
-            return toolEnvelope({ entityType: "decision", entityId: id }, {
+            if (targetReview && targetAction) {
+                advisories.push({
+                    severity: "warn",
+                    code: "record_status_requires_explicit_update",
+                    message: `Decision D${id} was recorded, but ${targetReview.entityType}#${targetReview.entityId} remains ${targetReview.currentStatus}. Review the decision and use the suggested typed update action if the structured status must change.`,
+                    links: [
+                        { entityType: "decision", entityId: id },
+                        { entityType: targetReview.entityType, entityId: targetReview.entityId }
+                    ],
+                    reason: "free-form decisions are append-only and never change structured lifecycle state"
+                });
+            }
+            return toolEnvelope({ entityType: "decision", entityId: id, targetStatusReview: targetReview }, {
                 advisories,
+                nextSuggestedReads: targetReview ? [{
+                        tool: "proteus_get_record",
+                        entityType: targetReview.entityType,
+                        entityId: targetReview.entityId
+                    }] : [],
+                nextSuggestedActions: targetAction ? [targetAction] : [],
                 stateDelta: {
                     created: [{ entityType: "decision", entityId: id }],
                     linked: campaignLink ? [campaignLink] : [],
@@ -1415,6 +1489,92 @@ function toToolResult(value, tool) {
     }
     return result;
 }
+function decorateCoverageWithLifecycle(db, root, rows) {
+    return rows.map((row) => {
+        const review = db.reviewRecordStatus(row.entityType, row.entityId);
+        if (!review)
+            return row;
+        return {
+            ...row,
+            lifecycleReview: {
+                ...review,
+                suggestedAction: statusUpdateAction(root, review)
+            }
+        };
+    });
+}
+function lifecycleReviews(rows) {
+    const reviews = rows
+        .map((row) => row.lifecycleReview)
+        .filter((review) => Boolean(review));
+    return reviews.filter((review, index) => reviews.findIndex((candidate) => candidate.entityType === review.entityType && candidate.entityId === review.entityId) === index);
+}
+function lifecycleReviewAdvisories(reviews) {
+    const pending = reviews.filter((review) => review.pendingReview);
+    if (pending.length === 0)
+        return [];
+    return [{
+            severity: "warn",
+            code: "possible_stale_structured_status",
+            message: "Some matching structured records have decisions newer than their last explicit status reconciliation. Read those decisions and update the existing records through the suggested typed actions when needed.",
+            links: pending.map((review) => ({ entityType: review.entityType, entityId: review.entityId })),
+            reason: "structured lifecycle state and append-only decisions must be reconciled explicitly"
+        }];
+}
+function lifecycleSuggestedActions(reviews) {
+    return reviews
+        .filter((review) => review.pendingReview)
+        .map((review) => review.suggestedAction)
+        .filter((action) => action !== null);
+}
+function lifecycleSuggestedReads(reviews) {
+    const reads = reviews.flatMap((review) => review.newerDecisionIds.map((entityId) => ({
+        tool: "proteus_get_record",
+        entityType: "decision",
+        entityId
+    })));
+    return reads.filter((read, index) => reads.findIndex((candidate) => candidate.entityId === read.entityId) === index);
+}
+function statusUpdateAction(root, review) {
+    const definitions = {
+        hypothesis: {
+            tool: "proteus_update_hypothesis",
+            id: review.entityId,
+            statuses: ["live", "candidate", "watchlist", "discarded", "promoted_to_poc", "report_grade"]
+        },
+        hypothesis_branch: {
+            tool: "proteus_update_branch",
+            id: review.entityId,
+            statuses: ["open", "testing", "killed", "promoted", "blocked"]
+        },
+        surface: {
+            tool: "proteus_update_surface",
+            id: review.entityId,
+            statuses: ["unmapped", "active", "covered", "exhausted", "low_roi", "blocked", "watch"]
+        },
+        round: {
+            tool: "proteus_update_round",
+            id: review.entityId,
+            statuses: ["active", "paused", "completed", "blocked", "planned", "superseded"]
+        },
+        campaign: {
+            tool: "proteus_campaign_close",
+            id: review.entityId,
+            statuses: ["completed", "blocked", "superseded"]
+        }
+    };
+    const definition = definitions[review.entityType];
+    if (!definition)
+        return null;
+    return {
+        tool: definition.tool,
+        arguments: { root, id: definition.id },
+        requiredArgument: "status",
+        allowedStatuses: definition.statuses,
+        currentStatus: review.currentStatus,
+        reason: "Read the linked decisions, choose the explicit lifecycle state, and update the prior structured record. No status is inferred from decision text."
+    };
+}
 function toolEnvelope(record, extras = {}) {
     return {
         ok: true,
@@ -1422,6 +1582,7 @@ function toolEnvelope(record, extras = {}) {
         advisories: extras.advisories ?? [],
         relatedRecords: extras.relatedRecords ?? [],
         nextSuggestedReads: extras.nextSuggestedReads ?? [],
+        nextSuggestedActions: extras.nextSuggestedActions ?? [],
         stateDelta: {
             created: extras.stateDelta?.created ?? [],
             linked: extras.stateDelta?.linked ?? [],

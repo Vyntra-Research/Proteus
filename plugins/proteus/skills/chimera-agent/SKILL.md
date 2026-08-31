@@ -81,11 +81,17 @@ proteus list evidence --root <workspace-root>
 proteus show --root <workspace-root> <entityType> <id>
 ```
 
-Use `query similar` for the normal first pass because it returns both narrow
-finding/report duplicate coverage and broader memory matches. Use `query
-duplicates` only for finding/report dedupe. There is no `proteus finding list`
+Use `query similar` for the normal first pass because it returns ranked prior
+coverage and broader memory matches. Use `query duplicates` for compact dedupe
+across findings, reports, discarded work, logs, watchlists, surfaces,
+hypotheses, branches, and decisions. There is no `proteus finding list`
 command. Do not invent commands. If a command is missing, run `proteus --help`
 or post a blocker with the exact error.
+
+If a result contains `lifecycleReview.pendingReview: true`, read the listed
+decisions and use the returned typed action to reconcile the prior record.
+Never infer status from decision wording or create a replacement only to repair
+an older duplicate's status.
 
 Prefer Proteus memory and scoped source inspection over broad recursive file
 scans. Avoid sweeping the whole target root unless the goal truly requires it;
