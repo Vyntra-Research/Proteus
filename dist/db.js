@@ -127,6 +127,8 @@ class ProteusDb {
          SET status = ?, revisit_condition = ?, exhaustion_level = ?, last_reviewed_at = ?, updated_at = ?
          WHERE id = ?`)
             .run(input.status ?? current.status, input.revisitCondition ?? current.revisitCondition, input.exhaustionLevel ?? current.exhaustionLevel, now, now, input.id);
+        if (input.status !== undefined)
+            this.markRecordStatusReconciled("surface", input.id, input.status);
     }
     getSurface(id) {
         const row = this.db.prepare("SELECT * FROM surfaces WHERE id = ?").get(id);
@@ -169,6 +171,7 @@ class ProteusDb {
         if (!updated)
             throw new Error(`Hypothesis not found after update: H${input.id}`);
         this.indexFts("hypothesis", updated.id, `${updated.status}\n${updated.title}\n${updated.primitive}\n${updated.attackerBoundary}\n${updated.impactClaim}`);
+        this.markRecordStatusReconciled("hypothesis", updated.id, updated.status);
         return updated;
     }
     listEvidence() {
@@ -270,6 +273,8 @@ class ProteusDb {
          WHERE id = ?`)
             .run(status, currentStateSummary, recentLearningSummary, now, closedAt, input.id);
         this.indexFts("campaign", input.id, `${status}\n${current.title}\n${current.objective}\n${currentStateSummary}\n${recentLearningSummary}`);
+        if (input.status !== undefined)
+            this.markRecordStatusReconciled("campaign", input.id, status);
         if (input.eventSummary) {
             this.addCampaignEvent({
                 campaignId: input.id,
@@ -436,6 +441,8 @@ class ProteusDb {
         if (!updated)
             throw new Error(`Hypothesis branch not found after update: B${input.id}`);
         this.indexFts("hypothesis_branch", updated.id, `${updated.status}\n${updated.title}\n${updated.hypothesis}\n${updated.attackPrimitive}\n${updated.whyNonObvious}`);
+        if (input.status !== undefined)
+            this.markRecordStatusReconciled("hypothesis_branch", updated.id, updated.status);
         if (updated.campaignId) {
             this.addCampaignEvent({
                 campaignId: updated.campaignId,
@@ -541,6 +548,8 @@ class ProteusDb {
             .prepare("UPDATE rounds SET outcome = ?, completed_at = ? WHERE id = ?")
             .run(status, completedAt, input.id);
         this.indexFts("round", input.id, `${status}\n${current.objective}\n${current.currentUnderstanding}`);
+        if (input.status !== undefined)
+            this.markRecordStatusReconciled("round", input.id, status);
     }
     updateRoundsByStatus(input) {
         const matches = this.listRounds()
@@ -650,6 +659,54 @@ class ProteusDb {
             duplicateCoverage: this.queryCoverage(query, limit),
             memoryMatches: this.search(query, limit)
         };
+    }
+    reviewRecordStatus(entityType, entityId) {
+        const config = statusReviewConfig(entityType);
+        if (!config)
+            return null;
+        const row = this.db
+            .prepare(`SELECT ${config.statusColumn} AS current_status FROM ${config.table} WHERE id = ?`)
+            .get(entityId);
+        if (!row)
+            return null;
+        const target = requireTarget(this);
+        const reconciliation = this.db
+            .prepare(`SELECT reconciled_decision_id
+         FROM record_status_reconciliations
+         WHERE target_id = ? AND entity_type = ? AND entity_id = ?`)
+            .get(target.id, config.entityType, entityId);
+        const reconciledDecisionId = Number(reconciliation?.reconciled_decision_id ?? 0);
+        const newerDecisions = this.listDecisions()
+            .filter((decision) => normalizeStatusEntityType(decision.entityType) === config.entityType && decision.entityId === entityId)
+            .filter((decision) => decision.id > reconciledDecisionId);
+        return {
+            entityType: config.entityType,
+            entityId,
+            currentStatus: String(row.current_status ?? ""),
+            reconciledDecisionId,
+            newerDecisionIds: newerDecisions.slice(0, 10).map((decision) => decision.id),
+            newerDecisionCount: newerDecisions.length,
+            decisionsTruncated: newerDecisions.length > 10,
+            latestDecisionAt: newerDecisions[0]?.createdAt ?? null,
+            pendingReview: newerDecisions.length > 0
+        };
+    }
+    markRecordStatusReconciled(entityType, entityId, currentStatus) {
+        const config = statusReviewConfig(entityType);
+        if (!config)
+            return;
+        const target = requireTarget(this);
+        const latestDecisionId = this.listDecisions()
+            .find((decision) => normalizeStatusEntityType(decision.entityType) === config.entityType && decision.entityId === entityId)?.id ?? 0;
+        this.db
+            .prepare(`INSERT INTO record_status_reconciliations
+          (target_id, entity_type, entity_id, reconciled_decision_id, current_status, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(target_id, entity_type, entity_id) DO UPDATE SET
+           reconciled_decision_id = excluded.reconciled_decision_id,
+           current_status = excluded.current_status,
+           updated_at = excluded.updated_at`)
+            .run(target.id, config.entityType, entityId, latestDecisionId, currentStatus, nowIso());
     }
     getRecord(entityType, entityId) {
         const table = tableForEntity(entityType);
@@ -1451,6 +1508,7 @@ class ProteusDb {
         changed = this.applyChimeraOpenCodeControlMigration("2026-06-27-chimera-opencode-control") || changed;
         changed = this.applyMigration("2026-06-27-chimera-access-modes", CHIMERA_ACCESS_MODE_SCHEMA_SQL) || changed;
         changed = this.applyMigration("2026-08-25-deduplicate-fts-entities", "DELETE FROM proteus_fts WHERE rowid NOT IN (SELECT MAX(rowid) FROM proteus_fts GROUP BY entity_type, entity_id);") || changed;
+        changed = this.applyMigration("2026-08-31-record-status-reconciliation", STATUS_RECONCILIATION_SCHEMA_SQL) || changed;
         if (changed || storedVersion !== CURRENT_PROTEUS_VERSION || force) {
             this.setMetadata("proteus_version", CURRENT_PROTEUS_VERSION);
         }
@@ -1821,6 +1879,17 @@ const CHIMERA_ACCESS_MODE_SCHEMA_SQL = `
         ELSE 'explorer'
       END
       WHERE access_mode IS NULL OR access_mode = '' OR access_mode IN ('lab', 'inherit');
+`;
+const STATUS_RECONCILIATION_SCHEMA_SQL = `
+      CREATE TABLE IF NOT EXISTS record_status_reconciliations (
+        target_id INTEGER NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+        entity_type TEXT NOT NULL,
+        entity_id INTEGER NOT NULL,
+        reconciled_decision_id INTEGER NOT NULL DEFAULT 0,
+        current_status TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (target_id, entity_type, entity_id)
+      );
 `;
 function emptyMergeCounts() {
     return {
@@ -2597,6 +2666,20 @@ function tableForEntity(entityType) {
         lab: "labs"
     };
     return tables[entityType] ?? null;
+}
+function normalizeStatusEntityType(entityType) {
+    return entityType === "branch" ? "hypothesis_branch" : entityType;
+}
+function statusReviewConfig(entityType) {
+    const normalized = normalizeStatusEntityType(entityType);
+    const configs = {
+        hypothesis: { entityType: "hypothesis", table: "hypotheses", statusColumn: "status" },
+        hypothesis_branch: { entityType: "hypothesis_branch", table: "hypothesis_branches", statusColumn: "status" },
+        surface: { entityType: "surface", table: "surfaces", statusColumn: "status" },
+        round: { entityType: "round", table: "rounds", statusColumn: "outcome" },
+        campaign: { entityType: "campaign", table: "campaigns", statusColumn: "status" }
+    };
+    return configs[normalized] ?? null;
 }
 function materializeRecord(entityType, row) {
     if (entityType === "source") {

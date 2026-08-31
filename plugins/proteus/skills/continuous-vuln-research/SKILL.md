@@ -398,6 +398,11 @@ Use the runtime for state, not for inventing reasoning:
   `branch update --id <B> --status open|testing|killed|promoted|blocked` for
   hypothesis-tree branches. A disproved hypothesis uses `discarded`; a killed
   branch uses `killed`. Verify the returned `fromStatus` and `toStatus`.
+- Treat `lifecycleReview.pendingReview: true` as a state-integrity task. Read
+  the listed decisions, then use `nextSuggestedActions` to reconcile the prior
+  structured record. The action identifies the record and valid update tool
+  but never chooses the status. Do not create a replacement record only to make
+  an older status match its decisions.
 - `campaign checkpoint` after meaningful progress. Supply the complete
   `contractSignature`; Proteus rejects missing or empty attestations. If a
   promotion or completion gate rejects the latest checkpoint, repair the exact
@@ -407,6 +412,10 @@ For dedupe, issue separate searches for the candidate name, mechanism, attacker
 input and sink, component, and impact. Do not rely on one long prose query. Read
 the strongest returned records and repeat the check before promotion if the
 candidate framing changes.
+
+When `record hypothesis` or `record branch` reports possible prior coverage,
+inspect the returned record before developing the new branch. If it represents
+the same work, preserve the old record and reconcile its status explicitly.
 
 If exactly one campaign is active, Proteus auto-links new hypotheses, evidence,
 decisions, validation gates, and agent outputs to that campaign. If there are

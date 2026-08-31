@@ -1201,7 +1201,7 @@ try {
   if (!smokeEvidenceId) {
     throw new Error("record evidence did not return an evidence id");
   }
-  run([
+  const hypothesisDecision = run([
     "record",
     "decision",
     "--entity-type",
@@ -1218,6 +1218,37 @@ try {
   const hypothesisAfterDecision = run(["show", "hypothesis", "1"]);
   if (!hypothesisAfterDecision.includes('"status": "live"')) {
     throw new Error("record decision implicitly changed hypothesis status");
+  }
+  if (!hypothesisDecision.includes("Status unchanged: hypothesis#1 remains live") ||
+      !hypothesisDecision.includes("status-review=pending") ||
+      !hypothesisDecision.includes("proteus update hypothesis --id 1 --status <explicit-status>")) {
+    throw new Error("record decision did not show the explicit hypothesis status repair");
+  }
+  const duplicateHypothesis = run([
+    "record",
+    "hypothesis",
+    "--title",
+    "Smoke hypothesis",
+    "--primitive",
+    "Smoke daemon protocol surface",
+    "--attacker-boundary",
+    "external request",
+    "--impact",
+    "smoke impact"
+  ]);
+  if (!duplicateHypothesis.includes("possible prior coverage found") ||
+      !duplicateHypothesis.includes("hypothesis#1") ||
+      !duplicateHypothesis.includes("status-review=pending")) {
+    throw new Error("record hypothesis did not warn about the prior stale structured record");
+  }
+  const sameStatusReconciliation = run(["update", "hypothesis", "--id", "H1", "--status", "live"]);
+  if (!sameStatusReconciliation.includes('"fromStatus": "live"') ||
+      !sameStatusReconciliation.includes('"toStatus": "live"')) {
+    throw new Error("update hypothesis did not allow explicit same-status reconciliation");
+  }
+  const reconciledSameStatusQuery = run(["query", "similar", "Smoke hypothesis"]);
+  if (reconciledSameStatusQuery.includes("status-review=pending")) {
+    throw new Error("same-status hypothesis update did not reconcile the pending decision marker");
   }
   const rejectedBranchIdAsHypothesis = runFail(["update", "hypothesis", "--id", "B1", "--status", "discarded"]);
   if (!rejectedBranchIdAsHypothesis.includes("positive hypothesis id")) {
@@ -1246,6 +1277,11 @@ try {
   if (!branchNegativePromotionDecision.includes("Recorded decision") || branchNegativePromotionDecision.includes("Updated branch")) {
     throw new Error("record decision was not append-only");
   }
+  if (!branchNegativePromotionDecision.includes("Status unchanged: hypothesis_branch#1 remains testing") ||
+      !branchNegativePromotionDecision.includes("status-review=pending") ||
+      !branchNegativePromotionDecision.includes("proteus branch update --id 1 --status <explicit-status>")) {
+    throw new Error("record decision did not show the explicit branch status repair");
+  }
   const branchAfterDecision = run(["show", "branch", "1"]);
   if (!branchAfterDecision.includes('"status": "testing"')) {
     throw new Error("record decision inferred branch status from free-form text");
@@ -1253,6 +1289,10 @@ try {
   const explicitKill = run(["branch", "update", "--id", "B1", "--status", "killed"]);
   if (!explicitKill.includes('"fromStatus": "testing"') || !explicitKill.includes('"toStatus": "killed"')) {
     throw new Error("branch update did not report the explicit transition");
+  }
+  const reconciledBranchQuery = run(["query", "similar", "Smoke branch"]);
+  if (reconciledBranchQuery.includes("status-review=pending")) {
+    throw new Error("branch update did not reconcile the pending decision marker");
   }
   const killedBranches = run(["branch", "list", "--campaign-id", "1", "--status", "killed"]);
   if (!killedBranches.includes("B1 [killed] Smoke branch")) {

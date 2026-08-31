@@ -41,6 +41,7 @@ try {
   const migrations = run(process.execPath, [newCli, "migrate", "--root", tmpRoot]);
   assertIncludes(migrations, "2026-06-17-campaigns-links-branches", "campaign migration");
   assertIncludes(migrations, "2026-06-17-campaign-checkpoints", "checkpoint migration");
+  assertIncludes(migrations, "2026-08-31-record-status-reconciliation", "record status reconciliation migration");
   assertIncludes(migrations, `Proteus DB version: ${expectedVersion}`, "stored Proteus database version");
 
   const status = run(process.execPath, [newCli, "status", "--root", tmpRoot]);

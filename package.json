@@ -1,6 +1,6 @@
 {
   "name": "@vyntra-research/proteus",
-  "version": "2.1.8",
+  "version": "2.1.9",
   "description": "A plugin for Claude Code and Codex that coordinates structured, continuous vulnerability research against arbitrary codebases.",
   "type": "commonjs",
   "bin": {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.9 - 2026-08-31
+
+### Fixed
+
+- Added actionable duplicate warnings when hypotheses and branches match prior structured records.
+- Flagged records with decisions newer than their last explicit status reconciliation.
+- Returned the current status, linked decision IDs, and the correct typed update action without inferring status from decision text.
+- Marked decisions as reconciled only after an explicit status update, including updates that keep the same status.
+
 ## 2.1.8 - 2026-08-29
 
 ### Fixed

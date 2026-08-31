@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { ProteusDb, createDefaultContract, type ChimeraSessionRow } from "./db";
+import { ProteusDb, createDefaultContract, type ChimeraSessionRow, type CoverageRow, type RecordStatusReview } from "./db";
 import { exportMarkdown } from "./exporter";
 import { ingestPaths } from "./ingest";
 import { createLab } from "./lab";
@@ -647,13 +647,22 @@ function cmdBranch(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
     }
     const activeCampaigns = db.listCampaigns("active");
     const activeCampaignId = chimeraSession?.campaignId ?? explicitCampaignId ?? (activeCampaigns.length === 1 ? activeCampaigns[0].id : undefined);
+    const title = requiredString(parsed, "title");
+    const hypothesis = getString(parsed, "hypothesis") ?? title;
+    const primitive = getString(parsed, "primitive") ?? "unknown";
+    ingestPaths(db, []);
+    const priorCoverage = [title, hypothesis, primitive]
+      .filter((value) => value && value !== "unknown")
+      .flatMap((value) => db.queryCoverage(value, 5))
+      .filter((row, index, rows) => rows.findIndex((candidate) => candidate.entityType === row.entityType && candidate.entityId === row.entityId) === index)
+      .slice(0, 8);
     const id = db.addHypothesisBranch({
       campaignId: activeCampaignId,
       roundId: getNumber(parsed, "round-id") ?? chimeraSession?.roundId ?? undefined,
       surfaceId: getNumber(parsed, "surface-id"),
-      title: requiredString(parsed, "title"),
-      hypothesis: getString(parsed, "hypothesis") ?? requiredString(parsed, "title"),
-      attackPrimitive: getString(parsed, "primitive") ?? "unknown",
+      title,
+      hypothesis,
+      attackPrimitive: primitive,
       whyNonObvious: getString(parsed, "why-non-obvious") ?? "",
       preconditions: splitList(getString(parsed, "preconditions") ?? ""),
       steps: splitList(getString(parsed, "steps") ?? ""),
@@ -680,6 +689,7 @@ function cmdBranch(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       });
     }
     console.log(`Recorded branch B${id}`);
+    printPossibleDuplicateGuidance(db, priorCoverage);
     return;
   }
 
@@ -805,9 +815,16 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       killCriteria: getString(parsed, "kill-criteria") ?? "",
       revisitCondition: getString(parsed, "revisit") ?? ""
     };
+    ingestPaths(db, []);
+    const priorCoverage = [input.title, input.primitive, input.attackerBoundary, input.impactClaim]
+      .filter((value) => value && value !== "unknown")
+      .flatMap((value) => db.queryCoverage(value, 5))
+      .filter((row, index, rows) => rows.findIndex((candidate) => candidate.entityType === row.entityType && candidate.entityId === row.entityId) === index)
+      .slice(0, 8);
     const id = db.addHypothesis(input);
     autoLinkActiveCampaign(db, "hypothesis", id, "tracks_hypothesis", `Hypothesis H${id} recorded in active campaign.`);
     console.log(`Recorded hypothesis H${id}`);
+    printPossibleDuplicateGuidance(db, priorCoverage);
     return;
   }
 
@@ -838,6 +855,11 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
     });
     autoLinkActiveCampaign(db, "decision", id, "has_decision", `Decision D${id} recorded in active campaign.`);
     console.log(`Recorded decision D${id}`);
+    const review = db.reviewRecordStatus(entityType, entityId);
+    if (review) {
+      console.log(`Status unchanged: ${review.entityType}#${review.entityId} remains ${review.currentStatus}.`);
+      printLifecycleReviewGuidance(review);
+    }
     return;
   }
 
@@ -1083,6 +1105,8 @@ function cmdQuery(db: ProteusDb, subcommand: string | undefined, parsed: ParsedA
       console.log(`  matched=${row.matchedTerms.join(", ") || "-"}`);
       console.log(`  reason=${row.reason}`);
       console.log(`  summary=${row.summary || "-"}`);
+      const review = db.reviewRecordStatus(row.entityType, row.entityId);
+      if (review) printLifecycleReviewGuidance(review);
     }
     return;
   }
@@ -1108,6 +1132,8 @@ function cmdQuery(db: ProteusDb, subcommand: string | undefined, parsed: ParsedA
     } else {
       for (const row of result.duplicateCoverage) {
         console.log(`  ${row.entityType}#${row.entityId} score=${row.score} ${row.status ? `status=${row.status} ` : ""}${row.title}`);
+        const review = db.reviewRecordStatus(row.entityType, row.entityId);
+        if (review) printLifecycleReviewGuidance(review, "    ");
       }
     }
     console.log("Memory matches:");
@@ -1487,6 +1513,31 @@ function truncateForCli(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit - 3)}...`;
 }
 
+function printPossibleDuplicateGuidance(db: ProteusDb, rows: CoverageRow[]): void {
+  if (rows.length === 0) return;
+  console.log("Warning: possible prior coverage found. Read these records before continuing; update an existing record instead of creating a replacement only to change its status.");
+  for (const row of rows) {
+    console.log(`  ${row.entityType}#${row.entityId} score=${row.score} ${row.status ? `status=${row.status} ` : ""}${row.title}`);
+    const review = db.reviewRecordStatus(row.entityType, row.entityId);
+    if (review) printLifecycleReviewGuidance(review, "    ");
+  }
+}
+
+function printLifecycleReviewGuidance(review: RecordStatusReview, prefix = "  "): void {
+  if (review.pendingReview) {
+    console.log(`${prefix}status-review=pending current=${review.currentStatus} newer-decisions=${review.newerDecisionIds.map((id) => `D${id}`).join(",")}`);
+  }
+  const commands: Record<string, string> = {
+    hypothesis: `proteus update hypothesis --id ${review.entityId} --status <explicit-status>`,
+    hypothesis_branch: `proteus branch update --id ${review.entityId} --status <explicit-status>`,
+    surface: `proteus update surface --id ${review.entityId} --status <explicit-status>`,
+    round: `proteus update round --id ${review.entityId} --status <explicit-status>`,
+    campaign: `proteus campaign close --id ${review.entityId} --status <completed|blocked|superseded>`
+  };
+  const command = commands[review.entityType];
+  if (command) console.log(`${prefix}review decisions, then reconcile explicitly if needed: ${command}`);
+}
+
 function arrayLength(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
@@ -1720,6 +1771,11 @@ Usage:
 
 Role codenames are canonical Proteus roles. Host subagent names or nicknames
 belong in --surface, --objective, or notes, not --role.
+
+Duplicate queries and hypothesis or branch recording warn when a prior
+structured record has decisions that were not reconciled with its status.
+Read the listed decisions and use the printed typed update command. Proteus
+never chooses status from decision text.
 
 OpenCode support:
   proteus opencode install writes project-local OpenCode config, /proteus
