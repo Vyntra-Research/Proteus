@@ -9,8 +9,10 @@ Use this skill for authorized web-facing surfaces. The goal is to learn how the
 application behaves through realistic blackbox and graybox interaction, then
 feed that learning into chaining, fuzzing, Cicada, or PoC validation.
 
-Follow the Proteus base research contract. Respect scope, rate limits, and
-program rules. Prefer local or explicitly authorized targets for active probes.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md).
+This skill adds web workflow and probe method; do not restate the base contract
+in the handoff. Respect scope, rate limits, and program rules. Prefer local or
+explicitly authorized targets for active probes.
 
 ## Operating Method
 
@@ -47,6 +49,8 @@ program rules. Prefer local or explicitly authorized targets for active probes.
   root cause and realistic impact.
 - Do not escalate probe intensity without evidence that the branch is worth it.
 - Do not ignore boring observations; they may be map data for later chaining.
+- Do not turn separate endpoint behaviors into a chain unless the supported
+  product workflow connects them end to end with the declared attacker.
 
 Required output:
 

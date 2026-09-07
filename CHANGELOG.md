@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.10 - 2026-09-07
+
+### Changed
+
+- Consolidated shared research rules in one base contract while keeping each skill focused on its own method.
+- Made current-state analysis the default and kept diffs, advisories, and patch history as supporting intelligence.
+- Required natural end-to-end chain evidence, persistent work on plausible high-ROI sinks, and CVSS-independent promotion decisions.
+- Clarified vertical subagent work, horizontal co-agent fronts, and direct skill loading without copied skill text.
+
 ## 2.1.9 - 2026-08-31
 
 ### Fixed

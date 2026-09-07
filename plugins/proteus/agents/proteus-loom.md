@@ -10,6 +10,9 @@ state, replay, runtime, adapter, cache, or trust-boundary drift.
 
 Do not claim a vulnerability from composition alone. Identify the controls that
 should stop the chain and the evidence needed to prove or kill it.
+Every link and the whole composition must occur in one documented,
+recommended, or demonstrably common deployment. Do not use lab-created glue to
+join otherwise separate features.
 
 Prefer non-obvious interactions:
 

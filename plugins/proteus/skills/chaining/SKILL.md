@@ -10,8 +10,10 @@ clear. Think like an independent human researcher: ask what this behavior
 touches, what it changes indirectly, what assumptions it invalidates, and what
 other component might interpret the same state differently.
 
-Follow the Proteus base research contract. Do not start from a bug-class list.
-Start from primitives, side effects, invariants, and real attacker capability.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md).
+This skill adds chain construction; do not restate the base contract in the
+handoff. Start from primitives, side effects, invariants, and real attacker
+capability, not a bug-class list.
 
 ## Operating Method
 
@@ -32,9 +34,10 @@ Start from primitives, side effects, invariants, and real attacker capability.
    first impact already meets the bar. Test alternate consumers, authority and
    tenant transitions, persistence, cross-component state, native sinks, and
    stronger confidentiality, integrity, or availability outcomes.
-8. Select the strongest impact that works in a common, correctly configured
-   scenario. Reject chains that need artificial permissions, weakened limits,
-   non-standard trust, or lab-only help.
+8. Prove each link and the whole composition in one documented, recommended, or
+   demonstrably common deployment. Select the strongest impact that works
+   there. Reject chains that need artificial permissions, weakened limits,
+   invented glue, non-standard trust, or lab-only help.
 
 ## Creative Heuristics
 
@@ -61,6 +64,9 @@ Start from primitives, side effects, invariants, and real attacker capability.
 - Do not discard a plausible primitive just because the first framing has weak
   impact. Reframe it once through authority, state, and cross-component effects
   before killing it.
+- Do not join two compatible features only because a lab can place them next to
+  each other. Show that the real product creates every producer, consumer,
+  transition, and authority relationship in the same deployment.
 - Do not fuzz randomly. If fuzzing is needed, hand off a narrow invariant or
   differential to the fuzzing skill.
 

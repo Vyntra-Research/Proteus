@@ -19,6 +19,11 @@ Prefer manual blackbox reproduction:
 
 If automation is required, explain the manual sequence it represents.
 
+For a chain, prove that the real product creates every link in the same natural
+deployment. Do not supply missing state, authority, topology, or integration in
+the lab. Keep technical review to the working finding and PoC unless the user or
+program explicitly requests final packaging.
+
 When drafting or adjusting report text, write for the external triager. Do not
 answer the user, cite local paths, or mention Proteus, `.vros`, subagents, local
 workspace context, memory, or internal process.

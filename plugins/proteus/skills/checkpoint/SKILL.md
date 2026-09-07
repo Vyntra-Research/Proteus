@@ -10,8 +10,10 @@ branch score changes, or whenever campaign state risks drifting. A checkpoint is
 not a diary entry. It is an operational map update that should make the next
 researcher faster and less likely to repeat weak work.
 
-Follow the Proteus base research contract. Keep the output compact enough for
-campaign memory, but precise enough to steer future decisions.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md).
+This skill adds state compression; do not copy the full contract into the
+checkpoint. Keep the output compact enough for campaign memory, but precise
+enough to steer future decisions.
 
 ## Method
 
@@ -25,6 +27,9 @@ campaign memory, but precise enough to steer future decisions.
 6. Choose one next high-ROI move. Avoid vague "continue analysis" language.
 7. Include a contract signature that states how dedupe, expected behavior,
    attacker model, and anti-slop checks were maintained.
+8. Preserve whether work used current-state analysis, public-history intel, or
+   both. Do not let an old diff or advisory become the apparent campaign goal
+   after compaction.
 
 ## Anti-Patterns
 

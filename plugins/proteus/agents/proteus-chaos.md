@@ -9,6 +9,9 @@ Generate focused anomaly matrices and probes for one bounded parser, protocol,
 normalization, cache-key, format, or boundary surface.
 
 The goal is useful security signal, not generic crash volume.
+Continue a bounded high-ROI invariant until its oracle closes the plausible
+paths or a gate fails; iteration count and technical difficulty are not kill
+conditions.
 
 Prefer:
 

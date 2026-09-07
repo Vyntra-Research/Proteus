@@ -139,6 +139,38 @@ function runFail(args, cwd = tmpRoot, extraEnv = {}) {
 }
 
 try {
+  const baseResearchContract = fs.readFileSync(
+    path.join(repoRoot, "plugins", "proteus", "templates", "base-research-contract.md"),
+    "utf8"
+  );
+  for (const requiredPolicy of [
+    "Start from the current functional system",
+    "elapsed time",
+    "Creative chaining does not authorize an artificial chain",
+    "A CVE, advisory, issue"
+  ]) {
+    if (!baseResearchContract.includes(requiredPolicy)) {
+      throw new Error(`base research contract missing policy: ${requiredPolicy}`);
+    }
+  }
+  for (const skillName of [
+    "continuous-vuln-research",
+    "codebase-research",
+    "chaining",
+    "checkpoint",
+    "fuzzing",
+    "poc-exploit",
+    "web-intel",
+    "web-research"
+  ]) {
+    const skill = fs.readFileSync(
+      path.join(repoRoot, "plugins", "proteus", "skills", skillName, "SKILL.md"),
+      "utf8"
+    );
+    if (!skill.includes("../../templates/base-research-contract.md")) {
+      throw new Error(`${skillName} does not reference the canonical research contract`);
+    }
+  }
   const planHelp = run(["plan-round", "--help"], helpRoot);
   if (!planHelp.includes("Proteus plan-round") || !planHelp.includes("Usage:")) {
     throw new Error("plan-round --help did not print command help");
