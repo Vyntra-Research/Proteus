@@ -2,6 +2,10 @@
 
 ## 2.1.10 - 2026-09-07
 
+### Added
+
+- Added deterministic CVSS 3.0, 3.1, and 4.0 calculation through the CLI and MCP, with validated vectors and concise metric-selection guidance.
+
 ### Changed
 
 - Consolidated shared research rules in one base contract while keeping each skill focused on its own method.

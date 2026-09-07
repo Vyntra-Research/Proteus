@@ -129,6 +129,7 @@ try {
   const planRoundTool = tools.tools.find((tool) => tool.name === "proteus_plan_round");
   const recordSurfaceTool = tools.tools.find((tool) => tool.name === "proteus_record_surface");
   const updateHypothesisTool = tools.tools.find((tool) => tool.name === "proteus_update_hypothesis");
+  const cvssTool = tools.tools.find((tool) => tool.name === "proteus_calculate_cvss");
   if (planRoundTool?.inputSchema?.additionalProperties !== false ||
       planRoundTool?.inputSchema?.properties?.coordinatorPlan?.additionalProperties !== false ||
       planRoundTool?.inputSchema?.properties?.selectedSurfaces?.items?.additionalProperties !== false) {
@@ -144,9 +145,15 @@ try {
       updateHypothesisTool.inputSchema.properties.status.enum.includes("killed")) {
     throw new Error("proteus_update_hypothesis does not advertise the canonical strict status schema");
   }
+  if (cvssTool?.inputSchema?.additionalProperties !== false ||
+      cvssTool?.inputSchema?.properties?.vector?.type !== "string" ||
+      !cvssTool?.description?.includes("PR:L")) {
+    throw new Error("proteus_calculate_cvss does not advertise strict input and metric guidance");
+  }
   for (const expectedTool of [
     "proteus_init",
     "proteus_status",
+    "proteus_calculate_cvss",
     "proteus_migrate",
     "proteus_merge_memory",
     "proteus_chimera_config",
@@ -207,6 +214,32 @@ try {
     if (!toolNames.includes(expectedTool)) {
       throw new Error(`${expectedTool} tool was not registered`);
     }
+  }
+
+  const cvssCases = [
+    ["CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:N", 3.8],
+    ["CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 6.3],
+    ["CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N", 5.3],
+    ["CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", 9.3],
+    ["CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N/CR:X/IR:X/AR:X", 4.3],
+    ["CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N/CR:X/IR:X/AR:X", 5.4]
+  ];
+  for (const [vector, expectedScore] of cvssCases) {
+    const response = await request("tools/call", {
+      name: "proteus_calculate_cvss",
+      arguments: { vector }
+    });
+    const result = JSON.parse(String(response.content?.[0]?.text ?? "{}"));
+    if (result.score !== expectedScore || result.requestedVector !== vector) {
+      throw new Error(`CVSS MCP score mismatch for ${vector}: ${JSON.stringify(result)}`);
+    }
+  }
+  const incompleteCvss = await requestFail("tools/call", {
+    name: "proteus_calculate_cvss",
+    arguments: { vector: "CVSS:4.0/AV:N/AC:L" }
+  });
+  if (!incompleteCvss.includes("missing required base metrics")) {
+    throw new Error("proteus_calculate_cvss accepted an incomplete base vector");
   }
 
   await request("tools/call", {

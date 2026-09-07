@@ -13,6 +13,7 @@ import { renderAgentPrompt } from "./prompts";
 import { ROLE_ORDER, ROLES, normalizeAgentCodename, validRoleList } from "./roles";
 import { exportMarkdown } from "./exporter";
 import { createLab } from "./lab";
+import { calculateCvss } from "./cvss";
 import {
   broadcastChimeraMessage,
   chimeraDoctor,
@@ -102,6 +103,18 @@ const tools: ToolDefinition[] = [
           memory: db.memoryStats()
         };
       })
+  },
+  {
+    name: "proteus_calculate_cvss",
+    title: "Calculate CVSS",
+    description: "Validate and calculate a CVSS v3.0, v3.1, or v4.0 vector. Supply explicit metrics; Proteus never infers them from finding prose. PR:L is a normal account and PR:H is a local owner-like role, not a global administrator. Use AC:H or v4 AT:P for real prerequisite conditions such as uncommon configuration, timing, races, or state outside attacker control. Low impact is limited or contained; High requires broad or total loss, or restricted assets with direct serious value.",
+    inputSchema: strictSchema(
+      {
+        vector: stringProp("Complete CVSS:3.0, CVSS:3.1, or CVSS:4.0 vector. Include every required base metric. Example: CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N.")
+      },
+      ["vector"]
+    ),
+    handler: ({ vector }) => calculateCvss(str(vector))
   },
   {
     name: "proteus_opencode_install",

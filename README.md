@@ -182,6 +182,7 @@ MCP/plugin access.
 ```powershell
 proteus init --root C:\path\to\target --name target-name
 proteus status --root C:\path\to\target
+proteus cvss --vector "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
 proteus opencode install --root C:\path\to\target
 proteus opencode doctor --root C:\path\to\target
 proteus ingest --root C:\path\to\target findings REPORTS reports docs

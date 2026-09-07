@@ -10,6 +10,7 @@ const db_1 = require("./db");
 const exporter_1 = require("./exporter");
 const ingest_1 = require("./ingest");
 const lab_1 = require("./lab");
+const cvss_1 = require("./cvss");
 const chimera_1 = require("./chimera");
 const global_memory_1 = require("./global-memory");
 const observe_1 = require("./observe");
@@ -43,6 +44,10 @@ function main() {
     }
     if (command === "opencode") {
         cmdOpenCode(subcommand, parsed);
+        return;
+    }
+    if (command === "cvss") {
+        cmdCvss(parsed);
         return;
     }
     const targetRoot = (0, paths_1.resolveTargetRoot)(getString(parsed, "root") ?? process.cwd());
@@ -201,6 +206,12 @@ function cmdOpenCode(subcommand, parsed) {
         default:
             throw new Error("Usage: proteus opencode install|doctor [--root <path>] [--force]");
     }
+}
+function cmdCvss(parsed) {
+    const vector = getString(parsed, "vector") ?? parsed.command.slice(1).join("");
+    if (!vector)
+        throw new Error("cvss requires --vector <CVSS vector> or a positional CVSS vector");
+    console.log(JSON.stringify((0, cvss_1.calculateCvss)(vector), null, 2));
 }
 function cmdChimera(db, subcommand, parsed) {
     switch (subcommand) {
@@ -1564,6 +1575,19 @@ function isHelpRequested(parsed) {
         parsed.command.includes("-h"));
 }
 function printCommandHelp(command) {
+    if (command === "cvss") {
+        console.log(`Proteus CVSS calculator
+
+Usage:
+  proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
+  proteus cvss <CVSS:3.0|3.1|4.0/...>
+
+Calculates a validated CVSS v3.0, v3.1, or v4.0 vector deterministically.
+The result includes the normalized vector, score, severity, component scores,
+parsed metrics, and short metric-selection guidance.
+`);
+        return;
+    }
     if (command === "plan-round") {
         console.log(`Proteus plan-round
 
@@ -1591,6 +1615,7 @@ function printHelp() {
 Usage:
   proteus init [--root <path>] [--name <target>]
   proteus status [--root <path>]
+  proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
   proteus opencode install [--root <path>] [--force]

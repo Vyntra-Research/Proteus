@@ -25,7 +25,9 @@
     "claude-code"
   ],
   "license": "GPL-3.0-or-later",
-  "dependencies": {},
+  "dependencies": {
+    "ae-cvss-calculator": "1.0.13"
+  },
   "devDependencies": {
     "@types/node": "^24.10.0",
     "typescript": "^5.9.3"

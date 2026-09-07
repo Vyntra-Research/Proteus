@@ -178,6 +178,30 @@ try {
   if (fs.existsSync(path.join(helpRoot, ".vros"))) {
     throw new Error("plan-round --help created target memory state");
   }
+  const cvssCases = [
+    ["CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:N", 3.8],
+    ["CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 6.3],
+    ["CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N", 5.3],
+    ["CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", 9.3],
+    ["CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N/CR:X/IR:X/AR:X", 4.3],
+    ["CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N/CR:X/IR:X/AR:X", 5.4]
+  ];
+  for (const [vector, expectedScore] of cvssCases) {
+    const result = JSON.parse(run(["cvss", "--vector", vector], helpRoot));
+    if (result.score !== expectedScore || result.requestedVector !== vector) {
+      throw new Error(`CVSS CLI score mismatch for ${vector}: ${JSON.stringify(result)}`);
+    }
+  }
+  const duplicateMetricError = runFail([
+    "cvss",
+    "CVSS:4.0/AV:N/AV:L/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  ], helpRoot);
+  if (!duplicateMetricError.includes("Duplicate CVSS metric: AV")) {
+    throw new Error("CVSS CLI accepted a duplicate metric");
+  }
+  if (fs.existsSync(path.join(helpRoot, ".vros"))) {
+    throw new Error("CVSS CLI created target memory state");
+  }
   const opencodeInstall = JSON.parse(run(["opencode", "install", "--root", opencodeRoot], opencodeRoot));
   if (!opencodeInstall.ok || !fs.existsSync(path.join(opencodeRoot, "opencode.json"))) {
     throw new Error("opencode install did not write opencode.json");

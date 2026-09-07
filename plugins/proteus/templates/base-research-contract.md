@@ -78,6 +78,9 @@ specialist methods; they do not replace or restate these rules.
   impact, and skeptical-refutation checks.
 - CVSS classifies an already established result. It never decides whether a
   candidate is valid, reportable, rejected, killed, or worth a pivot.
+- Once the impact is established, use `proteus_calculate_cvss` or
+  `proteus cvss` instead of mental arithmetic. Supply an explicit vector and
+  include both the returned score and normalized vector in external material.
 - Do not fill evidence gaps with confidence language. If a required fact is
   missing, the gate remains open or failed.
 
