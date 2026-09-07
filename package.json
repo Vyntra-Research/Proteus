@@ -1,6 +1,6 @@
 {
   "name": "@vyntra-research/proteus",
-  "version": "2.1.9",
+  "version": "2.1.10",
   "description": "A plugin for Claude Code and Codex that coordinates structured, continuous vulnerability research against arbitrary codebases.",
   "type": "commonjs",
   "bin": {
@@ -25,7 +25,9 @@
     "claude-code"
   ],
   "license": "GPL-3.0-or-later",
-  "dependencies": {},
+  "dependencies": {
+    "ae-cvss-calculator": "1.0.13"
+  },
   "devDependencies": {
     "@types/node": "^24.10.0",
     "typescript": "^5.9.3"

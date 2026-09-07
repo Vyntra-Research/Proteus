@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-    <img alt="Version" src="https://img.shields.io/badge/version-2.1.9-2f6feb" />
+    <img alt="Version" src="https://img.shields.io/badge/version-2.1.10-2f6feb" />
   <img alt="Node.js" src="https://img.shields.io/badge/node-%3E%3D24-43853d" />
   <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" />
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-CLI%20%2B%20MCP%20%2B%20Skills-7c3aed" />
@@ -60,8 +60,9 @@ conditions.
   agents can resume active context without searching the whole memory base.
 - Global learnings in `~/.vros/global.sqlite` for reusable cross-target memory
   such as validation patterns, tooling notes, and playbook material.
-- Specialist skills for codebase research, chaining, fuzzing, web intel,
-  web research, PoC/exploit development, checkpoints, and Chimera co-agents.
+- Specialist skills for codebase research, chaining, Post-AI blind-spot
+  closure, fuzzing, web intel, web research, PoC/exploit development,
+  checkpoints, and Chimera co-agents.
 - Validation gates that suppress weak hypotheses, duplicates, expected
   behavior, public-known issues, forced-vulnerable configs, and lab-created
   bugs.
@@ -96,7 +97,7 @@ proteus --version
 Expected:
 
 ```text
-@vyntra-research/proteus 2.1.9
+@vyntra-research/proteus 2.1.10
 ```
 
 ### Codex
@@ -182,6 +183,7 @@ MCP/plugin access.
 ```powershell
 proteus init --root C:\path\to\target --name target-name
 proteus status --root C:\path\to\target
+proteus cvss --vector "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
 proteus opencode install --root C:\path\to\target
 proteus opencode doctor --root C:\path\to\target
 proteus ingest --root C:\path\to\target findings REPORTS reports docs

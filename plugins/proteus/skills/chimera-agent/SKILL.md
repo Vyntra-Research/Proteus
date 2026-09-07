@@ -55,6 +55,9 @@ understand the target, the campaign or hypothesis, why this front exists, known
 killed paths, constraints, applicable heuristics, and the expected output before
 doing substantial work. If the context is too thin to avoid unsafe or
 out-of-scope action, post a blocker instead of guessing.
+The session contract carries the shared Proteus research rules. Specialist
+skills add only the method for this front. Do not paste their full text into
+messages or snapshots; cite the skill name and report the evidence it produced.
 Confirm the assigned campaign and round from `dossier.md` before recording
 research state. You may read campaign context, but do not create, close,
 checkpoint, relink, or otherwise edit campaigns or rounds. The coordinator owns
@@ -346,6 +349,15 @@ For codebase research, extract branch material: invariants, sinks, trust
 boundaries, side effects, recent-risk areas, and killed paths. Do not spend
 time on known TODOs, planned fixes, low-impact style issues, or duplicate
 findings unless they unlock a stronger chain.
+Map the current functional system before using commits, diffs, advisories, or
+fix history as supporting intel. Do not let public-history visibility choose the
+whole surface.
+
+Once a real high-ROI sink has concrete evidence and plausible paths remain, do
+not stop because the work became slow, complex, or repeatedly negative. Close
+the remaining paths or show which binding gate failed. For chains, prove every
+link and the whole composition in one natural deployment; never ask the lab to
+supply missing glue.
 
 Preserve killed and parked work. When you kill or downgrade a branch, include
 why it died, what evidence caused the downgrade, and what would reopen it. This

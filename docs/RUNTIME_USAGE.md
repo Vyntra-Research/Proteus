@@ -61,6 +61,22 @@ configuration, negative controls, dedupe, and a PoC that does not depend on
 artificial lab help. It also needs recorded public intel/timeline review and an
 evidence-backed Skeptic refutation pass.
 
+## Calculate CVSS
+
+Use the deterministic calculator after the vulnerability, attacker path, and
+realistic impact are established:
+
+```powershell
+proteus cvss --vector "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N"
+```
+
+The MCP equivalent is `proteus_calculate_cvss`. Both accept complete CVSS 3.0,
+3.1, and 4.0 vectors and return the normalized vector, score, severity,
+component scores, parsed metrics, and short selection guidance. They reject
+missing base metrics, duplicate metrics, unsupported versions, and invalid
+values. The calculator does not infer metrics from report prose or change
+research state.
+
 ## Initialize A Target
 
 ```powershell
@@ -349,6 +365,7 @@ integrations:
 ```text
 proteus_init
 proteus_status
+proteus_calculate_cvss
 proteus_migrate
 proteus_merge_memory
 proteus_chimera_config

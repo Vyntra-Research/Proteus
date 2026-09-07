@@ -2,8 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderAgentPrompt = renderAgentPrompt;
 const roles_1 = require("./roles");
-const BASE_RESEARCH_CONTRACT = `Base research contract:
+const BASE_RESEARCH_CONTRACT = `Mandatory research gates:
+- Load the installed Proteus base research contract and the skill or role contract for this front. Do not ask the coordinator to paste the whole skill into this prompt.
 - Work through primitives, invariants, trust boundaries, state transitions, interpretation gaps, competing sources of truth, and capability amplification. Do not reduce the hunt to a fixed bug-class checklist.
+- Map the current functional system first. Treat recent commits, diffs, advisories, and patch history as supporting intelligence unless the assignment explicitly requires them.
 - Apply a zero-day research standard to each selected surface. Cover the relevant application logic, native or low-level code, upstream dependencies, parser/protocol boundaries, runtime modes, alternate consumers, and gadgets. Use calibrated fuzzing when code reading cannot settle behavior. Record any layer left untested and why.
 - Keep a realistic attacker model. Do not rely on lab-only help, disabled controls, patched target code, or non-standard configuration unless official target documentation requires it.
 - Do not weaken memory, CPU, trust, isolation, authentication, or other limits to manufacture impact. A failure caused only by an artificially reduced memory limit is a lab artifact, not normal exploitability.
@@ -11,8 +13,13 @@ const BASE_RESEARCH_CONTRACT = `Base research contract:
 - Check memory, known findings, reports, discarded paths, TODO/known-issue context, advisories, issues, and changelogs before investing heavily.
 - Track kill conditions from the beginning and kill weak hypotheses early.
 - Reassess ROI after new evidence and prefer high-impact, non-obvious paths with realistic exploitability.
+- Do not abandon a real high-ROI sink because it became slow, complex, or repeatedly negative while plausible paths remain.
+- After evidence establishes a real sink, load the installed \`post-ai-blind-spots\` skill. Total coverage is mandatory before killing, abandoning, or declaring that sink safe or exhausted: classify every real reachable natural edge and CIA path, and keep untested or indeterminate paths open.
+- Correct or intentional local behavior, passing tests, prior review, model agreement, time, complexity, and lack of an obvious chain are not closure evidence. Do not infer a vulnerability from presumed AI authorship or invent product states or lab glue.
+- Build chains only from links that occur naturally in the same documented, recommended, or demonstrably common deployment. Prove every link and the full composition; do not supply missing glue in the lab.
 - Before delivering a finding, perform impact elevation: test realistic chains, alternate routes, side effects, authority transitions, and stronger CIA outcomes. Report the strongest impact that works in a common, correctly configured scenario without forced assumptions.
 - Do not promote speculative findings. A candidate needs attacker control, root cause in the target, concrete impact, correct-practice configuration, negative controls, dedupe, public-known checks, and rebutted objections.
+- Treat CVSS only as classification after validity. A CVE or advisory is intelligence, not duplicate proof without matching root cause, reachable mechanism, security boundary, affected version or deployment, and fix boundary.
 - Record enough detail for a future agent to avoid repeating dead paths.`;
 function renderAgentPrompt(input) {
     const role = roles_1.ROLES[input.codename];
@@ -44,7 +51,7 @@ Before any report-grade claim, record the exact intel/timeline searches performe
 If public intel is unavailable or Skeptic has unresolved objections, keep the verdict at Candidate or Watchlist.
 
 Stop condition:
-Stop only if the assigned surface is exhausted under this heuristic, or if a high-confidence/high-ROI candidate needs coordinator validation.
+Stop only if the assigned surface is exhausted with no unresolved real reachable edge or indeterminate natural CIA path under the Post-AI Blind-Spot closure ledger, or if a high-confidence/high-ROI candidate needs coordinator validation while the remaining paths stay explicitly open.
 
 Required output:
 ${role.requiredOutput.map((item) => `- ${item}`).join("\n")}

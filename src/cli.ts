@@ -5,6 +5,7 @@ import { ProteusDb, createDefaultContract, type ChimeraSessionRow, type Coverage
 import { exportMarkdown } from "./exporter";
 import { ingestPaths } from "./ingest";
 import { createLab } from "./lab";
+import { calculateCvss } from "./cvss";
 import {
   broadcastChimeraMessage,
   chimeraDoctor,
@@ -76,6 +77,10 @@ function main(): void {
   }
   if (command === "opencode") {
     cmdOpenCode(subcommand, parsed);
+    return;
+  }
+  if (command === "cvss") {
+    cmdCvss(parsed);
     return;
   }
 
@@ -241,6 +246,12 @@ function cmdOpenCode(subcommand: string | undefined, parsed: ParsedArgs): void {
     default:
       throw new Error("Usage: proteus opencode install|doctor [--root <path>] [--force]");
   }
+}
+
+function cmdCvss(parsed: ParsedArgs): void {
+  const vector = getString(parsed, "vector") ?? parsed.command.slice(1).join("");
+  if (!vector) throw new Error("cvss requires --vector <CVSS vector> or a positional CVSS vector");
+  console.log(JSON.stringify(calculateCvss(vector), null, 2));
 }
 
 function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
@@ -1684,6 +1695,19 @@ function isHelpRequested(parsed: ParsedArgs): boolean {
 }
 
 function printCommandHelp(command: string | undefined): void {
+  if (command === "cvss") {
+    console.log(`Proteus CVSS calculator
+
+Usage:
+  proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
+  proteus cvss <CVSS:3.0|3.1|4.0/...>
+
+Calculates a validated CVSS v3.0, v3.1, or v4.0 vector deterministically.
+The result includes the normalized vector, score, severity, component scores,
+parsed metrics, and short metric-selection guidance.
+`);
+    return;
+  }
   if (command === "plan-round") {
     console.log(`Proteus plan-round
 
@@ -1712,6 +1736,7 @@ function printHelp(): void {
 Usage:
   proteus init [--root <path>] [--name <target>]
   proteus status [--root <path>]
+  proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
   proteus opencode install [--root <path>] [--force]

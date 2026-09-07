@@ -10,15 +10,18 @@ The goal is not to read every file. The goal is to learn the system well enough
 to choose high-ROI offensive branches and avoid obvious, known, or exhausted
 paths.
 
-Follow the Proteus base research contract. Treat every fact as future map
-material: record it, link it, and use it to steer the next move.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md).
+This skill adds source-mapping and reverse-engineering method; do not restate
+the base contract in the handoff. Treat every fact as future map material:
+record it, link it, and use it to steer the next move.
 
 ## Operating Method
 
 1. Recover current Proteus memory first: campaign, active rounds, surfaces,
    branches, prior findings, reports, decisions, killed paths, and revisit
    conditions.
-2. Select narrow surfaces by ROI, not by directory size. Prefer boundaries with
+2. Build a broad current-state map before selecting narrow surfaces by ROI, not
+   by directory size or recent-change visibility. Prefer boundaries with
    attacker input, authority decisions, state transitions, parser/serializer
    differences, runtime divergence, recent changes, or cross-component effects.
 3. Trace attacker-controlled input through validation, normalization, storage,
@@ -37,10 +40,12 @@ material: record it, link it, and use it to steer the next move.
 8. Use a narrow harness or calibrated fuzzing when static reading cannot resolve
    input reactions, state transitions, parser differences, or hidden invariants.
    Record the oracle, corpus, mutations, and what the run taught you.
+9. Once evidence establishes a real sink, load `post-ai-blind-spots` and turn
+   the reachable source map into its complete closure ledger. Reading every file
+   is not required; classifying every real reachable edge of the sink is.
 
 ## Research Priorities
 
-- Recently introduced or recently refactored trust boundaries.
 - Components where documented behavior, tests, and implementation disagree.
 - Paths where local validation and downstream use rely on different
   representations.
@@ -51,12 +56,16 @@ material: record it, link it, and use it to steer the next move.
 - Low-level primitives that appear harmless alone but may feed chaining:
   canonicalization drift, ordering, race/lifecycle effects, partial failure,
   object identity confusion, or stale derived state.
+- Recent changes only when current-state evidence points to a concrete
+  regression, variant, incomplete fix, or version question.
 
 ## Anti-Patterns
 
 - Do not enumerate the whole repo as a substitute for choosing a surface.
 - Do not chase TODO/FIXME, old fixes, or changelog hints as primary targets
   unless there is fresh bypass, regression, incomplete-fix, or chain evidence.
+- Do not use diffs or patch archaeology as the default map. Public change
+  history is supporting intel and tends to over-select crowded, obvious paths.
 - Do not kill a weakly framed idea before testing whether a stronger framing
   exists through state, authority, or cross-component impact.
 - Do not keep low-ROI surfaces alive after they are covered, expected, or
@@ -66,10 +75,15 @@ material: record it, link it, and use it to steer the next move.
 - Do not call a surface covered after checking only the final application
   wrapper when native, upstream, protocol, or alternate-consumer code remains
   reachable and relevant.
+- Do not abandon a proven high-ROI sink because its remaining paths are hard or
+  slow. Close the plausible paths or cite evidence that a binding gate failed.
 
 ## Handoffs
 
 - Use `chaining` when a behavior has side effects but no direct impact.
+- Use `post-ai-blind-spots` when a real sink exists, behavior looks correct or
+  intentional, validation may repeat the implementation premise, or a terminal
+  sink decision is being considered.
 - Use `fuzzing` when an input model, parser, state machine, or adapter boundary
   needs calibrated reaction learning.
 - Use Cicada when a branch has signal and a specific blocker requiring bypass,
@@ -113,6 +127,7 @@ Required output:
   ],
   "handoffs": [],
   "memoryToRecord": [],
+  "postAiBlindSpotReview": null,
   "contractSignature": {}
 }
 ```

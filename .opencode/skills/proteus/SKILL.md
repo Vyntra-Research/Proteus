@@ -25,29 +25,21 @@ behavior. Do not reduce research to a fixed bug-class checklist. Work through
 primitives, invariants, trust boundaries, state transitions, interpretation
 gaps, competing sources of truth, side effects, and capability amplification.
 
+For each selected surface, use a zero-day research standard. Cover the relevant
+application path and its fundamental layers: native code, upstream dependencies,
+parsers, protocols, generated artifacts, runtime boundaries, alternate
+consumers, and gadgets. Use calibrated fuzzing when reading alone cannot settle
+behavior. A quick pass is not evidence of coverage. Record each untested layer
+as out of scope, unreachable, low ROI, or blocked, with the reason.
+
 ## Base Contract
 
-All Proteus roles and skills must follow
-`plugins/proteus/templates/base-research-contract.md`.
-
-Every specialist output, checkpoint, and final round summary must include:
-
-```json
-{
-  "contractSignature": {
-    "status": "compliant|deviated|blocked",
-    "signedBy": "proteus-role-name",
-    "attackerModel": "...",
-    "heuristicCoverage": [],
-    "antiSlopCheck": "...",
-    "deviations": [],
-    "deviationRepair": null
-  }
-}
-```
-
-If the role deviated from the contract, it must name the deviation, repair it,
-and continue from the corrected state.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md)
+before starting or resuming campaign work. Re-read it for a material pivot,
+exhaustion claim, or finding handoff. Do not paste the full contract or this
+skill into campaign prompts. Give delegated agents the installed skill name,
+their bounded assignment, the active campaign facts, and any task-specific
+gates they need.
 
 ## Coordinator Responsibilities
 
@@ -61,6 +53,9 @@ The coordinator must:
 - delegate bounded fronts to the right skill or role;
 - keep memory current as work changes future decisions;
 - enforce validation gates and anti-slop checks;
+- require an impact-elevation pass before any finding is delivered;
+- require a `postAiBlindSpotReview` after a real sink is established and before
+  any terminal sink disposition;
 - kill, downgrade, watch, or promote based on evidence;
 - checkpoint after meaningful progress or branch-score changes.
 
@@ -78,7 +73,8 @@ the relevant heuristic family, expected artifact, and kill criteria.
 When available and allowed:
 
 - Use goal/campaign mechanisms only for explicit persistent objectives.
-- Use subagents for independent bounded fronts, not vague broad review.
+- Use native subagents for vertical help on the same bounded task. Use separate
+  co-agents only for distinct horizontal sinks or surfaces.
 - Keep the coordinator responsible for memory, ROI, gates, and final decisions.
 - If MCP/CLI/subagents are unavailable, continue manually and record the
   limitation in the round log.
@@ -115,9 +111,9 @@ tasks, prefer ordinary subagents when they are available.
 The coordinator leads the campaign, but Chimera is not a step-by-step remote
 control mode. Launch a co-agent with enough context, scope, heuristics, access
 limits, expected artifact, and stop condition for it to reason independently.
-After launch, let it work. Observe through unread polling, workflow snapshots,
-heartbeats, snapshots, and checkpoints instead of interrupting every command or
-minor branch choice.
+After launch, let it work. Observe through unread polling, latest
+agent-authored snapshots, workflow snapshots, heartbeats, and checkpoints
+instead of interrupting every command or minor branch choice.
 
 Before launching Chimera agents:
 
@@ -131,7 +127,8 @@ Before launching Chimera agents:
 - include enough workspace/research context in the goal or dossier material for
   the co-agent to understand the target, current campaign state, active
   hypothesis, relevant prior findings, killed paths, constraints, intended
-  strategy, and applicable Proteus heuristics/gates;
+  strategy, and applicable campaign gates. Refer to installed Proteus skills by
+  name instead of copying their complete text into the dossier;
 - include the local dedupe and intel baseline the agent must check before deep
   work: `proteus query similar`, `proteus query duplicates`, active branches,
   recent decisions, findings, reports, killed paths, and any public-known or
@@ -141,8 +138,8 @@ Before launching Chimera agents:
 - check `proteus chimera list --root <workspace> --active` before creating new
   agents; inspect role, goal, status, `labDir`, and `opencodeSessionId`;
   create a new co-agent only when there is a distinct front, role, model, or
-  lab need, otherwise continue with `poll`, `workflow-snapshot`, `heartbeat`,
-  or a targeted `send`;
+  lab need, otherwise continue with `poll`, `chimera snapshot` without
+  `--body`, `workflow-snapshot`, `heartbeat`, or a targeted `send`;
 - choose the access mode deliberately.
 
 Access modes:
@@ -168,9 +165,11 @@ proteus chimera swarm --root <workspace> --plan chimera-swarm.json
 
 `start` creates the lab, writes the dossier and contract, and starts OpenCode
 bootstrap automatically. Do not follow every `start` with `run`. `starting`
-and `running` are the only live session states. `stopped` means the session is
-persisted and reusable, not necessarily that a live agent is connected and
-listening. `kill`, `close`, failed runs, completed runs, and legacy parked or
+means the runner exists but the co-agent has not emitted reasoning, text, or
+tool progress yet. `running` begins only after that progress is observed.
+`stopped` means the session is persisted and reusable, not necessarily that a
+live agent is connected and listening. `kill`, `close`, failed runs, completed
+runs, and legacy parked or
 error states all resolve to a stopped session with verdict details stored separately.
 Use normal `send` to queue a message in the session inbox. Use `send --priority`
 when the destination should be nudged to poll soon. Use
@@ -197,6 +196,9 @@ Coordinator duties:
   historical sessions outside the active campaign set;
 - use `proteus chimera poll` to read Proteus-brokered messages and session
   control status;
+- use `proteus chimera snapshot --id <CH-ID>` without `--body` to read the
+  latest agent-authored state snapshot. Do not add `--body` unless you are the
+  Chimera agent writing your own concise state summary;
 - use `proteus chimera workflow-snapshot` to inspect recent OpenCode assistant
   messages without tool-output noise;
 - use `proteus chimera recover --id <CH-ID>` when status, pid, or OpenCode
@@ -228,6 +230,9 @@ Coordinator duties:
 - treat `proteus chimera poll` as the authoritative Proteus broker history:
   coordinator messages, agent posts, snapshots, heartbeat, kill/close events,
   and latest snapshots. It is not the full raw OpenCode chat transcript;
+- treat `proteus chimera snapshot --id <CH-ID>` with no `--body` as a read-only
+  shortcut for latest agent-authored snapshot state. It is not an OpenCode
+  transcript export;
 - for large co-agent snapshots, read the bounded preview first. If `poll`
   marks a snapshot as `bodyTruncated`, use `fullBodyPath` to inspect the full
   `snapshot.md` only when the complete body is needed for a decision;
@@ -278,8 +283,9 @@ direct questions and messages that materially affect their branch.
 Before creating a new Chimera agent, prefer to reuse an active or stopped
 session with the same role/front/lab context. Use `proteus chimera list` to
 check existing sessions in the active campaign set, then continue with `poll`,
-`workflow-snapshot`, `heartbeat`, `send`, `send --priority`, or `run --message`
-only when the session is actually parked and should start another work cycle.
+`chimera snapshot` without `--body`, `workflow-snapshot`, `heartbeat`, `send`,
+`send --priority`, or `run --message` only when the session is actually parked
+and should start another work cycle.
 Start a new co-agent only when the campaign needs a distinct front, model,
 access mode, or independent lab.
 
@@ -368,8 +374,8 @@ Use the runtime for state, not for inventing reasoning:
   `latestCheckpoint` first. Follow the section-specific pagination cursors when
   `hasMore` is true instead of treating the first bounded page as complete.
 - `proteus list rounds --status active` before creating a new plan.
-- `proteus query similar` to see duplicate/report coverage and memory matches.
-- `proteus query duplicates` for narrow finding/report dedupe.
+- `proteus query similar` to see ranked prior research coverage and broader memory matches.
+- `proteus query duplicates` for ranked dedupe across findings, reports, research logs, watchlists, surfaces, hypotheses, branches, and decisions.
 - `proteus query memory`, `list ...`, and `show ...` for broader state recovery.
 - `record surface|hypothesis|evidence|decision|gate|agent-output` when a fact,
   branch, validation result, or decision changes future work.
@@ -381,10 +387,24 @@ Use the runtime for state, not for inventing reasoning:
   `branch update --id <B> --status open|testing|killed|promoted|blocked` for
   hypothesis-tree branches. A disproved hypothesis uses `discarded`; a killed
   branch uses `killed`. Verify the returned `fromStatus` and `toStatus`.
+- Treat `lifecycleReview.pendingReview: true` as a state-integrity task. Read
+  the listed decisions, then use `nextSuggestedActions` to reconcile the prior
+  structured record. The action identifies the record and valid update tool
+  but never chooses the status. Do not create a replacement record only to make
+  an older status match its decisions.
 - `campaign checkpoint` after meaningful progress. Supply the complete
   `contractSignature`; Proteus rejects missing or empty attestations. If a
   promotion or completion gate rejects the latest checkpoint, repair the exact
   fields named in `Contract diagnostics` rather than guessing at the schema.
+
+For dedupe, issue separate searches for the candidate name, mechanism, attacker
+input and sink, component, and impact. Do not rely on one long prose query. Read
+the strongest returned records and repeat the check before promotion if the
+candidate framing changes.
+
+When `record hypothesis` or `record branch` reports possible prior coverage,
+inspect the returned record before developing the new branch. If it represents
+the same work, preserve the old record and reconcile its status explicitly.
 
 If exactly one campaign is active, Proteus auto-links new hypotheses, evidence,
 decisions, validation gates, and agent outputs to that campaign. If there are
@@ -399,6 +419,7 @@ Each round needs:
 Round objective:
 Current target understanding:
 Selected high-ROI surfaces or branches:
+Relevant low-level, native, upstream, fuzzing, and alternate-route coverage:
 Skipped surfaces and why:
 Prior killed paths to avoid:
 Agent fronts:
@@ -429,6 +450,9 @@ Use the dedicated skills for tactical execution:
   side effects, trust boundaries, recent-risk areas, and branch material.
 - `chaining`: non-obvious exploit chains, side effects, authority transitions,
   cross-component coupling, and primitive strengthening.
+- `post-ai-blind-spots`: complete forward and backward closure of every real
+  reachable natural path around an established sink, including intentional-
+  looking behavior and shared premises across implementation and validation.
 - `fuzzing`: calibrated input-reaction learning, differential probes, oracles,
   harnesses, and mutation strategy.
 - `web-intel`: public-known status, expected behavior, advisories, changelogs,
@@ -506,9 +530,11 @@ Resolve from:
 4. Claude Code installed plugin package root, when exposed
 ```
 
-For Codex subagents, the coordinator should read the relevant contract and
-inline the role requirements into the subagent prompt together with objective,
-surface, evidence, and kill criteria.
+For Codex subagents, name the relevant installed Proteus skill and include the
+objective, surface, evidence, overlap boundary, expected handoff, and kill
+criteria. Do not inline an entire role contract or skill when the runtime can
+load it directly. Inline only the few task-specific constraints that would be
+unsafe to omit.
 
 ## Validation Gates
 
@@ -517,8 +543,8 @@ A candidate may become report-grade only if:
 ```text
 G1: root cause is in the target.
 G2: attacker input is realistic and external.
-G3: impact is concrete and security-relevant.
-G4: configuration is documented, default, or normal correct practice.
+G3: the strongest claimed impact survived a documented impact-elevation pass in a common scenario.
+G4: configuration is documented, default, or normal correct practice; no resource, trust, isolation, or security limit was weakened to create the result.
 G5: negative controls pass.
 G6: local findings/reports/logs do not already cover it.
 G7: public-known, advisory, issue, changelog, and expected-behavior checks are complete and documented.
@@ -526,7 +552,15 @@ G8: affected version, likely introduction point, and timeline are understood.
 G9: Skeptic has tried to refute or downgrade the finding and the rebuttal is recorded.
 G10: old/obvious classes have exceptional impact or are killed.
 G11: PoC does not depend on artificial lab help.
+G12: relevant application, low-level/native, upstream, fuzzing, and alternate-route layers were checked or marked not applicable with evidence.
+G13: the final scenario uses the highest realistic CIA impact found without forced assumptions.
+G14: every real sink claimed as safe, killed, abandoned, or exhausted has a complete postAiBlindSpotReview with no unresolved reachable edge or indeterminate natural CIA path.
 ```
+
+Reducing a memory limit to force OOM, disabling a control, adding a trusted
+certificate, widening permissions, or changing target code does not pass the
+realism gates unless that condition is part of documented normal operation and
+the attacker can cause it through the product itself.
 
 Do not say "novel", "not known", or "report-grade" unless local dedupe,
 public-known/timeline, negative controls, attacker model, and Skeptic review are
@@ -561,34 +595,9 @@ what would reopen it, and what later agents should avoid repeating.
 
 ## Report Writing Discipline
 
-When drafting a report, follow any user, program, or platform template first.
-Do not invent extra sections or heavy formatting unless they are necessary for
-triage. Write for a human triager with zero context: natural, objective,
-concise, and precise.
-
-The report should explain the flaw, realistic impact, attacker boundary, target
-root cause, and PoC legitimacy organically, usually inside the summary and the
-existing template fields. Do not turn validation gates into a visible checklist,
-questionnaire, or legal-style document. Do not mention Proteus, internal memory,
-agent roles, workspace paths, or research workflow in a submitted report.
-
-When adjusting report text, write as the external triage report itself. Do not
-respond to the user, narrate local changes, cite local paths, or preserve
-workspace-only context.
-
-Avoid common LLM report habits: "this is not about X, it is about Y",
-defensive phrasing, unnecessary caveats, Impact-section reframing, "Why this
-matters", "This matters", "This is security relevant because", em dashes,
-filler, and generic hype.
-
-Impact should preferably be concise bullet points listing concrete consequences
-only. Do not use Impact to explain prerequisites, caveats, or why the issue is
-security relevant. Put necessary conditions in Summary, PoC Details, or
-Limitations.
-
-Steps To Reproduce should use action title plus expected output. Do not embed
-long redundant explanations inside steps. Put output interpretation in PoC
-Details or after the steps, without repeating the same proof.
+Use `poc-exploit` for PoC and external-report work. Pass the accepted evidence
+and the user's or program's template, then check that the draft contains no
+Proteus, role, local-path, or internal-workflow details.
 
 ## Final Output
 
@@ -603,6 +612,10 @@ When ending a round or handoff, report:
   "highestRoiNextMove": "...",
   "recordsCreated": [],
   "validationStatus": {},
+  "depthCoverage": {},
+  "impactElevation": {},
+  "realismCheck": {},
+  "postAiBlindSpotReviews": [],
   "remainingBlockers": [],
   "contractSignature": {}
 }

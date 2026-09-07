@@ -23,7 +23,9 @@ capability, and kill conditions.
    parser/runtime disagreement, partial failure, replay/retry, and component
    coupling.
 4. Reduce preconditions. Prefer paths that use documented/default behavior and
-   realistic attacker actions.
+   realistic attacker actions. Prove that every link and the complete chain
+   occur in one natural deployment; compatibility between isolated parts is not
+   enough.
 5. Design the smallest probe that can prove or kill each bypass. Use fuzzing
    only when the branch needs calibrated input-reaction learning.
 6. Define reliability and failure modes before PoC. If the chain only works
@@ -38,6 +40,9 @@ capability, and kill conditions.
   condition.
 - Do not discard a primitive before testing whether a stronger impact framing
   exists through authority, state, or side effects.
+- Do not stop a high-ROI branch because bypass work is slow or complex while
+  plausible paths remain. Stop when evidence closes them or a binding gate
+  fails.
 
 Required input:
 

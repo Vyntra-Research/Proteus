@@ -31,30 +31,12 @@ as out of scope, unreachable, low ROI, or blocked, with the reason.
 
 ## Base Contract
 
-All Proteus roles and skills must follow
-`plugins/proteus/templates/base-research-contract.md`.
-
-Every specialist output, checkpoint, and final round summary must include:
-
-```json
-{
-  "contractSignature": {
-    "status": "compliant|deviated|blocked",
-    "signedBy": "proteus-role-name",
-    "attackerModel": "...",
-    "heuristicCoverage": [],
-    "depthCoverage": {},
-    "impactElevation": {},
-    "realismCheck": {},
-    "antiSlopCheck": "...",
-    "deviations": [],
-    "deviationRepair": null
-  }
-}
-```
-
-If the role deviated from the contract, it must name the deviation, repair it,
-and continue from the corrected state.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md)
+before starting or resuming campaign work. Re-read it for a material pivot,
+exhaustion claim, or finding handoff. Do not paste the full contract or this
+skill into campaign prompts. Give delegated agents the installed skill name,
+their bounded assignment, the active campaign facts, and any task-specific
+gates they need.
 
 ## Coordinator Responsibilities
 
@@ -69,6 +51,8 @@ The coordinator must:
 - keep memory current as work changes future decisions;
 - enforce validation gates and anti-slop checks;
 - require an impact-elevation pass before any finding is delivered;
+- require a `postAiBlindSpotReview` after a real sink is established and before
+  any terminal sink disposition;
 - kill, downgrade, watch, or promote based on evidence;
 - checkpoint after meaningful progress or branch-score changes.
 
@@ -86,7 +70,8 @@ the relevant heuristic family, expected artifact, and kill criteria.
 When available and allowed:
 
 - Use goal/campaign mechanisms only for explicit persistent objectives.
-- Use subagents for independent bounded fronts, not vague broad review.
+- Use native subagents for vertical help on the same bounded task. Use separate
+  co-agents only for distinct horizontal sinks or surfaces.
 - Keep the coordinator responsible for memory, ROI, gates, and final decisions.
 - If MCP/CLI/subagents are unavailable, continue manually and record the
   limitation in the round log.
@@ -139,7 +124,8 @@ Before launching Chimera agents:
 - include enough workspace/research context in the goal or dossier material for
   the co-agent to understand the target, current campaign state, active
   hypothesis, relevant prior findings, killed paths, constraints, intended
-  strategy, and applicable Proteus heuristics/gates;
+  strategy, and applicable campaign gates. Refer to installed Proteus skills by
+  name instead of copying their complete text into the dossier;
 - include the local dedupe and intel baseline the agent must check before deep
   work: `proteus query similar`, `proteus query duplicates`, active branches,
   recent decisions, findings, reports, killed paths, and any public-known or
@@ -461,6 +447,9 @@ Use the dedicated skills for tactical execution:
   side effects, trust boundaries, recent-risk areas, and branch material.
 - `chaining`: non-obvious exploit chains, side effects, authority transitions,
   cross-component coupling, and primitive strengthening.
+- `post-ai-blind-spots`: complete forward and backward closure of every real
+  reachable natural path around an established sink, including intentional-
+  looking behavior and shared premises across implementation and validation.
 - `fuzzing`: calibrated input-reaction learning, differential probes, oracles,
   harnesses, and mutation strategy.
 - `web-intel`: public-known status, expected behavior, advisories, changelogs,
@@ -538,9 +527,11 @@ Resolve from:
 4. Claude Code installed plugin package root, when exposed
 ```
 
-For Codex subagents, the coordinator should read the relevant contract and
-inline the role requirements into the subagent prompt together with objective,
-surface, evidence, and kill criteria.
+For Codex subagents, name the relevant installed Proteus skill and include the
+objective, surface, evidence, overlap boundary, expected handoff, and kill
+criteria. Do not inline an entire role contract or skill when the runtime can
+load it directly. Inline only the few task-specific constraints that would be
+unsafe to omit.
 
 ## Validation Gates
 
@@ -560,6 +551,7 @@ G10: old/obvious classes have exceptional impact or are killed.
 G11: PoC does not depend on artificial lab help.
 G12: relevant application, low-level/native, upstream, fuzzing, and alternate-route layers were checked or marked not applicable with evidence.
 G13: the final scenario uses the highest realistic CIA impact found without forced assumptions.
+G14: every real sink claimed as safe, killed, abandoned, or exhausted has a complete postAiBlindSpotReview with no unresolved reachable edge or indeterminate natural CIA path.
 ```
 
 Reducing a memory limit to force OOM, disabling a control, adding a trusted
@@ -600,34 +592,9 @@ what would reopen it, and what later agents should avoid repeating.
 
 ## Report Writing Discipline
 
-When drafting a report, follow any user, program, or platform template first.
-Do not invent extra sections or heavy formatting unless they are necessary for
-triage. Write for a human triager with zero context: natural, objective,
-concise, and precise.
-
-The report should explain the flaw, realistic impact, attacker boundary, target
-root cause, and PoC legitimacy organically, usually inside the summary and the
-existing template fields. Do not turn validation gates into a visible checklist,
-questionnaire, or legal-style document. Do not mention Proteus, internal memory,
-agent roles, workspace paths, or research workflow in a submitted report.
-
-When adjusting report text, write as the external triage report itself. Do not
-respond to the user, narrate local changes, cite local paths, or preserve
-workspace-only context.
-
-Avoid common LLM report habits: "this is not about X, it is about Y",
-defensive phrasing, unnecessary caveats, Impact-section reframing, "Why this
-matters", "This matters", "This is security relevant because", em dashes,
-filler, and generic hype.
-
-Impact should preferably be concise bullet points listing concrete consequences
-only. Do not use Impact to explain prerequisites, caveats, or why the issue is
-security relevant. Put necessary conditions in Summary, PoC Details, or
-Limitations.
-
-Steps To Reproduce should use action title plus expected output. Do not embed
-long redundant explanations inside steps. Put output interpretation in PoC
-Details or after the steps, without repeating the same proof.
+Use `poc-exploit` for PoC and external-report work. Pass the accepted evidence
+and the user's or program's template, then check that the draft contains no
+Proteus, role, local-path, or internal-workflow details.
 
 ## Final Output
 
@@ -645,6 +612,7 @@ When ending a round or handoff, report:
   "depthCoverage": {},
   "impactElevation": {},
   "realismCheck": {},
+  "postAiBlindSpotReviews": [],
   "remainingBlockers": [],
   "contractSignature": {}
 }

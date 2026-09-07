@@ -18,6 +18,7 @@ const prompts_1 = require("./prompts");
 const roles_1 = require("./roles");
 const exporter_1 = require("./exporter");
 const lab_1 = require("./lab");
+const cvss_1 = require("./cvss");
 const chimera_1 = require("./chimera");
 const paths_1 = require("./paths");
 const tools = [
@@ -46,6 +47,15 @@ const tools = [
                 memory: db.memoryStats()
             };
         })
+    },
+    {
+        name: "proteus_calculate_cvss",
+        title: "Calculate CVSS",
+        description: "Validate and calculate a CVSS v3.0, v3.1, or v4.0 vector. Supply explicit metrics; Proteus never infers them from finding prose. PR:L is a normal account and PR:H is a local owner-like role, not a global administrator. Use AC:H or v4 AT:P for real prerequisite conditions such as uncommon configuration, timing, races, or state outside attacker control. Low impact is limited or contained; High requires broad or total loss, or restricted assets with direct serious value.",
+        inputSchema: strictSchema({
+            vector: stringProp("Complete CVSS:3.0, CVSS:3.1, or CVSS:4.0 vector. Include every required base metric. Example: CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N.")
+        }, ["vector"]),
+        handler: ({ vector }) => (0, cvss_1.calculateCvss)(str(vector))
     },
     {
         name: "proteus_opencode_install",

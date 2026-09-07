@@ -66,6 +66,7 @@ proteus update round --root <target-root> --id <id> --status completed
 proteus update rounds --root <target-root> --from planned --status superseded --keep-latest
 proteus update surface --root <target-root> --id <id> --status exhausted --revisit "<condition>"
 proteus lab create --root <target-root> --candidate-id <id> --name <name>
+proteus cvss --vector "<complete CVSS:3.0, CVSS:3.1, or CVSS:4.0 vector>"
 proteus export --root <target-root>
 ```
 

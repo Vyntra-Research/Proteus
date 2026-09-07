@@ -139,12 +139,85 @@ function runFail(args, cwd = tmpRoot, extraEnv = {}) {
 }
 
 try {
+  const baseResearchContract = fs.readFileSync(
+    path.join(repoRoot, "plugins", "proteus", "templates", "base-research-contract.md"),
+    "utf8"
+  );
+  for (const requiredPolicy of [
+    "Start from the current functional system",
+    "elapsed time",
+    "Creative chaining does not authorize an artificial chain",
+    "Post-AI blind-spot closure",
+    "A CVE, advisory, issue"
+  ]) {
+    if (!baseResearchContract.includes(requiredPolicy)) {
+      throw new Error(`base research contract missing policy: ${requiredPolicy}`);
+    }
+  }
+  for (const skillName of [
+    "continuous-vuln-research",
+    "codebase-research",
+    "chaining",
+    "post-ai-blind-spots",
+    "checkpoint",
+    "fuzzing",
+    "poc-exploit",
+    "web-intel",
+    "web-research"
+  ]) {
+    const skill = fs.readFileSync(
+      path.join(repoRoot, "plugins", "proteus", "skills", skillName, "SKILL.md"),
+      "utf8"
+    );
+    if (!skill.includes("../../templates/base-research-contract.md")) {
+      throw new Error(`${skillName} does not reference the canonical research contract`);
+    }
+  }
+  const postAiBlindSpotSkill = fs.readFileSync(
+    path.join(repoRoot, "plugins", "proteus", "skills", "post-ai-blind-spots", "SKILL.md"),
+    "utf8"
+  );
+  for (const requiredPostAiRule of [
+    "Total coverage is a rule, not a relative score",
+    "natural path reachable in",
+    "unresolvedReachableEdges",
+    "Finding acceptance and sink closure are separate",
+    "Never invent product states or lab glue"
+  ]) {
+    if (!postAiBlindSpotSkill.includes(requiredPostAiRule)) {
+      throw new Error(`post-ai-blind-spots missing closure rule: ${requiredPostAiRule}`);
+    }
+  }
   const planHelp = run(["plan-round", "--help"], helpRoot);
   if (!planHelp.includes("Proteus plan-round") || !planHelp.includes("Usage:")) {
     throw new Error("plan-round --help did not print command help");
   }
   if (fs.existsSync(path.join(helpRoot, ".vros"))) {
     throw new Error("plan-round --help created target memory state");
+  }
+  const cvssCases = [
+    ["CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:N", 3.8],
+    ["CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 6.3],
+    ["CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N", 5.3],
+    ["CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N", 9.3],
+    ["CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:U/C:N/I:L/A:N/CR:X/IR:X/AR:X", 4.3],
+    ["CVSS:3.0/AV:N/AC:L/PR:L/UI:N/S:U/C:L/I:L/A:N/CR:X/IR:X/AR:X", 5.4]
+  ];
+  for (const [vector, expectedScore] of cvssCases) {
+    const result = JSON.parse(run(["cvss", "--vector", vector], helpRoot));
+    if (result.score !== expectedScore || result.requestedVector !== vector) {
+      throw new Error(`CVSS CLI score mismatch for ${vector}: ${JSON.stringify(result)}`);
+    }
+  }
+  const duplicateMetricError = runFail([
+    "cvss",
+    "CVSS:4.0/AV:N/AV:L/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N"
+  ], helpRoot);
+  if (!duplicateMetricError.includes("Duplicate CVSS metric: AV")) {
+    throw new Error("CVSS CLI accepted a duplicate metric");
+  }
+  if (fs.existsSync(path.join(helpRoot, ".vros"))) {
+    throw new Error("CVSS CLI created target memory state");
   }
   const opencodeInstall = JSON.parse(run(["opencode", "install", "--root", opencodeRoot], opencodeRoot));
   if (!opencodeInstall.ok || !fs.existsSync(path.join(opencodeRoot, "opencode.json"))) {
@@ -158,6 +231,7 @@ try {
     path.join(opencodeRoot, ".opencode", "commands", "proteus.md"),
     path.join(opencodeRoot, ".opencode", "skills", "proteus", "SKILL.md"),
     path.join(opencodeRoot, ".opencode", "skills", "proteus-chaining", "SKILL.md"),
+    path.join(opencodeRoot, ".opencode", "skills", "proteus-post-ai-blind-spots", "SKILL.md"),
     path.join(opencodeRoot, ".opencode", "agents", "proteus-loom.md")
   ]) {
     if (!fs.existsSync(requiredOpenCodeAsset)) {
@@ -504,7 +578,7 @@ try {
   run(["init", "--root", chimeraGeneralistRoot, "--name", "chimera-generalist-smoke"], chimeraGeneralistRoot);
   run(["chimera", "start", "--root", chimeraGeneralistRoot, "--role", "generalist", "--goal", "Smoke generalist skills"], chimeraGeneralistRoot);
   const generalistSkillsDir = path.join(chimeraGeneralistRoot, ".vros/chimera/sessions/CH-0001/skills");
-  for (const expected of ["chimera-agent.md", "chaining.md", "codebase-research.md", "fuzzing.md", "poc-exploit.md", "web-intel.md", "web-research.md"]) {
+  for (const expected of ["chimera-agent.md", "chaining.md", "codebase-research.md", "post-ai-blind-spots.md", "fuzzing.md", "poc-exploit.md", "web-intel.md", "web-research.md"]) {
     if (!fs.existsSync(path.join(generalistSkillsDir, expected))) {
       throw new Error(`generalist Chimera session did not inject expected skill: ${expected}`);
     }
