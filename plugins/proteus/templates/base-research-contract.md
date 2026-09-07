@@ -51,6 +51,23 @@ specialist methods; they do not replace or restate these rules.
   for distinct horizontal sinks or surfaces. Give every delegated front a clear
   scope, known evidence, overlap boundary, expected handoff, and stop condition.
 
+## Post-AI blind-spot closure
+
+- After evidence establishes a real sink or attacker-influenced primitive, load
+  `post-ai-blind-spots`. Total coverage of that sink is mandatory before kill,
+  downgrade, abandonment, exhaustion, safety, or complete-coverage claims.
+- Total coverage is not relative to time or effort. Classify every real
+  reachable producer, transformation, representation, persistence layer,
+  lifecycle and recovery path, consumer, runtime or deployment mode, identity
+  or authority context, integration, side effect, and natural CIA composition.
+- Correct or intentional local behavior remains chain material. Passing tests,
+  prior review, model agreement, complexity, negative probes, or lack of an
+  obvious chain do not close an untested or indeterminate edge.
+- Never invent product states or lab glue. Every chain edge must exist naturally
+  in the same realistic deployment and preserve the declared attacker model.
+- AI provenance is only a routing label. Never open or promote a hypothesis from
+  code style, uniformity, age, or presumed AI authorship.
+
 ## Realism
 
 - Keep a realistic external attacker model. High privilege, insider access, or

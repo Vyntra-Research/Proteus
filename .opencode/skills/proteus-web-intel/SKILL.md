@@ -13,8 +13,10 @@ checkbox. It should actively change the map: kill duplicates, reveal expected
 behavior, identify version windows, explain maintainer intent, and suggest
 better pivots.
 
-Follow the Proteus base research contract. Prefer primary sources and record
-exact queries, dates, links, and conclusions.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md).
+This skill adds public-intelligence and timeline method; do not restate the base
+contract in the handoff. Prefer primary sources and record exact queries, dates,
+links, and conclusions.
 
 ## Operating Method
 
@@ -26,9 +28,10 @@ exact queries, dates, links, and conclusions.
    and maintainer comments.
 4. Build a timeline: likely introduction, affected versions, fix or non-fix
    status, regression windows, and current-version relevance.
-5. Decide whether the branch is duplicate, expected behavior, known but
-   under-exploited, fixed, incomplete fix, regression, or still novel enough to
-   test.
+5. Compare root cause, reachable mechanism, security boundary, affected
+   version or deployment, and fix boundary before deciding whether the branch
+   is duplicate, expected behavior, fixed, incomplete fix, regression, or still
+   worth testing.
 6. Feed discoveries back into codebase/chaining/fuzzing. Good intel should
    create sharper probes, not just citations.
 
@@ -38,6 +41,8 @@ exact queries, dates, links, and conclusions.
 - Treat TODO/FIXME and known fixes as learning material first, bounty target
   second.
 - Absence of public discussion is not proof of novelty.
+- A CVE, advisory, issue, or public patch is never duplicate proof by title or
+  bug class alone. It is a map of a known bug and its published fix boundary.
 - A known issue can still be useful if there is concrete evidence of bypass,
   incomplete fix, regression, unsupported but reachable mode, or a materially
   stronger chain.
@@ -52,6 +57,8 @@ exact queries, dates, links, and conclusions.
 - Do not claim "not known" without documented search coverage.
 - Do not let intel become procrastination. Once the timeline and duplicate risk
   are clear enough, return to testing.
+- Do not use recent-change visibility to choose the whole research surface.
+  Feed intel back into the current functional map.
 
 Required output:
 

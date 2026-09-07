@@ -40,6 +40,9 @@ record it, link it, and use it to steer the next move.
 8. Use a narrow harness or calibrated fuzzing when static reading cannot resolve
    input reactions, state transitions, parser differences, or hidden invariants.
    Record the oracle, corpus, mutations, and what the run taught you.
+9. Once evidence establishes a real sink, load `post-ai-blind-spots` and turn
+   the reachable source map into its complete closure ledger. Reading every file
+   is not required; classifying every real reachable edge of the sink is.
 
 ## Research Priorities
 
@@ -78,6 +81,9 @@ record it, link it, and use it to steer the next move.
 ## Handoffs
 
 - Use `chaining` when a behavior has side effects but no direct impact.
+- Use `post-ai-blind-spots` when a real sink exists, behavior looks correct or
+  intentional, validation may repeat the implementation premise, or a terminal
+  sink decision is being considered.
 - Use `fuzzing` when an input model, parser, state machine, or adapter boundary
   needs calibrated reaction learning.
 - Use Cicada when a branch has signal and a specific blocker requiring bypass,
@@ -121,6 +127,7 @@ Required output:
   ],
   "handoffs": [],
   "memoryToRecord": [],
+  "postAiBlindSpotReview": null,
   "contractSignature": {}
 }
 ```

@@ -68,6 +68,12 @@ const SKILL_ALIASES = [
       "Map a codebase for Proteus research through architecture, dataflow, trust boundaries, invariants, and high-ROI branch material."
   },
   {
+    source: "post-ai-blind-spots",
+    target: "proteus-post-ai-blind-spots",
+    description:
+      "Close every real reachable natural path around an established Proteus sink before terminal coverage decisions."
+  },
+  {
     source: "fuzzing",
     target: "proteus-fuzzing",
     description:
@@ -182,7 +188,7 @@ function installOpenCodeInstructions(targetRoot: string, result: OpenCodeInstall
 Proteus is available in this OpenCode project through:
 
 - the \`proteus\` skill for coordinator-led continuous vulnerability research;
-- specialist skills named \`proteus-chaining\`, \`proteus-codebase-research\`, \`proteus-fuzzing\`, \`proteus-web-intel\`, \`proteus-web-research\`, \`proteus-poc-exploit\`, and \`proteus-checkpoint\`;
+- specialist skills named \`proteus-chaining\`, \`proteus-codebase-research\`, \`proteus-post-ai-blind-spots\`, \`proteus-fuzzing\`, \`proteus-web-intel\`, \`proteus-web-research\`, \`proteus-poc-exploit\`, and \`proteus-checkpoint\`;
 - the local \`proteus\` MCP server, started through \`proteus-mcp\`;
 - the \`/proteus\` command for starting the coordinator workflow.
 

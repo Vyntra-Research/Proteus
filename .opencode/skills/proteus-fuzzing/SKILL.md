@@ -12,8 +12,9 @@ Use this skill when a narrow surface needs input-reaction learning. Fuzzing here
 is an investigative loop: model the input, perturb one dimension at a time,
 observe behavior, update the model, and use what is learned to sharpen a branch.
 
-Follow the Proteus base research contract. Do not create broad payload lists and
-call that research.
+Read and apply [`../../templates/base-research-contract.md`](../../templates/base-research-contract.md).
+This skill adds calibrated input-reaction work; do not restate the base contract
+in the handoff. Do not create broad payload lists and call that research.
 
 ## Operating Method
 
@@ -52,6 +53,9 @@ call that research.
   documented/correct behavior and have realistic security impact.
 - Do not stop at "it behaved weirdly"; explain what the behavior teaches about
   the system.
+- Do not abandon a high-ROI invariant because the model needs many bounded
+  iterations. Stop when its oracle or evidence closes the plausible paths, not
+  when the work becomes inconvenient.
 
 ## Handoffs
 

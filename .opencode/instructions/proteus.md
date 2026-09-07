@@ -3,7 +3,7 @@
 Proteus is available in this OpenCode project through:
 
 - the `proteus` skill for coordinator-led continuous vulnerability research;
-- specialist skills named `proteus-chaining`, `proteus-codebase-research`, `proteus-fuzzing`, `proteus-web-intel`, `proteus-web-research`, `proteus-poc-exploit`, and `proteus-checkpoint`;
+- specialist skills named `proteus-chaining`, `proteus-codebase-research`, `proteus-post-ai-blind-spots`, `proteus-fuzzing`, `proteus-web-intel`, `proteus-web-research`, `proteus-poc-exploit`, and `proteus-checkpoint`;
 - the local `proteus` MCP server, started through `proteus-mcp`;
 - the `/proteus` command for starting the coordinator workflow.
 

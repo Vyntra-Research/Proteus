@@ -30,6 +30,11 @@ enough to steer future decisions.
 8. Preserve whether work used current-state analysis, public-history intel, or
    both. Do not let an old diff or advisory become the apparent campaign goal
    after compaction.
+9. For every established real sink, preserve its `postAiBlindSpotReview` state:
+   covered classes, confirmed or refuted natural intersections, unresolved
+   reachable edges, disposition, and exact resume conditions. A compact
+   checkpoint may summarize the ledger but must not turn an indeterminate edge
+   into coverage.
 
 ## Anti-Patterns
 
@@ -65,6 +70,7 @@ Required output:
   "contextToPersist": [],
   "nextHighRoiMove": "...",
   "recordsToLink": [],
+  "postAiBlindSpotReviews": [],
   "contractSignature": {
     "status": "compliant|deviated|blocked",
     "signedBy": "proteus-role-name",

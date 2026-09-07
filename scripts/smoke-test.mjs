@@ -147,6 +147,7 @@ try {
     "Start from the current functional system",
     "elapsed time",
     "Creative chaining does not authorize an artificial chain",
+    "Post-AI blind-spot closure",
     "A CVE, advisory, issue"
   ]) {
     if (!baseResearchContract.includes(requiredPolicy)) {
@@ -157,6 +158,7 @@ try {
     "continuous-vuln-research",
     "codebase-research",
     "chaining",
+    "post-ai-blind-spots",
     "checkpoint",
     "fuzzing",
     "poc-exploit",
@@ -169,6 +171,21 @@ try {
     );
     if (!skill.includes("../../templates/base-research-contract.md")) {
       throw new Error(`${skillName} does not reference the canonical research contract`);
+    }
+  }
+  const postAiBlindSpotSkill = fs.readFileSync(
+    path.join(repoRoot, "plugins", "proteus", "skills", "post-ai-blind-spots", "SKILL.md"),
+    "utf8"
+  );
+  for (const requiredPostAiRule of [
+    "Total coverage is a rule, not a relative score",
+    "natural path reachable in",
+    "unresolvedReachableEdges",
+    "Finding acceptance and sink closure are separate",
+    "Never invent product states or lab glue"
+  ]) {
+    if (!postAiBlindSpotSkill.includes(requiredPostAiRule)) {
+      throw new Error(`post-ai-blind-spots missing closure rule: ${requiredPostAiRule}`);
     }
   }
   const planHelp = run(["plan-round", "--help"], helpRoot);
@@ -214,6 +231,7 @@ try {
     path.join(opencodeRoot, ".opencode", "commands", "proteus.md"),
     path.join(opencodeRoot, ".opencode", "skills", "proteus", "SKILL.md"),
     path.join(opencodeRoot, ".opencode", "skills", "proteus-chaining", "SKILL.md"),
+    path.join(opencodeRoot, ".opencode", "skills", "proteus-post-ai-blind-spots", "SKILL.md"),
     path.join(opencodeRoot, ".opencode", "agents", "proteus-loom.md")
   ]) {
     if (!fs.existsSync(requiredOpenCodeAsset)) {
@@ -560,7 +578,7 @@ try {
   run(["init", "--root", chimeraGeneralistRoot, "--name", "chimera-generalist-smoke"], chimeraGeneralistRoot);
   run(["chimera", "start", "--root", chimeraGeneralistRoot, "--role", "generalist", "--goal", "Smoke generalist skills"], chimeraGeneralistRoot);
   const generalistSkillsDir = path.join(chimeraGeneralistRoot, ".vros/chimera/sessions/CH-0001/skills");
-  for (const expected of ["chimera-agent.md", "chaining.md", "codebase-research.md", "fuzzing.md", "poc-exploit.md", "web-intel.md", "web-research.md"]) {
+  for (const expected of ["chimera-agent.md", "chaining.md", "codebase-research.md", "post-ai-blind-spots.md", "fuzzing.md", "poc-exploit.md", "web-intel.md", "web-research.md"]) {
     if (!fs.existsSync(path.join(generalistSkillsDir, expected))) {
       throw new Error(`generalist Chimera session did not inject expected skill: ${expected}`);
     }

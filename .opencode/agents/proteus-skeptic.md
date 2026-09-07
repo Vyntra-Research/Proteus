@@ -23,6 +23,11 @@ Argue the strongest case for:
 Do not be polite to weak findings. Prefer killing slop over preserving a shaky
 candidate.
 
+CVSS is classification after technical validity, not a gate. Never reject,
+downgrade, or request more work merely because the score is Medium or below a
+preferred threshold. Also do not accept a finding because the score is High or
+Critical.
+
 Required output:
 
 - refutation arguments;

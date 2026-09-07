@@ -60,8 +60,9 @@ conditions.
   agents can resume active context without searching the whole memory base.
 - Global learnings in `~/.vros/global.sqlite` for reusable cross-target memory
   such as validation patterns, tooling notes, and playbook material.
-- Specialist skills for codebase research, chaining, fuzzing, web intel,
-  web research, PoC/exploit development, checkpoints, and Chimera co-agents.
+- Specialist skills for codebase research, chaining, Post-AI blind-spot
+  closure, fuzzing, web intel, web research, PoC/exploit development,
+  checkpoints, and Chimera co-agents.
 - Validation gates that suppress weak hypotheses, duplicates, expected
   behavior, public-known issues, forced-vulnerable configs, and lab-created
   bugs.

@@ -13,6 +13,8 @@ const BASE_RESEARCH_CONTRACT = `Mandatory research gates:
 - Track kill conditions from the beginning and kill weak hypotheses early.
 - Reassess ROI after new evidence and prefer high-impact, non-obvious paths with realistic exploitability.
 - Do not abandon a real high-ROI sink because it became slow, complex, or repeatedly negative while plausible paths remain.
+- After evidence establishes a real sink, load the installed \`post-ai-blind-spots\` skill. Total coverage is mandatory before killing, abandoning, or declaring that sink safe or exhausted: classify every real reachable natural edge and CIA path, and keep untested or indeterminate paths open.
+- Correct or intentional local behavior, passing tests, prior review, model agreement, time, complexity, and lack of an obvious chain are not closure evidence. Do not infer a vulnerability from presumed AI authorship or invent product states or lab glue.
 - Build chains only from links that occur naturally in the same documented, recommended, or demonstrably common deployment. Prove every link and the full composition; do not supply missing glue in the lab.
 - Before delivering a finding, perform impact elevation: test realistic chains, alternate routes, side effects, authority transitions, and stronger CIA outcomes. Report the strongest impact that works in a common, correctly configured scenario without forced assumptions.
 - Do not promote speculative findings. A candidate needs attacker control, root cause in the target, concrete impact, correct-practice configuration, negative controls, dedupe, public-known checks, and rebutted objections.
@@ -56,7 +58,7 @@ Before any report-grade claim, record the exact intel/timeline searches performe
 If public intel is unavailable or Skeptic has unresolved objections, keep the verdict at Candidate or Watchlist.
 
 Stop condition:
-Stop only if the assigned surface is exhausted under this heuristic, or if a high-confidence/high-ROI candidate needs coordinator validation.
+Stop only if the assigned surface is exhausted with no unresolved real reachable edge or indeterminate natural CIA path under the Post-AI Blind-Spot closure ledger, or if a high-confidence/high-ROI candidate needs coordinator validation while the remaining paths stay explicitly open.
 
 Required output:
 ${role.requiredOutput.map((item) => `- ${item}`).join("\n")}

@@ -51,6 +51,8 @@ The coordinator must:
 - keep memory current as work changes future decisions;
 - enforce validation gates and anti-slop checks;
 - require an impact-elevation pass before any finding is delivered;
+- require a `postAiBlindSpotReview` after a real sink is established and before
+  any terminal sink disposition;
 - kill, downgrade, watch, or promote based on evidence;
 - checkpoint after meaningful progress or branch-score changes.
 
@@ -445,6 +447,9 @@ Use the dedicated skills for tactical execution:
   side effects, trust boundaries, recent-risk areas, and branch material.
 - `chaining`: non-obvious exploit chains, side effects, authority transitions,
   cross-component coupling, and primitive strengthening.
+- `post-ai-blind-spots`: complete forward and backward closure of every real
+  reachable natural path around an established sink, including intentional-
+  looking behavior and shared premises across implementation and validation.
 - `fuzzing`: calibrated input-reaction learning, differential probes, oracles,
   harnesses, and mutation strategy.
 - `web-intel`: public-known status, expected behavior, advisories, changelogs,
@@ -546,6 +551,7 @@ G10: old/obvious classes have exceptional impact or are killed.
 G11: PoC does not depend on artificial lab help.
 G12: relevant application, low-level/native, upstream, fuzzing, and alternate-route layers were checked or marked not applicable with evidence.
 G13: the final scenario uses the highest realistic CIA impact found without forced assumptions.
+G14: every real sink claimed as safe, killed, abandoned, or exhausted has a complete postAiBlindSpotReview with no unresolved reachable edge or indeterminate natural CIA path.
 ```
 
 Reducing a memory limit to force OOM, disabling a control, adding a trusted
@@ -606,6 +612,7 @@ When ending a round or handoff, report:
   "depthCoverage": {},
   "impactElevation": {},
   "realismCheck": {},
+  "postAiBlindSpotReviews": [],
   "remainingBlockers": [],
   "contractSignature": {}
 }
