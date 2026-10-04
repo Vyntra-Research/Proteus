@@ -23,18 +23,18 @@ const compliantContractSignature = {
 };
 const cli = path.join(repoRoot, "dist", "cli.js");
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
-const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-global-smoke-"));
-const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"));
-const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
-const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
-const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
-const concurrencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-concurrency-smoke-"));
-const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
-const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
-const chimeraCampaignListRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-campaign-list-smoke-"));
-const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-smoke-"));
-const opencodeExistingRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-existing-smoke-"));
+const tmpRoot = makeTempRoot("proteus-smoke-");
+const globalRoot = makeTempRoot("proteus-global-smoke-");
+const legacyRoot = makeTempRoot("proteus-legacy-smoke-");
+const helpRoot = makeTempRoot("proteus-help-smoke-");
+const mergeRoot = makeTempRoot("proteus-merge-source-smoke-");
+const killRoot = makeTempRoot("proteus-kill-smoke-");
+const concurrencyRoot = makeTempRoot("proteus-concurrency-smoke-");
+const chimeraScopeRoot = makeTempRoot("proteus-chimera-scope-smoke-");
+const chimeraGeneralistRoot = makeTempRoot("proteus-chimera-generalist-smoke-");
+const chimeraCampaignListRoot = makeTempRoot("proteus-chimera-campaign-list-smoke-");
+const opencodeRoot = makeTempRoot("proteus-opencode-smoke-");
+const opencodeExistingRoot = makeTempRoot("proteus-opencode-existing-smoke-");
 const mockOpenCodeLauncher = createMockOpenCodeLauncher(globalRoot);
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
@@ -56,6 +56,14 @@ function smokeEnv(extra = {}) {
     PROTEUS_ALLOW_MOCK_OPENCODE: extra.PROTEUS_ALLOW_MOCK_OPENCODE ?? "1",
     PROTEUS_CHIMERA_PORT_START: String(43000 + (process.pid % 1000))
   };
+}
+
+function makeTempRoot(prefix) {
+  // Child processes report process.cwd() with symlinks already resolved, while
+  // os.tmpdir() is not resolved (macOS: /var/folders -> /private/var/folders).
+  // Pin every temp root to its physical path so absolute paths produced by the
+  // CLI compare equal to paths built from these roots on macOS and Linux alike.
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
 
 function createMockOpenCodeLauncher(root) {
