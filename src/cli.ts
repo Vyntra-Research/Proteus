@@ -7,6 +7,12 @@ import { ingestPaths } from "./ingest";
 import { createLab } from "./lab";
 import { calculateCvss } from "./cvss";
 import {
+  CLASS_DIFFICULTY_TIERS,
+  getClassPrior,
+  queryClassPriors,
+  type ClassDifficultyTier
+} from "./class-playbooks";
+import {
   broadcastChimeraMessage,
   chimeraDoctor,
   closeChimeraSession,
@@ -81,6 +87,10 @@ function main(): void {
   }
   if (command === "cvss") {
     cmdCvss(parsed);
+    return;
+  }
+  if (command === "class-prior") {
+    cmdClassPrior(parsed);
     return;
   }
 
@@ -252,6 +262,31 @@ function cmdCvss(parsed: ParsedArgs): void {
   const vector = getString(parsed, "vector") ?? parsed.command.slice(1).join("");
   if (!vector) throw new Error("cvss requires --vector <CVSS vector> or a positional CVSS vector");
   console.log(JSON.stringify(calculateCvss(vector), null, 2));
+}
+
+function cmdClassPrior(parsed: ParsedArgs): void {
+  const id = getString(parsed, "id");
+  const family = getString(parsed, "family");
+  const text = getString(parsed, "text");
+  const requestedDifficulty = getString(parsed, "difficulty");
+  if (requestedDifficulty && !CLASS_DIFFICULTY_TIERS.includes(requestedDifficulty as ClassDifficultyTier)) {
+    throw new Error(`class-prior --difficulty must be one of: ${CLASS_DIFFICULTY_TIERS.join(", ")}`);
+  }
+  const requestedDetail = getString(parsed, "detail");
+  if (requestedDetail && requestedDetail !== "summary" && requestedDetail !== "full") {
+    throw new Error('class-prior --detail must be "summary" or "full"');
+  }
+  if (id) {
+    console.log(JSON.stringify(getClassPrior(id), null, 2));
+    return;
+  }
+  const result = queryClassPriors({
+    family,
+    text,
+    difficulty: requestedDifficulty as ClassDifficultyTier | undefined,
+    detail: requestedDetail === "summary" || requestedDetail === "full" ? requestedDetail : undefined
+  });
+  console.log(JSON.stringify(result, null, 2));
 }
 
 function cmdChimera(db: ProteusDb, subcommand: string | undefined, parsed: ParsedArgs): void {
@@ -785,7 +820,12 @@ function cmdPrompt(db: ProteusDb, parsed: ParsedArgs): void {
     target: target?.name ?? path.basename(db.targetRoot),
     surface: getString(parsed, "surface") ?? "No surface provided. Coordinator must assign a bounded surface.",
     avoid: splitList(getString(parsed, "avoid") ?? ""),
-    objective: getString(parsed, "objective") ?? "Run a bounded Proteus research front."
+    objective: getString(parsed, "objective") ?? "Run a bounded Proteus research front.",
+    classPrior: {
+      id: getString(parsed, "class-prior-id"),
+      family: getString(parsed, "class-prior-family"),
+      text: getString(parsed, "class-prior-text")
+    }
   });
   console.log(prompt);
 }
@@ -1737,6 +1777,7 @@ Usage:
   proteus init [--root <path>] [--name <target>]
   proteus status [--root <path>]
   proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
+  proteus class-prior [--id <prior-id>] [--family <surface-family>] [--difficulty systematic-high-yield|moderate|inference-dependent] [--text <substring>] [--detail summary|full]
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
   proteus opencode install [--root <path>] [--force]
@@ -1770,7 +1811,7 @@ Usage:
   proteus branch update --id <id> --status open|testing|killed|promoted|blocked
   proteus link --from-type <type> --from-id <id> --relation <text> --to-type <type> --to-id <id>
   proteus roles
-  proteus prompt --role <generalist|argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text>
+  proteus prompt --role <generalist|argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text> [--class-prior-id <id> | --class-prior-family <family> | --class-prior-text <text>]
   proteus record surface --name <text> [--family <text>] [--files a,b] [--status active|covered|exhausted|low_roi|blocked|watch]
   proteus record hypothesis --title <text> [--surface-id <id>] [--impact <text>]
   proteus record evidence --title <text> [--kind <kind>] [--body <text>]

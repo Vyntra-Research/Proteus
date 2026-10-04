@@ -11,6 +11,7 @@ const exporter_1 = require("./exporter");
 const ingest_1 = require("./ingest");
 const lab_1 = require("./lab");
 const cvss_1 = require("./cvss");
+const class_playbooks_1 = require("./class-playbooks");
 const chimera_1 = require("./chimera");
 const global_memory_1 = require("./global-memory");
 const observe_1 = require("./observe");
@@ -48,6 +49,10 @@ function main() {
     }
     if (command === "cvss") {
         cmdCvss(parsed);
+        return;
+    }
+    if (command === "class-prior") {
+        cmdClassPrior(parsed);
         return;
     }
     const targetRoot = (0, paths_1.resolveTargetRoot)(getString(parsed, "root") ?? process.cwd());
@@ -212,6 +217,30 @@ function cmdCvss(parsed) {
     if (!vector)
         throw new Error("cvss requires --vector <CVSS vector> or a positional CVSS vector");
     console.log(JSON.stringify((0, cvss_1.calculateCvss)(vector), null, 2));
+}
+function cmdClassPrior(parsed) {
+    const id = getString(parsed, "id");
+    const family = getString(parsed, "family");
+    const text = getString(parsed, "text");
+    const requestedDifficulty = getString(parsed, "difficulty");
+    if (requestedDifficulty && !class_playbooks_1.CLASS_DIFFICULTY_TIERS.includes(requestedDifficulty)) {
+        throw new Error(`class-prior --difficulty must be one of: ${class_playbooks_1.CLASS_DIFFICULTY_TIERS.join(", ")}`);
+    }
+    const requestedDetail = getString(parsed, "detail");
+    if (requestedDetail && requestedDetail !== "summary" && requestedDetail !== "full") {
+        throw new Error('class-prior --detail must be "summary" or "full"');
+    }
+    if (id) {
+        console.log(JSON.stringify((0, class_playbooks_1.getClassPrior)(id), null, 2));
+        return;
+    }
+    const result = (0, class_playbooks_1.queryClassPriors)({
+        family,
+        text,
+        difficulty: requestedDifficulty,
+        detail: requestedDetail === "summary" || requestedDetail === "full" ? requestedDetail : undefined
+    });
+    console.log(JSON.stringify(result, null, 2));
 }
 function cmdChimera(db, subcommand, parsed) {
     switch (subcommand) {
@@ -692,7 +721,12 @@ function cmdPrompt(db, parsed) {
         target: target?.name ?? node_path_1.default.basename(db.targetRoot),
         surface: getString(parsed, "surface") ?? "No surface provided. Coordinator must assign a bounded surface.",
         avoid: splitList(getString(parsed, "avoid") ?? ""),
-        objective: getString(parsed, "objective") ?? "Run a bounded Proteus research front."
+        objective: getString(parsed, "objective") ?? "Run a bounded Proteus research front.",
+        classPrior: {
+            id: getString(parsed, "class-prior-id"),
+            family: getString(parsed, "class-prior-family"),
+            text: getString(parsed, "class-prior-text")
+        }
     });
     console.log(prompt);
 }
@@ -1616,6 +1650,7 @@ Usage:
   proteus init [--root <path>] [--name <target>]
   proteus status [--root <path>]
   proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
+  proteus class-prior [--id <prior-id>] [--family <surface-family>] [--difficulty systematic-high-yield|moderate|inference-dependent] [--text <substring>] [--detail summary|full]
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
   proteus opencode install [--root <path>] [--force]
@@ -1649,7 +1684,7 @@ Usage:
   proteus branch update --id <id> --status open|testing|killed|promoted|blocked
   proteus link --from-type <type> --from-id <id> --relation <text> --to-type <type> --to-id <id>
   proteus roles
-  proteus prompt --role <generalist|argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text>
+  proteus prompt --role <generalist|argus|loom|chaos|libris|mimic|artificer|skeptic|cicada> --surface <text> [--class-prior-id <id> | --class-prior-family <family> | --class-prior-text <text>]
   proteus record surface --name <text> [--family <text>] [--files a,b] [--status active|covered|exhausted|low_roi|blocked|watch]
   proteus record hypothesis --title <text> [--surface-id <id>] [--impact <text>]
   proteus record evidence --title <text> [--kind <kind>] [--body <text>]

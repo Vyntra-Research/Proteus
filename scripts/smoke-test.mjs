@@ -203,6 +203,52 @@ try {
   if (fs.existsSync(path.join(helpRoot, ".vros"))) {
     throw new Error("plan-round --help created target memory state");
   }
+  const classPriorCatalog = JSON.parse(run(["class-prior"], helpRoot));
+  if (
+    !Array.isArray(classPriorCatalog.matched) ||
+    classPriorCatalog.matched.length < 10 ||
+    !String(classPriorCatalog.caveat ?? "").includes("never replaces evidence")
+  ) {
+    throw new Error("class-prior CLI did not return the catalog with its caveat");
+  }
+  const priorIds = classPriorCatalog.matched.map((prior) => prior.id);
+  for (const requiredPrior of ["idor-bola", "ssrf", "xss", "deserialization", "vulnerable-component"]) {
+    if (!priorIds.includes(requiredPrior)) {
+      throw new Error(`class-prior CLI catalog is missing ${requiredPrior}`);
+    }
+  }
+  const familyPrior = JSON.parse(run(["class-prior", "--family", "auth-authz-session"], helpRoot));
+  if (familyPrior.matched.length === 0 || familyPrior.matched.some((prior) => !prior.surfaceFamilies.includes("auth-authz-session"))) {
+    throw new Error("class-prior CLI family filter returned mismatched families");
+  }
+  const tierPrior = JSON.parse(run(["class-prior", "--difficulty", "inference-dependent"], helpRoot));
+  if (tierPrior.matched.length === 0 || tierPrior.matched.some((prior) => prior.difficulty !== "inference-dependent")) {
+    throw new Error("class-prior CLI difficulty filter returned mixed tiers");
+  }
+  const singlePrior = JSON.parse(run(["class-prior", "--id", "sql-injection-blind"], helpRoot));
+  if (singlePrior.id !== "sql-injection-blind" || singlePrior.difficulty !== "inference-dependent") {
+    throw new Error(`class-prior CLI id lookup mismatch: ${JSON.stringify(singlePrior).slice(0, 300)}`);
+  }
+  const unknownPriorError = runFail(["class-prior", "--id", "not-a-real-prior"], helpRoot);
+  if (!unknownPriorError.includes("Unknown class prior")) {
+    throw new Error("class-prior CLI accepted an unknown id");
+  }
+  const badTierError = runFail(["class-prior", "--difficulty", "trivial"], helpRoot);
+  if (!badTierError.includes("--difficulty must be one of")) {
+    throw new Error("class-prior CLI accepted an invalid difficulty tier");
+  }
+  const classPriorSummary = JSON.parse(run(["class-prior", "--detail", "summary"], helpRoot));
+  if (
+    classPriorSummary.detail !== "summary" ||
+    classPriorSummary.matched.length !== classPriorCatalog.matched.length ||
+    classPriorSummary.matched.some((prior) => Array.isArray(prior.killConditions))
+  ) {
+    throw new Error("class-prior --detail summary did not return the compact index");
+  }
+  const badDetailError = runFail(["class-prior", "--detail", "verbose"], helpRoot);
+  if (!badDetailError.includes('--detail must be "summary" or "full"')) {
+    throw new Error("class-prior CLI accepted an invalid detail mode");
+  }
   const cvssCases = [
     ["CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:N", 3.8],
     ["CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 6.3],
@@ -1071,6 +1117,37 @@ try {
   const generalistPrompt = run(["prompt", "--role", "generalist", "--surface", "Smoke generalist triage"]);
   if (!generalistPrompt.includes("Generalist") || !generalistPrompt.includes("Smoke generalist triage")) {
     throw new Error("prompt did not render generalist role instructions");
+  }
+  if (prompt.includes("Class priors for this front") || generalistPrompt.includes("Class priors for this front")) {
+    throw new Error("prompt inlined class priors without an explicit prior query");
+  }
+  const priorPrompt = run([
+    "prompt",
+    "--role",
+    "skeptic",
+    "--surface",
+    "Smoke prior surface",
+    "--class-prior-family",
+    "auth-authz-session"
+  ]);
+  if (
+    !priorPrompt.includes("Class priors for this front") ||
+    !priorPrompt.includes("idor-bola") ||
+    !priorPrompt.includes("never replaces evidence")
+  ) {
+    throw new Error("prompt did not inline the requested class prior briefing");
+  }
+  const singlePriorPrompt = run([
+    "prompt",
+    "--role",
+    "skeptic",
+    "--surface",
+    "Smoke prior surface",
+    "--class-prior-id",
+    "sql-injection-blind"
+  ]);
+  if (!singlePriorPrompt.includes("sql-injection-blind") || singlePriorPrompt.includes("idor-bola")) {
+    throw new Error("prompt class prior id selector did not narrow the briefing to one prior");
   }
   run([
     "record",

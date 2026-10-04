@@ -15,6 +15,12 @@ import { exportMarkdown } from "./exporter";
 import { createLab } from "./lab";
 import { calculateCvss } from "./cvss";
 import {
+  CLASS_DIFFICULTY_TIERS,
+  getClassPrior,
+  queryClassPriors,
+  type ClassDifficultyTier
+} from "./class-playbooks";
+import {
   broadcastChimeraMessage,
   chimeraDoctor,
   closeChimeraSession,
@@ -115,6 +121,44 @@ const tools: ToolDefinition[] = [
       ["vector"]
     ),
     handler: ({ vector }) => calculateCvss(str(vector))
+  },
+  {
+    name: "proteus_class_prior",
+    title: "Vulnerability Class Priors",
+    description: "Return class-level research priors: difficulty tier, evidence and sample size, required harness, technique shift, source-to-sink heuristics, misframings, kill conditions, negative controls, and effort expectations. Priors are directional heuristics for choosing where to aim and what to build first; they never prove a class is present and never substitute for evidence about the target. Query by id, by planner surface family, by difficulty tier, or by free text. Use the required harness as the gating precondition: a class whose harness is missing is unbuilt, not disproven.",
+    inputSchema: schema(
+      {
+        id: stringProp("Exact class prior id, for example idor-bola, sql-injection-blind, deserialization, race-condition."),
+        family: stringProp("Planner surface family to filter by, for example auth-authz-session or parser-serializer-canonicalization."),
+        difficulty: stringProp("Difficulty tier: systematic-high-yield, moderate, or inference-dependent."),
+        text: stringProp("Free-text substring matched against class names, CWEs, OWASP categories, heuristics, and controls."),
+        detail: stringProp("Response detail: summary returns the compact index, full returns complete playbooks. Defaults to summary when no filter is supplied and full otherwise.")
+      },
+      []
+    ),
+    handler: ({ id, family, difficulty, text, detail }) => {
+      if (id) return getClassPrior(str(id));
+      if (difficulty && !CLASS_DIFFICULTY_TIERS.includes(str(difficulty) as ClassDifficultyTier)) {
+        throw new Error(`difficulty must be one of: ${CLASS_DIFFICULTY_TIERS.join(", ")}`);
+      }
+      const hasFilter = Boolean(family || text || difficulty);
+      const requestedDetail = maybeStr(detail);
+      if (requestedDetail && requestedDetail !== "summary" && requestedDetail !== "full") {
+        throw new Error('detail must be "summary" or "full"');
+      }
+      const resolvedDetail: "summary" | "full" =
+        requestedDetail === "summary" || requestedDetail === "full"
+          ? requestedDetail
+          : hasFilter
+            ? "full"
+            : "summary";
+      return queryClassPriors({
+        family: maybeStr(family),
+        text: maybeStr(text),
+        difficulty: difficulty ? (str(difficulty) as ClassDifficultyTier) : undefined,
+        detail: resolvedDetail
+      });
+    }
   },
   {
     name: "proteus_opencode_install",
@@ -1041,11 +1085,14 @@ const tools: ToolDefinition[] = [
         role: stringProp("Role codename: generalist, argus, loom, chaos, libris, mimic, artificer, skeptic, or cicada. Case-insensitive display names are normalized."),
         surface: stringProp("Bounded surface assigned by the coordinator."),
         objective: stringProp("Round or front objective."),
-        avoid: arrayProp("Known paths, claims, or surfaces to avoid.")
+        avoid: arrayProp("Known paths, claims, or surfaces to avoid."),
+        classPriorId: stringProp("Optional class prior id to inline into the prompt, for example idor-bola or sql-injection-blind."),
+        classPriorFamily: stringProp("Optional planner surface family used to select class priors to inline, for example auth-authz-session."),
+        classPriorText: stringProp("Optional free-text selector for class priors to inline.")
       },
       ["root", "role", "surface"]
     ),
-    handler: ({ root, role, surface, objective, avoid }) =>
+    handler: ({ root, role, surface, objective, avoid, classPriorId, classPriorFamily, classPriorText }) =>
       withDb(str(root), (db) => {
         const codename = normalizeAgentCodename(str(role));
         if (!codename) throw new Error(`Unknown Proteus role: ${str(role)}. Use one of: ${validRoleList()}.`);
@@ -1056,7 +1103,12 @@ const tools: ToolDefinition[] = [
           target: target?.name ?? path.basename(db.targetRoot),
           surface: str(surface),
           objective: maybeStr(objective) ?? "Run a bounded Proteus research front.",
-          avoid: stringArray(avoid)
+          avoid: stringArray(avoid),
+          classPrior: {
+            id: maybeStr(classPriorId),
+            family: maybeStr(classPriorFamily),
+            text: maybeStr(classPriorText)
+          }
         });
       })
   },

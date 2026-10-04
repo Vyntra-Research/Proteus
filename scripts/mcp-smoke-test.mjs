@@ -161,7 +161,8 @@ try {
   for (const expectedTool of [
     "proteus_init",
     "proteus_status",
-    "proteus_calculate_cvss",
+"proteus_calculate_cvss",
+    "proteus_class_prior",
     "proteus_migrate",
     "proteus_merge_memory",
     "proteus_chimera_config",
@@ -242,6 +243,100 @@ try {
       throw new Error(`CVSS MCP score mismatch for ${vector}: ${JSON.stringify(result)}`);
     }
   }
+  const classPriorIndex = JSON.parse(
+    String((await request("tools/call", { name: "proteus_class_prior", arguments: {} })).content?.[0]?.text ?? "{}")
+  );
+  if (
+    !Array.isArray(classPriorIndex.matched) ||
+    classPriorIndex.matched.length < 10 ||
+    classPriorIndex.detail !== "summary" ||
+    !String(classPriorIndex.caveat ?? "").includes("never replaces evidence")
+  ) {
+    throw new Error(`proteus_class_prior index is incomplete: ${JSON.stringify(classPriorIndex).slice(0, 400)}`);
+  }
+  if (classPriorIndex.matched.some((prior) => Array.isArray(prior.killConditions))) {
+    throw new Error("proteus_class_prior unfiltered call returned full playbooks instead of the compact index");
+  }
+  const priorIds = classPriorIndex.matched.map((prior) => prior.id);
+  for (const requiredPrior of ["idor-bola", "sql-injection-direct", "sql-injection-blind", "deserialization", "race-condition"]) {
+    if (!priorIds.includes(requiredPrior)) {
+      throw new Error(`proteus_class_prior catalog is missing ${requiredPrior}`);
+    }
+  }
+  const classPriorCatalog = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { detail: "full" } })).content?.[0]?.text ?? "{}"
+    )
+  );
+  for (const prior of classPriorCatalog.matched) {
+    if (
+      !Array.isArray(prior.evidence) ||
+      prior.evidence.length === 0 ||
+      !String(prior.evidence[0].sample ?? "").length ||
+      !Array.isArray(prior.killConditions) ||
+      prior.killConditions.length === 0 ||
+      !Array.isArray(prior.negativeControls) ||
+      prior.negativeControls.length === 0 ||
+      !String(prior.effort?.onStall ?? "").length
+    ) {
+      throw new Error(`proteus_class_prior ${prior.id} is missing evidence, controls, or effort guidance`);
+    }
+  }
+  const blindPrior = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { id: "sql-injection-blind" } }))
+        .content?.[0]?.text ?? "{}"
+    )
+  );
+  if (blindPrior.id !== "sql-injection-blind" || blindPrior.difficulty !== "inference-dependent") {
+    throw new Error(`proteus_class_prior id lookup mismatch: ${JSON.stringify(blindPrior).slice(0, 300)}`);
+  }
+  const badDetail = await requestFail("tools/call", {
+    name: "proteus_class_prior",
+    arguments: { detail: "verbose" }
+  });
+  if (!badDetail.includes('detail must be "summary" or "full"')) {
+    throw new Error("proteus_class_prior accepted an invalid detail mode");
+  }
+  const inferencePriors = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { difficulty: "inference-dependent" } }))
+        .content?.[0]?.text ?? "{}"
+    )
+  );
+  if (
+    inferencePriors.matched.length === 0 ||
+    inferencePriors.matched.some((prior) => prior.difficulty !== "inference-dependent")
+  ) {
+    throw new Error("proteus_class_prior difficulty filter returned mixed tiers");
+  }
+  const familyPriors = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { family: "auth-authz-session" } }))
+        .content?.[0]?.text ?? "{}"
+    )
+  );
+  if (
+    familyPriors.matched.length === 0 ||
+    familyPriors.matched.some((prior) => !prior.surfaceFamilies.includes("auth-authz-session"))
+  ) {
+    throw new Error("proteus_class_prior family filter returned mismatched families");
+  }
+  const unknownPrior = await requestFail("tools/call", {
+    name: "proteus_class_prior",
+    arguments: { id: "not-a-real-prior" }
+  });
+  if (!unknownPrior.includes("Unknown class prior")) {
+    throw new Error("proteus_class_prior accepted an unknown prior id");
+  }
+  const badTier = await requestFail("tools/call", {
+    name: "proteus_class_prior",
+    arguments: { difficulty: "trivial" }
+  });
+  if (!badTier.includes("difficulty must be one of")) {
+    throw new Error("proteus_class_prior accepted an invalid difficulty tier");
+  }
+
   const incompleteCvss = await requestFail("tools/call", {
     name: "proteus_calculate_cvss",
     arguments: { vector: "CVSS:4.0/AV:N/AC:L" }
