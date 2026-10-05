@@ -128,6 +128,13 @@ function heuristicTagAdvisories(tag: string): Advisory[] {
   ];
 }
 
+/**
+ * Optional tool-name prefix, so two Proteus builds can be registered on the same
+ * MCP host without colliding on identically named tools. Unset by default, which
+ * keeps every existing name unchanged.
+ */
+const toolPrefix = process.env.PROTEUS_TOOL_PREFIX ?? "";
+
 const tools: ToolDefinition[] = [
   {
     name: "proteus_init",
@@ -1845,14 +1852,14 @@ function handleLine(line: string): void {
       sendResult(request.id, {
         protocolVersion: "2025-06-18",
         capabilities: { tools: {} },
-        serverInfo: { name: "proteus", version: packageVersion() }
+        serverInfo: { name: toolPrefix ? toolPrefix.replace(/_+$/, "") : "proteus", version: packageVersion() }
       });
       return;
     }
     if (request.method === "tools/list") {
       sendResult(request.id, {
         tools: tools.map((tool) => ({
-          name: tool.name,
+          name: toolPrefix + tool.name,
           title: tool.title,
           description: tool.description,
           inputSchema: tool.inputSchema,
@@ -1863,10 +1870,15 @@ function handleLine(line: string): void {
     }
     if (request.method === "tools/call") {
       const params = request.params ?? {};
-      const name = str(params.name);
+      const requestedName = str(params.name);
+      // Accept the prefixed form so one host can run several Proteus builds side
+      // by side without their identically named tools colliding.
+      const name = toolPrefix && requestedName.startsWith(toolPrefix)
+        ? requestedName.slice(toolPrefix.length)
+        : requestedName;
       const args = (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as JsonObject;
       const tool = tools.find((item) => item.name === name);
-      if (!tool) throw new Error(`Unknown tool: ${name}`);
+      if (!tool) throw new Error(`Unknown tool: ${requestedName}`);
       const result = tool.handler(args);
       sendResult(request.id, toToolResult(result, tool));
       return;
