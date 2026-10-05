@@ -3137,6 +3137,17 @@ function processCommandLine(pid: number): string | null {
     if (fs.existsSync(cmdlinePath)) {
       return fs.readFileSync(cmdlinePath, "utf8").replace(/\0/g, " ").trim() || null;
     }
+    // macOS and other BSD-style systems expose no /proc, so fall back to ps.
+    // Without this, every session looks dead off Linux and `chimera list --active`
+    // reports zero live sessions. -ww prevents ps from truncating the command line.
+    const psResult = spawnSync("ps", ["-ww", "-o", "command=", "-p", String(pid)], {
+      encoding: "utf8",
+      windowsHide: true
+    });
+    if (psResult.status === 0) {
+      const psCommandLine = String(psResult.stdout ?? "").trim();
+      if (psCommandLine) return psCommandLine;
+    }
   } catch {
     return null;
   }

@@ -34,9 +34,10 @@ const canonicalRoi = {
   lowSignalHistory: 0
 };
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
-const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
-const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
+const tmpRoot = makeTempRoot("proteus-mcp-smoke-");
+const globalRoot = makeTempRoot("proteus-mcp-global-smoke-");
+const mergeSourceRoot = makeTempRoot("proteus-mcp-merge-source-smoke-");
+const calibrationRoot = makeTempRoot("proteus-mcp-calibration-smoke-");
 const packagedPluginRoot = path.join(globalRoot, "packaged-plugin");
 fs.cpSync(path.join(repoRoot, "plugins", "proteus"), packagedPluginRoot, { recursive: true });
 const serverPath = path.join(packagedPluginRoot, "scripts", "proteus-mcp.cjs");
@@ -58,6 +59,14 @@ const child = spawn(process.execPath, [serverPath], {
 let nextId = 1;
 let stdout = "";
 const pending = new Map();
+
+function makeTempRoot(prefix) {
+  // Child processes report process.cwd() with symlinks already resolved, while
+  // os.tmpdir() is not resolved (macOS: /var/folders -> /private/var/folders).
+  // Pin every temp root to its physical path so absolute paths produced by the
+  // server compare equal to paths built from these roots on macOS and Linux alike.
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+}
 
 function createMockOpenCodeLauncher(root) {
   if (process.platform !== "win32") return null;
@@ -153,7 +162,9 @@ try {
   for (const expectedTool of [
     "proteus_init",
     "proteus_status",
-    "proteus_calculate_cvss",
+"proteus_calculate_cvss",
+"proteus_class_prior",
+    "proteus_calibration",
     "proteus_migrate",
     "proteus_merge_memory",
     "proteus_chimera_config",
@@ -234,6 +245,100 @@ try {
       throw new Error(`CVSS MCP score mismatch for ${vector}: ${JSON.stringify(result)}`);
     }
   }
+  const classPriorIndex = JSON.parse(
+    String((await request("tools/call", { name: "proteus_class_prior", arguments: {} })).content?.[0]?.text ?? "{}")
+  );
+  if (
+    !Array.isArray(classPriorIndex.matched) ||
+    classPriorIndex.matched.length < 10 ||
+    classPriorIndex.detail !== "summary" ||
+    !String(classPriorIndex.caveat ?? "").includes("never replaces evidence")
+  ) {
+    throw new Error(`proteus_class_prior index is incomplete: ${JSON.stringify(classPriorIndex).slice(0, 400)}`);
+  }
+  if (classPriorIndex.matched.some((prior) => Array.isArray(prior.killConditions))) {
+    throw new Error("proteus_class_prior unfiltered call returned full playbooks instead of the compact index");
+  }
+  const priorIds = classPriorIndex.matched.map((prior) => prior.id);
+  for (const requiredPrior of ["idor-bola", "sql-injection-direct", "sql-injection-blind", "deserialization", "race-condition"]) {
+    if (!priorIds.includes(requiredPrior)) {
+      throw new Error(`proteus_class_prior catalog is missing ${requiredPrior}`);
+    }
+  }
+  const classPriorCatalog = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { detail: "full" } })).content?.[0]?.text ?? "{}"
+    )
+  );
+  for (const prior of classPriorCatalog.matched) {
+    if (
+      !Array.isArray(prior.evidence) ||
+      prior.evidence.length === 0 ||
+      !String(prior.evidence[0].sample ?? "").length ||
+      !Array.isArray(prior.killConditions) ||
+      prior.killConditions.length === 0 ||
+      !Array.isArray(prior.negativeControls) ||
+      prior.negativeControls.length === 0 ||
+      !String(prior.effort?.onStall ?? "").length
+    ) {
+      throw new Error(`proteus_class_prior ${prior.id} is missing evidence, controls, or effort guidance`);
+    }
+  }
+  const blindPrior = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { id: "sql-injection-blind" } }))
+        .content?.[0]?.text ?? "{}"
+    )
+  );
+  if (blindPrior.id !== "sql-injection-blind" || blindPrior.difficulty !== "inference-dependent") {
+    throw new Error(`proteus_class_prior id lookup mismatch: ${JSON.stringify(blindPrior).slice(0, 300)}`);
+  }
+  const badDetail = await requestFail("tools/call", {
+    name: "proteus_class_prior",
+    arguments: { detail: "verbose" }
+  });
+  if (!badDetail.includes('detail must be "summary" or "full"')) {
+    throw new Error("proteus_class_prior accepted an invalid detail mode");
+  }
+  const inferencePriors = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { difficulty: "inference-dependent" } }))
+        .content?.[0]?.text ?? "{}"
+    )
+  );
+  if (
+    inferencePriors.matched.length === 0 ||
+    inferencePriors.matched.some((prior) => prior.difficulty !== "inference-dependent")
+  ) {
+    throw new Error("proteus_class_prior difficulty filter returned mixed tiers");
+  }
+  const familyPriors = JSON.parse(
+    String(
+      (await request("tools/call", { name: "proteus_class_prior", arguments: { family: "auth-authz-session" } }))
+        .content?.[0]?.text ?? "{}"
+    )
+  );
+  if (
+    familyPriors.matched.length === 0 ||
+    familyPriors.matched.some((prior) => !prior.surfaceFamilies.includes("auth-authz-session"))
+  ) {
+    throw new Error("proteus_class_prior family filter returned mismatched families");
+  }
+  const unknownPrior = await requestFail("tools/call", {
+    name: "proteus_class_prior",
+    arguments: { id: "not-a-real-prior" }
+  });
+  if (!unknownPrior.includes("Unknown class prior")) {
+    throw new Error("proteus_class_prior accepted an unknown prior id");
+  }
+  const badTier = await requestFail("tools/call", {
+    name: "proteus_class_prior",
+    arguments: { difficulty: "trivial" }
+  });
+  if (!badTier.includes("difficulty must be one of")) {
+    throw new Error("proteus_class_prior accepted an invalid difficulty tier");
+  }
+
   const incompleteCvss = await requestFail("tools/call", {
     name: "proteus_calculate_cvss",
     arguments: { vector: "CVSS:4.0/AV:N/AC:L" }
@@ -256,6 +361,111 @@ try {
   }
   if (!migrationsText.includes(`"currentVersion": "${expectedVersion}"`) || !migrationsText.includes(`"storedVersion": "${expectedVersion}"`)) {
     throw new Error("proteus_migrate did not report the Proteus database version");
+  }
+
+  await request("tools/call", {
+    name: "proteus_init",
+    arguments: { root: calibrationRoot, name: "mcp-calibration-target" }
+  });
+  const emptyCalibration = JSON.parse(
+    String((await request("tools/call", { name: "proteus_calibration", arguments: { root: calibrationRoot } })).content?.[0]?.text ?? "{}")
+  );
+  if (
+    emptyCalibration.totals?.total !== 0 ||
+    !Array.isArray(emptyCalibration.classes) ||
+    !String(emptyCalibration.caveat ?? "").includes("not research quality") ||
+    !Array.isArray(emptyCalibration.decisionTaxonomy?.promoted)
+  ) {
+    throw new Error(`proteus_calibration empty-target response is wrong: ${JSON.stringify(emptyCalibration).slice(0, 400)}`);
+  }
+
+  await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: calibrationRoot,
+      title: "Calibration MCP hypothesis a",
+      heuristicFamily: "idor-bola",
+      status: "promoted_to_poc"
+    }
+  });
+  await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: calibrationRoot,
+      title: "Calibration MCP hypothesis b",
+      heuristicFamily: "sql-injection-blind",
+      status: "discarded"
+    }
+  });
+  await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: calibrationRoot,
+      title: "Calibration MCP hypothesis c",
+      heuristicFamily: "sql-injection-blind",
+      status: "discarded"
+    }
+  });
+  const mcpCalibration = JSON.parse(
+    String((await request("tools/call", { name: "proteus_calibration", arguments: { root: calibrationRoot } })).content?.[0]?.text ?? "{}")
+  );
+  const mcpIdor = mcpCalibration.classes?.find((row) => row.heuristicFamily === "idor-bola");
+  if (!mcpIdor || mcpIdor.priorId !== "idor-bola" || mcpIdor.promoted !== 1) {
+    throw new Error(`proteus_calibration did not group by heuristicFamily: ${JSON.stringify(mcpCalibration).slice(0, 400)}`);
+  }
+  if (mcpIdor.verdict !== "insufficient-data") {
+    throw new Error(`proteus_calibration issued a verdict from a single decision: ${JSON.stringify(mcpIdor)}`);
+  }
+  const taggedHypothesis = JSON.parse(
+    String(
+      (await request("tools/call", {
+        name: "proteus_record_hypothesis",
+        arguments: {
+          root: calibrationRoot,
+          title: "Calibration tagged hypothesis",
+          heuristicFamily: "idor-bola",
+          status: "live"
+        }
+      })).content?.[0]?.text ?? "{}"
+    )
+  );
+  if (taggedHypothesis.record?.heuristicTag?.kind !== "prior" || taggedHypothesis.record?.heuristicTag?.priorId !== "idor-bola") {
+    throw new Error(`proteus_record_hypothesis did not return the resolved heuristic tag: ${JSON.stringify(taggedHypothesis).slice(0, 400)}`);
+  }
+  const resolvedAdvisory = (taggedHypothesis.advisories ?? []).find((advisory) => advisory.code === "heuristic_tag_resolved");
+  if (!resolvedAdvisory || resolvedAdvisory.severity !== "info") {
+    throw new Error("proteus_record_hypothesis did not confirm the resolved heuristic tag");
+  }
+  const badTagHypothesis = JSON.parse(
+    String(
+      (await request("tools/call", {
+        name: "proteus_record_hypothesis",
+        arguments: {
+          root: calibrationRoot,
+          title: "Calibration bad tag hypothesis",
+          heuristicFamily: "definitely-not-a-class",
+          status: "live"
+        }
+      })).content?.[0]?.text ?? "{}"
+    )
+  );
+  if (badTagHypothesis.record?.heuristicTag?.kind !== "unmapped") {
+    throw new Error(`proteus_record_hypothesis accepted an unmapped heuristic tag silently: ${JSON.stringify(badTagHypothesis).slice(0, 400)}`);
+  }
+  const unmappedAdvisory = (badTagHypothesis.advisories ?? []).find((advisory) => advisory.code === "heuristic_tag_unmapped");
+  if (!unmappedAdvisory || unmappedAdvisory.severity !== "warn") {
+    throw new Error("proteus_record_hypothesis did not warn about an unmapped heuristic tag");
+  }
+  const stillEmptyTagAdvisory = JSON.parse(
+    String(
+      (await request("tools/call", {
+        name: "proteus_record_hypothesis",
+        arguments: { root: calibrationRoot, title: "Calibration untagged hypothesis", status: "live" }
+      })).content?.[0]?.text ?? "{}"
+    )
+  );
+  if (!(stillEmptyTagAdvisory.advisories ?? []).some((advisory) => advisory.code === "heuristic_tag_missing")) {
+    throw new Error("proteus_record_hypothesis did not warn about a default untagged hypothesis");
   }
   fs.mkdirSync(path.join(tmpRoot, "REPORTS"), { recursive: true });
   fs.writeFileSync(
@@ -1258,6 +1468,7 @@ try {
   rmTemp(tmpRoot);
   rmTemp(globalRoot);
   rmTemp(mergeSourceRoot);
+  rmTemp(calibrationRoot);
 }
 
 function waitForExit(childProcess, timeoutMs) {

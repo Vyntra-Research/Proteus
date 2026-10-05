@@ -19,8 +19,58 @@ const roles_1 = require("./roles");
 const exporter_1 = require("./exporter");
 const lab_1 = require("./lab");
 const cvss_1 = require("./cvss");
+const class_playbooks_1 = require("./class-playbooks");
+const calibration_1 = require("./calibration");
 const chimera_1 = require("./chimera");
 const paths_1 = require("./paths");
+/**
+ * Surfaces a heuristicFamily resolution problem at write time. Without this a
+ * nonsense tag is stored silently and only becomes visible much later as an
+ * `untagged-hypotheses` calibration signal, by which point the hypothesis is
+ * already sitting in memory uncountable.
+ */
+function heuristicTagAdvisories(tag) {
+    const resolution = (0, class_playbooks_1.resolveHeuristicTag)(tag);
+    const message = (0, class_playbooks_1.describeHeuristicTag)(resolution);
+    if (resolution.kind === "prior") {
+        return [
+            {
+                severity: "info",
+                code: "heuristic_tag_resolved",
+                message,
+                reason: "tag maps to a catalog class prior, so calibration can track this hypothesis"
+            }
+        ];
+    }
+    if (resolution.kind === "surface-family") {
+        return [
+            {
+                severity: "info",
+                code: "heuristic_tag_surface_family",
+                message,
+                reason: "tag is a covered planner surface family rather than a single class"
+            }
+        ];
+    }
+    return [
+        {
+            severity: "warn",
+            code: resolution.kind === "ambiguous"
+                ? "heuristic_tag_ambiguous"
+                : resolution.kind === "untagged"
+                    ? "heuristic_tag_missing"
+                    : "heuristic_tag_unmapped",
+            message,
+            reason: "an unresolved tag means this hypothesis cannot be calibrated by class"
+        }
+    ];
+}
+/**
+ * Optional tool-name prefix, so two Proteus builds can be registered on the same
+ * MCP host without colliding on identically named tools. Unset by default, which
+ * keeps every existing name unchanged.
+ */
+const toolPrefix = node_process_1.default.env.PROTEUS_TOOL_PREFIX ?? "";
 const tools = [
     {
         name: "proteus_init",
@@ -56,6 +106,57 @@ const tools = [
             vector: stringProp("Complete CVSS:3.0, CVSS:3.1, or CVSS:4.0 vector. Include every required base metric. Example: CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:L/VA:L/SC:N/SI:N/SA:N.")
         }, ["vector"]),
         handler: ({ vector }) => (0, cvss_1.calculateCvss)(str(vector))
+    },
+    {
+        name: "proteus_class_prior",
+        title: "Vulnerability Class Priors",
+        description: "Return class-level research priors: difficulty tier, evidence and sample size, required harness, technique shift, source-to-sink heuristics, misframings, kill conditions, negative controls, and effort expectations. Priors are directional heuristics for choosing where to aim and what to build first; they never prove a class is present and never substitute for evidence about the target. Query by id, by planner surface family, by difficulty tier, or by free text. Use the required harness as the gating precondition: a class whose harness is missing is unbuilt, not disproven.",
+        inputSchema: schema({
+            id: stringProp("Exact class prior id, for example idor-bola, sql-injection-blind, deserialization, race-condition."),
+            family: stringProp("Planner surface family to filter by, for example auth-authz-session or parser-serializer-canonicalization."),
+            difficulty: stringProp("Difficulty tier: systematic-high-yield, moderate, or inference-dependent."),
+            text: stringProp("Free-text substring matched against class names, CWEs, OWASP categories, heuristics, and controls."),
+            detail: stringProp("Response detail: summary returns the compact index, full returns complete playbooks. Defaults to summary when no filter is supplied and full otherwise.")
+        }, []),
+        handler: ({ id, family, difficulty, text, detail }) => {
+            if (id)
+                return (0, class_playbooks_1.getClassPrior)(str(id));
+            if (difficulty && !class_playbooks_1.CLASS_DIFFICULTY_TIERS.includes(str(difficulty))) {
+                throw new Error(`difficulty must be one of: ${class_playbooks_1.CLASS_DIFFICULTY_TIERS.join(", ")}`);
+            }
+            const hasFilter = Boolean(family || text || difficulty);
+            const requestedDetail = maybeStr(detail);
+            if (requestedDetail && requestedDetail !== "summary" && requestedDetail !== "full") {
+                throw new Error('detail must be "summary" or "full"');
+            }
+            const resolvedDetail = requestedDetail === "summary" || requestedDetail === "full"
+                ? requestedDetail
+                : hasFilter
+                    ? "full"
+                    : "summary";
+            return (0, class_playbooks_1.queryClassPriors)({
+                family: maybeStr(family),
+                text: maybeStr(text),
+                difficulty: difficulty ? str(difficulty) : undefined,
+                detail: resolvedDetail
+            });
+        }
+    },
+    {
+        name: "proteus_calibration",
+        title: "Effectiveness Calibration",
+        description: "Measure recorded research outcomes per class so the system can detect its own drift. Groups hypotheses by heuristicFamily, resolves each group to a class prior when possible, and reports promote rate, kill rate, verdict, and creation-order drift signals. Tag hypotheses with heuristicFamily set to a class prior id or a planner surface family, or this stays blind. Kill rate is ambiguous without cost data: fast kills are discipline, slow kills are waste, and this report cannot separate them. Use it to revisit over-invested classes and to reconsider whether a productive class deserves the rounds it is consuming.",
+        inputSchema: schema({
+            root: stringProp("Target root path."),
+            recentWindowSize: numberProp("Hypotheses per creation-order window used for drift detection. Default 10."),
+            minDecidedForVerdict: numberProp("Decisions required before a verdict is issued. Default 3."),
+            productivePromoteRate: numberProp("Promote rate at or above which a class counts as productive. Default 0.25.")
+        }, ["root"]),
+        handler: ({ root, recentWindowSize, minDecidedForVerdict, productivePromoteRate }) => withDb(str(root), (db) => (0, calibration_1.buildCalibrationReport)(db.listHypotheses(), {
+            recentWindowSize: typeof recentWindowSize === "number" ? recentWindowSize : undefined,
+            minDecidedForVerdict: typeof minDecidedForVerdict === "number" ? minDecidedForVerdict : undefined,
+            productivePromoteRate: typeof productivePromoteRate === "number" ? productivePromoteRate : undefined
+        }))
     },
     {
         name: "proteus_opencode_install",
@@ -864,9 +965,12 @@ const tools = [
             role: stringProp("Role codename: generalist, argus, loom, chaos, libris, mimic, artificer, skeptic, or cicada. Case-insensitive display names are normalized."),
             surface: stringProp("Bounded surface assigned by the coordinator."),
             objective: stringProp("Round or front objective."),
-            avoid: arrayProp("Known paths, claims, or surfaces to avoid.")
+            avoid: arrayProp("Known paths, claims, or surfaces to avoid."),
+            classPriorId: stringProp("Optional class prior id to inline into the prompt, for example idor-bola or sql-injection-blind."),
+            classPriorFamily: stringProp("Optional planner surface family used to select class priors to inline, for example auth-authz-session."),
+            classPriorText: stringProp("Optional free-text selector for class priors to inline.")
         }, ["root", "role", "surface"]),
-        handler: ({ root, role, surface, objective, avoid }) => withDb(str(root), (db) => {
+        handler: ({ root, role, surface, objective, avoid, classPriorId, classPriorFamily, classPriorText }) => withDb(str(root), (db) => {
             const codename = (0, roles_1.normalizeAgentCodename)(str(role));
             if (!codename)
                 throw new Error(`Unknown Proteus role: ${str(role)}. Use one of: ${(0, roles_1.validRoleList)()}.`);
@@ -877,7 +981,12 @@ const tools = [
                 target: target?.name ?? node_path_1.default.basename(db.targetRoot),
                 surface: str(surface),
                 objective: maybeStr(objective) ?? "Run a bounded Proteus research front.",
-                avoid: stringArray(avoid)
+                avoid: stringArray(avoid),
+                classPrior: {
+                    id: maybeStr(classPriorId),
+                    family: maybeStr(classPriorFamily),
+                    text: maybeStr(classPriorText)
+                }
             });
         })
     },
@@ -1051,11 +1160,12 @@ const tools = [
                 ]
                 : [];
             const advisories = [
+                ...heuristicTagAdvisories(hypothesis.heuristicFamily),
                 ...similarityAdvisories,
                 ...lifecycleReviewAdvisories(reviews),
                 ...campaignLinkAdvisories(db, campaignLink)
             ];
-            return toolEnvelope({ entityType: "hypothesis", entityId: id }, {
+            return toolEnvelope({ entityType: "hypothesis", entityId: id, heuristicTag: (0, class_playbooks_1.resolveHeuristicTag)(hypothesis.heuristicFamily) }, {
                 advisories,
                 relatedRecords: similar,
                 nextSuggestedReads: [
@@ -1458,14 +1568,14 @@ function handleLine(line) {
             sendResult(request.id, {
                 protocolVersion: "2025-06-18",
                 capabilities: { tools: {} },
-                serverInfo: { name: "proteus", version: packageVersion() }
+                serverInfo: { name: toolPrefix ? toolPrefix.replace(/_+$/, "") : "proteus", version: packageVersion() }
             });
             return;
         }
         if (request.method === "tools/list") {
             sendResult(request.id, {
                 tools: tools.map((tool) => ({
-                    name: tool.name,
+                    name: toolPrefix + tool.name,
                     title: tool.title,
                     description: tool.description,
                     inputSchema: tool.inputSchema,
@@ -1476,11 +1586,16 @@ function handleLine(line) {
         }
         if (request.method === "tools/call") {
             const params = request.params ?? {};
-            const name = str(params.name);
+            const requestedName = str(params.name);
+            // Accept the prefixed form so one host can run several Proteus builds side
+            // by side without their identically named tools colliding.
+            const name = toolPrefix && requestedName.startsWith(toolPrefix)
+                ? requestedName.slice(toolPrefix.length)
+                : requestedName;
             const args = (params.arguments && typeof params.arguments === "object" ? params.arguments : {});
             const tool = tools.find((item) => item.name === name);
             if (!tool)
-                throw new Error(`Unknown tool: ${name}`);
+                throw new Error(`Unknown tool: ${requestedName}`);
             const result = tool.handler(args);
             sendResult(request.id, toToolResult(result, tool));
             return;

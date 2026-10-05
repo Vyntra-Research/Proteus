@@ -23,18 +23,19 @@ const compliantContractSignature = {
 };
 const cli = path.join(repoRoot, "dist", "cli.js");
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-smoke-"));
-const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-global-smoke-"));
-const legacyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-legacy-smoke-"));
-const helpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-help-smoke-"));
-const mergeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-merge-source-smoke-"));
-const killRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-kill-smoke-"));
-const concurrencyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-concurrency-smoke-"));
-const chimeraScopeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-scope-smoke-"));
-const chimeraGeneralistRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-generalist-smoke-"));
-const chimeraCampaignListRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-chimera-campaign-list-smoke-"));
-const opencodeRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-smoke-"));
-const opencodeExistingRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-opencode-existing-smoke-"));
+const tmpRoot = makeTempRoot("proteus-smoke-");
+const globalRoot = makeTempRoot("proteus-global-smoke-");
+const legacyRoot = makeTempRoot("proteus-legacy-smoke-");
+const helpRoot = makeTempRoot("proteus-help-smoke-");
+const mergeRoot = makeTempRoot("proteus-merge-source-smoke-");
+const killRoot = makeTempRoot("proteus-kill-smoke-");
+const concurrencyRoot = makeTempRoot("proteus-concurrency-smoke-");
+const chimeraScopeRoot = makeTempRoot("proteus-chimera-scope-smoke-");
+const chimeraGeneralistRoot = makeTempRoot("proteus-chimera-generalist-smoke-");
+const chimeraCampaignListRoot = makeTempRoot("proteus-chimera-campaign-list-smoke-");
+const opencodeRoot = makeTempRoot("proteus-opencode-smoke-");
+const opencodeExistingRoot = makeTempRoot("proteus-opencode-existing-smoke-");
+const calibrationRoot = makeTempRoot("proteus-calibration-smoke-");
 const mockOpenCodeLauncher = createMockOpenCodeLauncher(globalRoot);
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
@@ -56,6 +57,14 @@ function smokeEnv(extra = {}) {
     PROTEUS_ALLOW_MOCK_OPENCODE: extra.PROTEUS_ALLOW_MOCK_OPENCODE ?? "1",
     PROTEUS_CHIMERA_PORT_START: String(43000 + (process.pid % 1000))
   };
+}
+
+function makeTempRoot(prefix) {
+  // Child processes report process.cwd() with symlinks already resolved, while
+  // os.tmpdir() is not resolved (macOS: /var/folders -> /private/var/folders).
+  // Pin every temp root to its physical path so absolute paths produced by the
+  // CLI compare equal to paths built from these roots on macOS and Linux alike.
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
 
 function createMockOpenCodeLauncher(root) {
@@ -195,6 +204,173 @@ try {
   if (fs.existsSync(path.join(helpRoot, ".vros"))) {
     throw new Error("plan-round --help created target memory state");
   }
+  const classPriorCatalog = JSON.parse(run(["class-prior"], helpRoot));
+  if (
+    !Array.isArray(classPriorCatalog.matched) ||
+    classPriorCatalog.matched.length < 10 ||
+    !String(classPriorCatalog.caveat ?? "").includes("never replaces evidence")
+  ) {
+    throw new Error("class-prior CLI did not return the catalog with its caveat");
+  }
+  const priorIds = classPriorCatalog.matched.map((prior) => prior.id);
+  for (const requiredPrior of ["idor-bola", "ssrf", "xss", "deserialization", "vulnerable-component"]) {
+    if (!priorIds.includes(requiredPrior)) {
+      throw new Error(`class-prior CLI catalog is missing ${requiredPrior}`);
+    }
+  }
+  const familyPrior = JSON.parse(run(["class-prior", "--family", "auth-authz-session"], helpRoot));
+  if (familyPrior.matched.length === 0 || familyPrior.matched.some((prior) => !prior.surfaceFamilies.includes("auth-authz-session"))) {
+    throw new Error("class-prior CLI family filter returned mismatched families");
+  }
+  const tierPrior = JSON.parse(run(["class-prior", "--difficulty", "inference-dependent"], helpRoot));
+  if (tierPrior.matched.length === 0 || tierPrior.matched.some((prior) => prior.difficulty !== "inference-dependent")) {
+    throw new Error("class-prior CLI difficulty filter returned mixed tiers");
+  }
+  const singlePrior = JSON.parse(run(["class-prior", "--id", "sql-injection-blind"], helpRoot));
+  if (singlePrior.id !== "sql-injection-blind" || singlePrior.difficulty !== "inference-dependent") {
+    throw new Error(`class-prior CLI id lookup mismatch: ${JSON.stringify(singlePrior).slice(0, 300)}`);
+  }
+  const unknownPriorError = runFail(["class-prior", "--id", "not-a-real-prior"], helpRoot);
+  if (!unknownPriorError.includes("Unknown class prior")) {
+    throw new Error("class-prior CLI accepted an unknown id");
+  }
+  const badTierError = runFail(["class-prior", "--difficulty", "trivial"], helpRoot);
+  if (!badTierError.includes("--difficulty must be one of")) {
+    throw new Error("class-prior CLI accepted an invalid difficulty tier");
+  }
+  const classPriorSummary = JSON.parse(run(["class-prior", "--detail", "summary"], helpRoot));
+  if (
+    classPriorSummary.detail !== "summary" ||
+    classPriorSummary.matched.length !== classPriorCatalog.matched.length ||
+    classPriorSummary.matched.some((prior) => Array.isArray(prior.killConditions))
+  ) {
+    throw new Error("class-prior --detail summary did not return the compact index");
+  }
+  const badDetailError = runFail(["class-prior", "--detail", "verbose"], helpRoot);
+  if (!badDetailError.includes('--detail must be "summary" or "full"')) {
+    throw new Error("class-prior CLI accepted an invalid detail mode");
+  }
+
+  run(["init", "--root", calibrationRoot, "--name", "calibration-smoke"], calibrationRoot);
+  const emptyCalibration = JSON.parse(run(["calibration", "--root", calibrationRoot], calibrationRoot));
+  if (emptyCalibration.totals.total !== 0 || emptyCalibration.classes.length !== 0) {
+    throw new Error("calibration reported data for an empty target");
+  }
+  if (!String(emptyCalibration.caveat ?? "").includes("not research quality")) {
+    throw new Error("calibration did not attach its interpretation caveat");
+  }
+  const recordCalHypothesis = (title, heuristic) =>
+    Number(
+      String(
+        run(["record", "hypothesis", "--root", calibrationRoot, "--title", title, "--heuristic", heuristic], calibrationRoot)
+      ).match(/H(\d+)/)?.[1] ?? "0"
+    );
+  // idor-bola: 2 promoted, 1 discarded, 1 still open.
+  const idorA = recordCalHypothesis("Cal idor a", "idor-bola");
+  const idorB = recordCalHypothesis("Cal idor b", "idor-bola");
+  const idorC = recordCalHypothesis("Cal idor c", "idor-bola");
+  recordCalHypothesis("Cal idor open", "idor-bola");
+  // sql-injection-blind: everything decided, nothing promoted.
+  const blindIds = [1, 2, 3, 4].map((n) => recordCalHypothesis(`Cal blind ${n}`, "sql-injection-blind"));
+  // A planner surface family rather than a prior id must not be reported unmapped.
+  const authzA = recordCalHypothesis("Cal authz a", "auth-authz-session");
+  recordCalHypothesis("Cal authz b", "auth-authz-session");
+  recordCalHypothesis("Cal untagged", "unknown");
+  recordCalHypothesis("Cal mystery", "not-a-real-family");
+
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${idorA}`, "--status", "promoted_to_poc"], calibrationRoot);
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${idorB}`, "--status", "report_grade"], calibrationRoot);
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${idorC}`, "--status", "discarded"], calibrationRoot);
+  for (const id of blindIds) {
+    run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${id}`, "--status", "discarded"], calibrationRoot);
+  }
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${authzA}`, "--status", "discarded"], calibrationRoot);
+
+  const calibration = JSON.parse(run(["calibration", "--root", calibrationRoot], calibrationRoot));
+  const calibrationByFamily = new Map(calibration.classes.map((row) => [row.heuristicFamily, row]));
+  const idorCalibration = calibrationByFamily.get("idor-bola");
+  const blindCalibration = calibrationByFamily.get("sql-injection-blind");
+  const authzCalibration = calibrationByFamily.get("auth-authz-session");
+  if (
+    !idorCalibration ||
+    idorCalibration.verdict !== "productive" ||
+    idorCalibration.priorId !== "idor-bola" ||
+    idorCalibration.difficulty !== "systematic-high-yield" ||
+    idorCalibration.decided !== 3 ||
+    idorCalibration.promoted !== 2
+  ) {
+    throw new Error(`calibration mis-scored idor-bola: ${JSON.stringify(idorCalibration)}`);
+  }
+  if (
+    !blindCalibration ||
+    blindCalibration.verdict !== "over-invested" ||
+    blindCalibration.priorId !== "sql-injection-blind" ||
+    blindCalibration.difficulty !== "inference-dependent"
+  ) {
+    throw new Error(`calibration mis-scored sql-injection-blind: ${JSON.stringify(blindCalibration)}`);
+  }
+  if (!authzCalibration || authzCalibration.verdict !== "insufficient-data" || authzCalibration.decided !== 1) {
+    throw new Error(`calibration mis-scored a surface-family tag: ${JSON.stringify(authzCalibration)}`);
+  }
+  if (calibration.unmappedFamilies.includes("auth-authz-session")) {
+    throw new Error("calibration reported a planner surface family as unmapped");
+  }
+  const calibrationSignalKinds = new Set(calibration.signals.map((signal) => signal.kind));
+  for (const requiredSignal of ["over-invested", "untagged-hypotheses", "unmapped-family"]) {
+    if (!calibrationSignalKinds.has(requiredSignal)) {
+      throw new Error(`calibration did not emit the ${requiredSignal} signal`);
+    }
+  }
+  if (!calibration.unmappedFamilies.includes("not-a-real-family")) {
+    throw new Error("calibration did not flag a family outside the catalog");
+  }
+  const calibrationDigest = run(["calibration", "--root", calibrationRoot, "--digest", "true"], calibrationRoot);
+  if (!calibrationDigest.includes("Calibration:") || calibrationDigest.trim().startsWith("{")) {
+    throw new Error("calibration --digest did not render a digest");
+  }
+
+  const tagCases = [
+    ["idor-bola", "resolved to class prior idor-bola"],
+    ["blind", "resolved to class prior sql-injection-blind"],
+    ["auth-authz-session", "planner surface family auth-authz-session"],
+    ["unknown", "is untagged"],
+    ["banana-split", "matches no class prior or covered surface family"],
+    ["sql-injection", "is ambiguous and matches sql-injection-direct, sql-injection-blind"]
+  ];
+  for (const [tag, expected] of tagCases) {
+    const tagOutput = run(["record", "hypothesis", "--root", calibrationRoot, "--title", `Tag ${tag}`, "--heuristic", tag], calibrationRoot);
+    if (!tagOutput.includes(expected)) {
+      throw new Error(`record hypothesis did not explain heuristicFamily "${tag}": ${tagOutput}`);
+    }
+  }
+  const strictRejected = runFail(
+    ["record", "hypothesis", "--root", calibrationRoot, "--title", "Tag strict bad", "--heuristic", "banana-split", "--strict-tags", "true"],
+    calibrationRoot
+  );
+  if (!strictRejected.includes("--strict-tags rejected heuristicFamily")) {
+    throw new Error("record hypothesis --strict-tags accepted an unmapped heuristicFamily");
+  }
+  const strictAccepted = run(
+    ["record", "hypothesis", "--root", calibrationRoot, "--title", "Tag strict good", "--heuristic", "xss", "--strict-tags", "true"],
+    calibrationRoot
+  );
+  if (!strictAccepted.includes("resolved to class prior xss")) {
+    throw new Error("record hypothesis --strict-tags rejected a valid class prior id");
+  }
+  const strictCalibration = JSON.parse(run(["calibration", "--root", calibrationRoot], calibrationRoot));
+  const taggedRows = strictCalibration.classes.filter((row) => row.priorId !== null).map((row) => row.heuristicFamily);
+  for (const expectedTagged of ["idor-bola", "sql-injection-blind", "xss"]) {
+    if (!taggedRows.includes(expectedTagged)) {
+      throw new Error(`calibration did not resolve a recorded class tag for ${expectedTagged}`);
+    }
+  }
+  if (!strictCalibration.signals.some((signal) => signal.kind === "unmapped-family")) {
+    throw new Error("calibration did not still report the deliberately unmapped family");
+  }
+  if (fs.existsSync(path.join(calibrationRoot, ".vros", "chimera"))) {
+    throw new Error("calibration created Chimera state");
+  }
+
   const cvssCases = [
     ["CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:N", 3.8],
     ["CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 6.3],
@@ -1064,6 +1240,37 @@ try {
   if (!generalistPrompt.includes("Generalist") || !generalistPrompt.includes("Smoke generalist triage")) {
     throw new Error("prompt did not render generalist role instructions");
   }
+  if (prompt.includes("Class priors for this front") || generalistPrompt.includes("Class priors for this front")) {
+    throw new Error("prompt inlined class priors without an explicit prior query");
+  }
+  const priorPrompt = run([
+    "prompt",
+    "--role",
+    "skeptic",
+    "--surface",
+    "Smoke prior surface",
+    "--class-prior-family",
+    "auth-authz-session"
+  ]);
+  if (
+    !priorPrompt.includes("Class priors for this front") ||
+    !priorPrompt.includes("idor-bola") ||
+    !priorPrompt.includes("never replaces evidence")
+  ) {
+    throw new Error("prompt did not inline the requested class prior briefing");
+  }
+  const singlePriorPrompt = run([
+    "prompt",
+    "--role",
+    "skeptic",
+    "--surface",
+    "Smoke prior surface",
+    "--class-prior-id",
+    "sql-injection-blind"
+  ]);
+  if (!singlePriorPrompt.includes("sql-injection-blind") || singlePriorPrompt.includes("idor-bola")) {
+    throw new Error("prompt class prior id selector did not narrow the briefing to one prior");
+  }
   run([
     "record",
     "surface",
@@ -1578,7 +1785,8 @@ try {
     concurrencyRoot,
     chimeraScopeRoot,
     chimeraGeneralistRoot,
-    chimeraCampaignListRoot
+    chimeraCampaignListRoot,
+    calibrationRoot
   ]) {
     rmTemp(root);
   }

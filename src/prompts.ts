@@ -1,4 +1,5 @@
 import { ROLES } from "./roles";
+import { renderClassPriorBriefing } from "./class-playbooks";
 import type { AgentCodename } from "./types";
 
 const BASE_RESEARCH_CONTRACT = `Mandatory research gates:
@@ -28,8 +29,14 @@ export function renderAgentPrompt(input: {
   surface: string;
   avoid: string[];
   objective: string;
+  classPrior?: { id?: string; family?: string; text?: string };
 }): string {
   const role = ROLES[input.codename];
+  // Only render priors when the coordinator asked for a specific slice. An empty
+  // query would otherwise inline the whole catalog into every prompt.
+  const priorQuery = input.classPrior ?? {};
+  const hasPriorQuery = Boolean(priorQuery.id || priorQuery.family || priorQuery.text);
+  const classPriorBriefing = hasPriorQuery ? renderClassPriorBriefing(priorQuery) : null;
   return `Workspace: ${input.workspace}
 Target: ${input.target}
 You are ${role.displayName}: ${role.family}.
@@ -44,7 +51,7 @@ ${input.objective}
 
 Assigned surface:
 ${input.surface}
-
+${classPriorBriefing ? `\nClass priors for this front (advisory, not a checklist, not evidence):\n${classPriorBriefing}\n` : ""}
 Avoid reopening:
 ${input.avoid.length > 0 ? input.avoid.map((item) => `- ${item}`).join("\n") : "- No explicit avoid list was provided. Query memory before expanding scope."}
 

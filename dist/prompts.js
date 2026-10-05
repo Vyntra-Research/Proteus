@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderAgentPrompt = renderAgentPrompt;
 const roles_1 = require("./roles");
+const class_playbooks_1 = require("./class-playbooks");
 const BASE_RESEARCH_CONTRACT = `Mandatory research gates:
 - Load the installed Proteus base research contract and the skill or role contract for this front. Do not ask the coordinator to paste the whole skill into this prompt.
 - Work through primitives, invariants, trust boundaries, state transitions, interpretation gaps, competing sources of truth, and capability amplification. Do not reduce the hunt to a fixed bug-class checklist.
@@ -23,6 +24,11 @@ const BASE_RESEARCH_CONTRACT = `Mandatory research gates:
 - Record enough detail for a future agent to avoid repeating dead paths.`;
 function renderAgentPrompt(input) {
     const role = roles_1.ROLES[input.codename];
+    // Only render priors when the coordinator asked for a specific slice. An empty
+    // query would otherwise inline the whole catalog into every prompt.
+    const priorQuery = input.classPrior ?? {};
+    const hasPriorQuery = Boolean(priorQuery.id || priorQuery.family || priorQuery.text);
+    const classPriorBriefing = hasPriorQuery ? (0, class_playbooks_1.renderClassPriorBriefing)(priorQuery) : null;
     return `Workspace: ${input.workspace}
 Target: ${input.target}
 You are ${role.displayName}: ${role.family}.
@@ -37,7 +43,7 @@ ${input.objective}
 
 Assigned surface:
 ${input.surface}
-
+${classPriorBriefing ? `\nClass priors for this front (advisory, not a checklist, not evidence):\n${classPriorBriefing}\n` : ""}
 Avoid reopening:
 ${input.avoid.length > 0 ? input.avoid.map((item) => `- ${item}`).join("\n") : "- No explicit avoid list was provided. Query memory before expanding scope."}
 
