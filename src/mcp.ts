@@ -16,8 +16,10 @@ import { createLab } from "./lab";
 import { calculateCvss } from "./cvss";
 import {
   CLASS_DIFFICULTY_TIERS,
+  describeHeuristicTag,
   getClassPrior,
   queryClassPriors,
+  resolveHeuristicTag,
   type ClassDifficultyTier
 } from "./class-playbooks";
 import { buildCalibrationReport } from "./calibration";
@@ -80,6 +82,50 @@ interface Advisory {
   message: string;
   links?: Array<{ entityType: string; entityId: number }>;
   reason?: string;
+}
+
+/**
+ * Surfaces a heuristicFamily resolution problem at write time. Without this a
+ * nonsense tag is stored silently and only becomes visible much later as an
+ * `untagged-hypotheses` calibration signal, by which point the hypothesis is
+ * already sitting in memory uncountable.
+ */
+function heuristicTagAdvisories(tag: string): Advisory[] {
+  const resolution = resolveHeuristicTag(tag);
+  const message = describeHeuristicTag(resolution);
+  if (resolution.kind === "prior") {
+    return [
+      {
+        severity: "info" as const,
+        code: "heuristic_tag_resolved",
+        message,
+        reason: "tag maps to a catalog class prior, so calibration can track this hypothesis"
+      }
+    ];
+  }
+  if (resolution.kind === "surface-family") {
+    return [
+      {
+        severity: "info" as const,
+        code: "heuristic_tag_surface_family",
+        message,
+        reason: "tag is a covered planner surface family rather than a single class"
+      }
+    ];
+  }
+  return [
+    {
+      severity: "warn" as const,
+      code:
+        resolution.kind === "ambiguous"
+          ? "heuristic_tag_ambiguous"
+          : resolution.kind === "untagged"
+            ? "heuristic_tag_missing"
+            : "heuristic_tag_unmapped",
+      message,
+      reason: "an unresolved tag means this hypothesis cannot be calibrated by class"
+    }
+  ];
 }
 
 const tools: ToolDefinition[] = [
@@ -1333,12 +1379,13 @@ const tools: ToolDefinition[] = [
             ]
           : [];
         const advisories = [
+          ...heuristicTagAdvisories(hypothesis.heuristicFamily),
           ...similarityAdvisories,
           ...lifecycleReviewAdvisories(reviews),
           ...campaignLinkAdvisories(db, campaignLink)
         ];
         return toolEnvelope(
-          { entityType: "hypothesis", entityId: id },
+          { entityType: "hypothesis", entityId: id, heuristicTag: resolveHeuristicTag(hypothesis.heuristicFamily) },
           {
             advisories,
             relatedRecords: similar,

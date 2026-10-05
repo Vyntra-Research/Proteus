@@ -416,6 +416,57 @@ try {
   if (mcpIdor.verdict !== "insufficient-data") {
     throw new Error(`proteus_calibration issued a verdict from a single decision: ${JSON.stringify(mcpIdor)}`);
   }
+  const taggedHypothesis = JSON.parse(
+    String(
+      (await request("tools/call", {
+        name: "proteus_record_hypothesis",
+        arguments: {
+          root: calibrationRoot,
+          title: "Calibration tagged hypothesis",
+          heuristicFamily: "idor-bola",
+          status: "live"
+        }
+      })).content?.[0]?.text ?? "{}"
+    )
+  );
+  if (taggedHypothesis.record?.heuristicTag?.kind !== "prior" || taggedHypothesis.record?.heuristicTag?.priorId !== "idor-bola") {
+    throw new Error(`proteus_record_hypothesis did not return the resolved heuristic tag: ${JSON.stringify(taggedHypothesis).slice(0, 400)}`);
+  }
+  const resolvedAdvisory = (taggedHypothesis.advisories ?? []).find((advisory) => advisory.code === "heuristic_tag_resolved");
+  if (!resolvedAdvisory || resolvedAdvisory.severity !== "info") {
+    throw new Error("proteus_record_hypothesis did not confirm the resolved heuristic tag");
+  }
+  const badTagHypothesis = JSON.parse(
+    String(
+      (await request("tools/call", {
+        name: "proteus_record_hypothesis",
+        arguments: {
+          root: calibrationRoot,
+          title: "Calibration bad tag hypothesis",
+          heuristicFamily: "definitely-not-a-class",
+          status: "live"
+        }
+      })).content?.[0]?.text ?? "{}"
+    )
+  );
+  if (badTagHypothesis.record?.heuristicTag?.kind !== "unmapped") {
+    throw new Error(`proteus_record_hypothesis accepted an unmapped heuristic tag silently: ${JSON.stringify(badTagHypothesis).slice(0, 400)}`);
+  }
+  const unmappedAdvisory = (badTagHypothesis.advisories ?? []).find((advisory) => advisory.code === "heuristic_tag_unmapped");
+  if (!unmappedAdvisory || unmappedAdvisory.severity !== "warn") {
+    throw new Error("proteus_record_hypothesis did not warn about an unmapped heuristic tag");
+  }
+  const stillEmptyTagAdvisory = JSON.parse(
+    String(
+      (await request("tools/call", {
+        name: "proteus_record_hypothesis",
+        arguments: { root: calibrationRoot, title: "Calibration untagged hypothesis", status: "live" }
+      })).content?.[0]?.text ?? "{}"
+    )
+  );
+  if (!(stillEmptyTagAdvisory.advisories ?? []).some((advisory) => advisory.code === "heuristic_tag_missing")) {
+    throw new Error("proteus_record_hypothesis did not warn about a default untagged hypothesis");
+  }
   fs.mkdirSync(path.join(tmpRoot, "REPORTS"), { recursive: true });
   fs.writeFileSync(
     path.join(tmpRoot, "REPORTS", "smoke-report.md"),

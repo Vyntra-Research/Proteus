@@ -52,35 +52,20 @@ function round4(value) {
 }
 /**
  * Resolves a free-text heuristic family against the class prior catalog.
- * Exact id wins, then a substring match on id or name. Planner surface families
- * resolve to every prior that covers that family, which is intentionally
- * ambiguous and reported as such by the caller.
+ * Delegates to the shared resolver so recording and calibration agree on what
+ * a tag means.
  */
 function resolveFamilyToPrior(heuristicFamily) {
-    const needle = normalize(heuristicFamily);
-    if (!needle)
-        return { priorId: null, ambiguous: false };
-    const catalog = (0, class_playbooks_1.listClassPriors)();
-    const exact = catalog.find((prior) => normalize(prior.id) === needle);
-    if (exact)
-        return { priorId: exact.id, ambiguous: false };
-    const partial = catalog.filter((prior) => normalize(prior.id).includes(needle) || needle.includes(normalize(prior.id)));
-    if (partial.length === 1)
-        return { priorId: partial[0].id, ambiguous: false };
-    if (partial.length > 1)
-        return { priorId: null, ambiguous: true };
-    const byName = catalog.filter((prior) => normalize(prior.name).includes(needle) || needle.includes(normalize(prior.name)));
-    if (byName.length === 1)
-        return { priorId: byName[0].id, ambiguous: false };
-    if (byName.length > 1)
+    const resolution = (0, class_playbooks_1.resolveHeuristicTag)(heuristicFamily);
+    if (resolution.kind === "prior")
+        return { priorId: resolution.priorId, ambiguous: false };
+    if (resolution.kind === "ambiguous")
         return { priorId: null, ambiguous: true };
     return { priorId: null, ambiguous: false };
 }
 function priorBySurfaceFamily(family) {
-    const needle = normalize(family);
-    return (0, class_playbooks_1.listClassPriors)()
-        .filter((prior) => prior.surfaceFamilies.some((surfaceFamily) => normalize(surfaceFamily) === needle))
-        .map((prior) => prior.id);
+    const resolution = (0, class_playbooks_1.resolveHeuristicTag)(family);
+    return resolution.kind === "surface-family" ? resolution.priorIds : [];
 }
 function buildWindow(rows, size) {
     const ordered = [...rows].sort((a, b) => b.id - a.id).slice(0, size);

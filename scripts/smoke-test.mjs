@@ -328,6 +328,45 @@ try {
   if (!calibrationDigest.includes("Calibration:") || calibrationDigest.trim().startsWith("{")) {
     throw new Error("calibration --digest did not render a digest");
   }
+
+  const tagCases = [
+    ["idor-bola", "resolved to class prior idor-bola"],
+    ["blind", "resolved to class prior sql-injection-blind"],
+    ["auth-authz-session", "planner surface family auth-authz-session"],
+    ["unknown", "is untagged"],
+    ["banana-split", "matches no class prior or covered surface family"],
+    ["sql-injection", "is ambiguous and matches sql-injection-direct, sql-injection-blind"]
+  ];
+  for (const [tag, expected] of tagCases) {
+    const tagOutput = run(["record", "hypothesis", "--root", calibrationRoot, "--title", `Tag ${tag}`, "--heuristic", tag], calibrationRoot);
+    if (!tagOutput.includes(expected)) {
+      throw new Error(`record hypothesis did not explain heuristicFamily "${tag}": ${tagOutput}`);
+    }
+  }
+  const strictRejected = runFail(
+    ["record", "hypothesis", "--root", calibrationRoot, "--title", "Tag strict bad", "--heuristic", "banana-split", "--strict-tags", "true"],
+    calibrationRoot
+  );
+  if (!strictRejected.includes("--strict-tags rejected heuristicFamily")) {
+    throw new Error("record hypothesis --strict-tags accepted an unmapped heuristicFamily");
+  }
+  const strictAccepted = run(
+    ["record", "hypothesis", "--root", calibrationRoot, "--title", "Tag strict good", "--heuristic", "xss", "--strict-tags", "true"],
+    calibrationRoot
+  );
+  if (!strictAccepted.includes("resolved to class prior xss")) {
+    throw new Error("record hypothesis --strict-tags rejected a valid class prior id");
+  }
+  const strictCalibration = JSON.parse(run(["calibration", "--root", calibrationRoot], calibrationRoot));
+  const taggedRows = strictCalibration.classes.filter((row) => row.priorId !== null).map((row) => row.heuristicFamily);
+  for (const expectedTagged of ["idor-bola", "sql-injection-blind", "xss"]) {
+    if (!taggedRows.includes(expectedTagged)) {
+      throw new Error(`calibration did not resolve a recorded class tag for ${expectedTagged}`);
+    }
+  }
+  if (!strictCalibration.signals.some((signal) => signal.kind === "unmapped-family")) {
+    throw new Error("calibration did not still report the deliberately unmapped family");
+  }
   if (fs.existsSync(path.join(calibrationRoot, ".vros", "chimera"))) {
     throw new Error("calibration created Chimera state");
   }

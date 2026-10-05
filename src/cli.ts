@@ -8,8 +8,10 @@ import { createLab } from "./lab";
 import { calculateCvss } from "./cvss";
 import {
   CLASS_DIFFICULTY_TIERS,
+  describeHeuristicTag,
   getClassPrior,
   queryClassPriors,
+  resolveHeuristicTag,
   type ClassDifficultyTier
 } from "./class-playbooks";
 import { buildCalibrationReport, renderCalibrationDigest } from "./calibration";
@@ -882,6 +884,12 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
       killCriteria: getString(parsed, "kill-criteria") ?? "",
       revisitCondition: getString(parsed, "revisit") ?? ""
     };
+    const tagResolution = resolveHeuristicTag(input.heuristicFamily);
+    if (getString(parsed, "strict-tags") === "true" && (tagResolution.kind === "unmapped" || tagResolution.kind === "ambiguous")) {
+      throw new Error(
+        `record hypothesis --strict-tags rejected heuristicFamily "${input.heuristicFamily}". ${describeHeuristicTag(tagResolution)}`
+      );
+    }
     ingestPaths(db, []);
     const priorCoverage = [input.title, input.primitive, input.attackerBoundary, input.impactClaim]
       .filter((value) => value && value !== "unknown")
@@ -891,6 +899,7 @@ function cmdRecord(db: ProteusDb, subcommand: string | undefined, parsed: Parsed
     const id = db.addHypothesis(input);
     autoLinkActiveCampaign(db, "hypothesis", id, "tracks_hypothesis", `Hypothesis H${id} recorded in active campaign.`);
     console.log(`Recorded hypothesis H${id}`);
+    console.log(describeHeuristicTag(tagResolution));
     printPossibleDuplicateGuidance(db, priorCoverage);
     return;
   }

@@ -21,6 +21,10 @@ exports.listClassPriors = listClassPriors;
 exports.getClassPrior = getClassPrior;
 exports.summarizeClassPrior = summarizeClassPrior;
 exports.queryClassPriors = queryClassPriors;
+exports.listCoveredSurfaceFamilies = listCoveredSurfaceFamilies;
+exports.listValidHeuristicTags = listValidHeuristicTags;
+exports.resolveHeuristicTag = resolveHeuristicTag;
+exports.describeHeuristicTag = describeHeuristicTag;
 exports.renderClassPriorBriefing = renderClassPriorBriefing;
 exports.CLASS_DIFFICULTY_TIERS = [
     "systematic-high-yield",
@@ -728,7 +732,80 @@ function queryClassPriors(input = {}) {
         families: [...new Set(CLASS_PRIORS.flatMap((prior) => prior.surfaceFamilies))].sort()
     };
 }
-/** Short briefing for prompt injection. Keeps the caveat attached to the numbers. */
+const UNTAGGED_LABELS = new Set(["", "unknown", "n/a", "na", "none", "unspecified", "tbd"]);
+/** Every planner surface family covered by at least one class prior. */
+function listCoveredSurfaceFamilies() {
+    return [...new Set(listClassPriors().flatMap((prior) => prior.surfaceFamilies))].sort();
+}
+/** Prior ids and covered surface families, for self-correcting callers. */
+function listValidHeuristicTags() {
+    return {
+        priorIds: listClassPriors().map((prior) => prior.id),
+        surfaceFamilies: listCoveredSurfaceFamilies()
+    };
+}
+function resolveHeuristicTag(tag) {
+    const label = (tag ?? "").trim();
+    const needle = label.toLowerCase();
+    const catalog = listClassPriors();
+    if (UNTAGGED_LABELS.has(needle))
+        return { kind: "untagged", label: label || "unknown" };
+    const exact = catalog.find((prior) => prior.id.toLowerCase() === needle);
+    if (exact) {
+        return {
+            kind: "prior",
+            label,
+            priorId: exact.id,
+            priorName: exact.name,
+            difficulty: exact.difficulty
+        };
+    }
+    const byIdFragment = catalog.filter((prior) => prior.id.toLowerCase().includes(needle) || needle.includes(prior.id.toLowerCase()));
+    if (byIdFragment.length === 1) {
+        const prior = byIdFragment[0];
+        return { kind: "prior", label, priorId: prior.id, priorName: prior.name, difficulty: prior.difficulty };
+    }
+    if (byIdFragment.length > 1) {
+        return { kind: "ambiguous", label, candidates: byIdFragment.map((prior) => prior.id) };
+    }
+    const byName = catalog.filter((prior) => prior.name.toLowerCase().includes(needle) || needle.includes(prior.name.toLowerCase()));
+    if (byName.length === 1) {
+        const prior = byName[0];
+        return { kind: "prior", label, priorId: prior.id, priorName: prior.name, difficulty: prior.difficulty };
+    }
+    if (byName.length > 1) {
+        return { kind: "ambiguous", label, candidates: byName.map((prior) => prior.id) };
+    }
+    const surfaceFamilies = listCoveredSurfaceFamilies();
+    const matchedFamily = surfaceFamilies.find((family) => family.toLowerCase() === needle);
+    if (matchedFamily) {
+        return {
+            kind: "surface-family",
+            label,
+            family: matchedFamily,
+            priorIds: catalog
+                .filter((prior) => prior.surfaceFamilies.includes(matchedFamily))
+                .map((prior) => prior.id)
+        };
+    }
+    return { kind: "unmapped", label };
+}
+function describeHeuristicTag(resolution) {
+    const valid = listValidHeuristicTags();
+    switch (resolution.kind) {
+        case "prior":
+            return `heuristicFamily "${resolution.label}" resolved to class prior ${resolution.priorId} (${resolution.difficulty}). Calibration will track this class.`;
+        case "surface-family":
+            return `heuristicFamily "${resolution.label}" is the planner surface family ${resolution.family}, covered by ${resolution.priorIds.length} class priors. Calibration groups by the family rather than a single class.`;
+        case "ambiguous":
+            return `heuristicFamily "${resolution.label}" is ambiguous and matches ${resolution.candidates.join(", ")}. Narrow it to one class prior id.`;
+        case "untagged":
+            return `heuristicFamily "${resolution.label}" is untagged, so this hypothesis cannot be calibrated. Set it to a class prior id such as ${valid.priorIds.slice(0, 3).join(", ")}, or to a covered surface family.`;
+        default:
+            return `heuristicFamily "${resolution.label}" matches no class prior or covered surface family. Use a class prior id such as ${valid.priorIds.slice(0, 3).join(", ")}, or a covered surface family such as ${valid.surfaceFamilies.slice(0, 2).join(", ")}.`;
+    }
+}
+/** One-line rollup suitable for prompt injection. Keeps the caveat attached to the numbers. */
 function renderClassPriorBriefing(input) {
     const matched = matchClassPriors(input);
     if (matched.length === 0) {
