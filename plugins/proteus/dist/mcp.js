@@ -20,6 +20,7 @@ const exporter_1 = require("./exporter");
 const lab_1 = require("./lab");
 const cvss_1 = require("./cvss");
 const class_playbooks_1 = require("./class-playbooks");
+const calibration_1 = require("./calibration");
 const chimera_1 = require("./chimera");
 const paths_1 = require("./paths");
 const tools = [
@@ -92,6 +93,22 @@ const tools = [
                 detail: resolvedDetail
             });
         }
+    },
+    {
+        name: "proteus_calibration",
+        title: "Effectiveness Calibration",
+        description: "Measure recorded research outcomes per class so the system can detect its own drift. Groups hypotheses by heuristicFamily, resolves each group to a class prior when possible, and reports promote rate, kill rate, verdict, and creation-order drift signals. Tag hypotheses with heuristicFamily set to a class prior id or a planner surface family, or this stays blind. Kill rate is ambiguous without cost data: fast kills are discipline, slow kills are waste, and this report cannot separate them. Use it to revisit over-invested classes and to reconsider whether a productive class deserves the rounds it is consuming.",
+        inputSchema: schema({
+            root: stringProp("Target root path."),
+            recentWindowSize: numberProp("Hypotheses per creation-order window used for drift detection. Default 10."),
+            minDecidedForVerdict: numberProp("Decisions required before a verdict is issued. Default 3."),
+            productivePromoteRate: numberProp("Promote rate at or above which a class counts as productive. Default 0.25.")
+        }, ["root"]),
+        handler: ({ root, recentWindowSize, minDecidedForVerdict, productivePromoteRate }) => withDb(str(root), (db) => (0, calibration_1.buildCalibrationReport)(db.listHypotheses(), {
+            recentWindowSize: typeof recentWindowSize === "number" ? recentWindowSize : undefined,
+            minDecidedForVerdict: typeof minDecidedForVerdict === "number" ? minDecidedForVerdict : undefined,
+            productivePromoteRate: typeof productivePromoteRate === "number" ? productivePromoteRate : undefined
+        }))
     },
     {
         name: "proteus_opencode_install",

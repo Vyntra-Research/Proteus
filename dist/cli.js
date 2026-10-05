@@ -12,6 +12,7 @@ const ingest_1 = require("./ingest");
 const lab_1 = require("./lab");
 const cvss_1 = require("./cvss");
 const class_playbooks_1 = require("./class-playbooks");
+const calibration_1 = require("./calibration");
 const chimera_1 = require("./chimera");
 const global_memory_1 = require("./global-memory");
 const observe_1 = require("./observe");
@@ -53,6 +54,22 @@ function main() {
     }
     if (command === "class-prior") {
         cmdClassPrior(parsed);
+        return;
+    }
+    if (command === "calibration") {
+        const root = (0, paths_1.resolveTargetRoot)(getString(parsed, "root") ?? process.cwd());
+        const db = new db_1.ProteusDb(root);
+        try {
+            const report = (0, calibration_1.buildCalibrationReport)(db.listHypotheses(), {
+                recentWindowSize: getNumber(parsed, "recent-window"),
+                minDecidedForVerdict: getNumber(parsed, "min-decided"),
+                productivePromoteRate: getNumber(parsed, "productive-rate")
+            });
+            console.log(getString(parsed, "digest") === "true" ? (0, calibration_1.renderCalibrationDigest)(report) : JSON.stringify(report, null, 2));
+        }
+        finally {
+            db.close();
+        }
         return;
     }
     const targetRoot = (0, paths_1.resolveTargetRoot)(getString(parsed, "root") ?? process.cwd());
@@ -1651,6 +1668,7 @@ Usage:
   proteus status [--root <path>]
   proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
   proteus class-prior [--id <prior-id>] [--family <surface-family>] [--difficulty systematic-high-yield|moderate|inference-dependent] [--text <substring>] [--detail summary|full]
+  proteus calibration [--root <path>] [--recent-window <n>] [--min-decided <n>] [--productive-rate <r>] [--digest true]
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
   proteus opencode install [--root <path>] [--force]

@@ -12,6 +12,7 @@ import {
   queryClassPriors,
   type ClassDifficultyTier
 } from "./class-playbooks";
+import { buildCalibrationReport, renderCalibrationDigest } from "./calibration";
 import {
   broadcastChimeraMessage,
   chimeraDoctor,
@@ -91,6 +92,21 @@ function main(): void {
   }
   if (command === "class-prior") {
     cmdClassPrior(parsed);
+    return;
+  }
+  if (command === "calibration") {
+    const root = resolveTargetRoot(getString(parsed, "root") ?? process.cwd());
+    const db = new ProteusDb(root);
+    try {
+      const report = buildCalibrationReport(db.listHypotheses(), {
+        recentWindowSize: getNumber(parsed, "recent-window"),
+        minDecidedForVerdict: getNumber(parsed, "min-decided"),
+        productivePromoteRate: getNumber(parsed, "productive-rate")
+      });
+      console.log(getString(parsed, "digest") === "true" ? renderCalibrationDigest(report) : JSON.stringify(report, null, 2));
+    } finally {
+      db.close();
+    }
     return;
   }
 
@@ -1778,6 +1794,7 @@ Usage:
   proteus status [--root <path>]
   proteus cvss --vector <CVSS:3.0|3.1|4.0/...>
   proteus class-prior [--id <prior-id>] [--family <surface-family>] [--difficulty systematic-high-yield|moderate|inference-dependent] [--text <substring>] [--detail summary|full]
+  proteus calibration [--root <path>] [--recent-window <n>] [--min-decided <n>] [--productive-rate <r>] [--digest true]
   proteus migrate [--root <path>]
   proteus merge --root <dest-root> --source <source-root|.vros|memory.sqlite> [--sources a,b] [--dry-run]
   proteus opencode install [--root <path>] [--force]

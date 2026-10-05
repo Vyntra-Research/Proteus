@@ -37,6 +37,7 @@ const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
 const tmpRoot = makeTempRoot("proteus-mcp-smoke-");
 const globalRoot = makeTempRoot("proteus-mcp-global-smoke-");
 const mergeSourceRoot = makeTempRoot("proteus-mcp-merge-source-smoke-");
+const calibrationRoot = makeTempRoot("proteus-mcp-calibration-smoke-");
 const packagedPluginRoot = path.join(globalRoot, "packaged-plugin");
 fs.cpSync(path.join(repoRoot, "plugins", "proteus"), packagedPluginRoot, { recursive: true });
 const serverPath = path.join(packagedPluginRoot, "scripts", "proteus-mcp.cjs");
@@ -162,7 +163,8 @@ try {
     "proteus_init",
     "proteus_status",
 "proteus_calculate_cvss",
-    "proteus_class_prior",
+"proteus_class_prior",
+    "proteus_calibration",
     "proteus_migrate",
     "proteus_merge_memory",
     "proteus_chimera_config",
@@ -359,6 +361,60 @@ try {
   }
   if (!migrationsText.includes(`"currentVersion": "${expectedVersion}"`) || !migrationsText.includes(`"storedVersion": "${expectedVersion}"`)) {
     throw new Error("proteus_migrate did not report the Proteus database version");
+  }
+
+  await request("tools/call", {
+    name: "proteus_init",
+    arguments: { root: calibrationRoot, name: "mcp-calibration-target" }
+  });
+  const emptyCalibration = JSON.parse(
+    String((await request("tools/call", { name: "proteus_calibration", arguments: { root: calibrationRoot } })).content?.[0]?.text ?? "{}")
+  );
+  if (
+    emptyCalibration.totals?.total !== 0 ||
+    !Array.isArray(emptyCalibration.classes) ||
+    !String(emptyCalibration.caveat ?? "").includes("not research quality") ||
+    !Array.isArray(emptyCalibration.decisionTaxonomy?.promoted)
+  ) {
+    throw new Error(`proteus_calibration empty-target response is wrong: ${JSON.stringify(emptyCalibration).slice(0, 400)}`);
+  }
+
+  await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: calibrationRoot,
+      title: "Calibration MCP hypothesis a",
+      heuristicFamily: "idor-bola",
+      status: "promoted_to_poc"
+    }
+  });
+  await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: calibrationRoot,
+      title: "Calibration MCP hypothesis b",
+      heuristicFamily: "sql-injection-blind",
+      status: "discarded"
+    }
+  });
+  await request("tools/call", {
+    name: "proteus_record_hypothesis",
+    arguments: {
+      root: calibrationRoot,
+      title: "Calibration MCP hypothesis c",
+      heuristicFamily: "sql-injection-blind",
+      status: "discarded"
+    }
+  });
+  const mcpCalibration = JSON.parse(
+    String((await request("tools/call", { name: "proteus_calibration", arguments: { root: calibrationRoot } })).content?.[0]?.text ?? "{}")
+  );
+  const mcpIdor = mcpCalibration.classes?.find((row) => row.heuristicFamily === "idor-bola");
+  if (!mcpIdor || mcpIdor.priorId !== "idor-bola" || mcpIdor.promoted !== 1) {
+    throw new Error(`proteus_calibration did not group by heuristicFamily: ${JSON.stringify(mcpCalibration).slice(0, 400)}`);
+  }
+  if (mcpIdor.verdict !== "insufficient-data") {
+    throw new Error(`proteus_calibration issued a verdict from a single decision: ${JSON.stringify(mcpIdor)}`);
   }
   fs.mkdirSync(path.join(tmpRoot, "REPORTS"), { recursive: true });
   fs.writeFileSync(
@@ -1361,6 +1417,7 @@ try {
   rmTemp(tmpRoot);
   rmTemp(globalRoot);
   rmTemp(mergeSourceRoot);
+  rmTemp(calibrationRoot);
 }
 
 function waitForExit(childProcess, timeoutMs) {

@@ -35,6 +35,7 @@ const chimeraGeneralistRoot = makeTempRoot("proteus-chimera-generalist-smoke-");
 const chimeraCampaignListRoot = makeTempRoot("proteus-chimera-campaign-list-smoke-");
 const opencodeRoot = makeTempRoot("proteus-opencode-smoke-");
 const opencodeExistingRoot = makeTempRoot("proteus-opencode-existing-smoke-");
+const calibrationRoot = makeTempRoot("proteus-calibration-smoke-");
 const mockOpenCodeLauncher = createMockOpenCodeLauncher(globalRoot);
 
 function run(args, cwd = tmpRoot, extraEnv = {}) {
@@ -249,6 +250,88 @@ try {
   if (!badDetailError.includes('--detail must be "summary" or "full"')) {
     throw new Error("class-prior CLI accepted an invalid detail mode");
   }
+
+  run(["init", "--root", calibrationRoot, "--name", "calibration-smoke"], calibrationRoot);
+  const emptyCalibration = JSON.parse(run(["calibration", "--root", calibrationRoot], calibrationRoot));
+  if (emptyCalibration.totals.total !== 0 || emptyCalibration.classes.length !== 0) {
+    throw new Error("calibration reported data for an empty target");
+  }
+  if (!String(emptyCalibration.caveat ?? "").includes("not research quality")) {
+    throw new Error("calibration did not attach its interpretation caveat");
+  }
+  const recordCalHypothesis = (title, heuristic) =>
+    Number(
+      String(
+        run(["record", "hypothesis", "--root", calibrationRoot, "--title", title, "--heuristic", heuristic], calibrationRoot)
+      ).match(/H(\d+)/)?.[1] ?? "0"
+    );
+  // idor-bola: 2 promoted, 1 discarded, 1 still open.
+  const idorA = recordCalHypothesis("Cal idor a", "idor-bola");
+  const idorB = recordCalHypothesis("Cal idor b", "idor-bola");
+  const idorC = recordCalHypothesis("Cal idor c", "idor-bola");
+  recordCalHypothesis("Cal idor open", "idor-bola");
+  // sql-injection-blind: everything decided, nothing promoted.
+  const blindIds = [1, 2, 3, 4].map((n) => recordCalHypothesis(`Cal blind ${n}`, "sql-injection-blind"));
+  // A planner surface family rather than a prior id must not be reported unmapped.
+  const authzA = recordCalHypothesis("Cal authz a", "auth-authz-session");
+  recordCalHypothesis("Cal authz b", "auth-authz-session");
+  recordCalHypothesis("Cal untagged", "unknown");
+  recordCalHypothesis("Cal mystery", "not-a-real-family");
+
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${idorA}`, "--status", "promoted_to_poc"], calibrationRoot);
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${idorB}`, "--status", "report_grade"], calibrationRoot);
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${idorC}`, "--status", "discarded"], calibrationRoot);
+  for (const id of blindIds) {
+    run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${id}`, "--status", "discarded"], calibrationRoot);
+  }
+  run(["update", "hypothesis", "--root", calibrationRoot, "--id", `H${authzA}`, "--status", "discarded"], calibrationRoot);
+
+  const calibration = JSON.parse(run(["calibration", "--root", calibrationRoot], calibrationRoot));
+  const calibrationByFamily = new Map(calibration.classes.map((row) => [row.heuristicFamily, row]));
+  const idorCalibration = calibrationByFamily.get("idor-bola");
+  const blindCalibration = calibrationByFamily.get("sql-injection-blind");
+  const authzCalibration = calibrationByFamily.get("auth-authz-session");
+  if (
+    !idorCalibration ||
+    idorCalibration.verdict !== "productive" ||
+    idorCalibration.priorId !== "idor-bola" ||
+    idorCalibration.difficulty !== "systematic-high-yield" ||
+    idorCalibration.decided !== 3 ||
+    idorCalibration.promoted !== 2
+  ) {
+    throw new Error(`calibration mis-scored idor-bola: ${JSON.stringify(idorCalibration)}`);
+  }
+  if (
+    !blindCalibration ||
+    blindCalibration.verdict !== "over-invested" ||
+    blindCalibration.priorId !== "sql-injection-blind" ||
+    blindCalibration.difficulty !== "inference-dependent"
+  ) {
+    throw new Error(`calibration mis-scored sql-injection-blind: ${JSON.stringify(blindCalibration)}`);
+  }
+  if (!authzCalibration || authzCalibration.verdict !== "insufficient-data" || authzCalibration.decided !== 1) {
+    throw new Error(`calibration mis-scored a surface-family tag: ${JSON.stringify(authzCalibration)}`);
+  }
+  if (calibration.unmappedFamilies.includes("auth-authz-session")) {
+    throw new Error("calibration reported a planner surface family as unmapped");
+  }
+  const calibrationSignalKinds = new Set(calibration.signals.map((signal) => signal.kind));
+  for (const requiredSignal of ["over-invested", "untagged-hypotheses", "unmapped-family"]) {
+    if (!calibrationSignalKinds.has(requiredSignal)) {
+      throw new Error(`calibration did not emit the ${requiredSignal} signal`);
+    }
+  }
+  if (!calibration.unmappedFamilies.includes("not-a-real-family")) {
+    throw new Error("calibration did not flag a family outside the catalog");
+  }
+  const calibrationDigest = run(["calibration", "--root", calibrationRoot, "--digest", "true"], calibrationRoot);
+  if (!calibrationDigest.includes("Calibration:") || calibrationDigest.trim().startsWith("{")) {
+    throw new Error("calibration --digest did not render a digest");
+  }
+  if (fs.existsSync(path.join(calibrationRoot, ".vros", "chimera"))) {
+    throw new Error("calibration created Chimera state");
+  }
+
   const cvssCases = [
     ["CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:L/A:N", 3.8],
     ["CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N", 6.3],
@@ -1663,7 +1746,8 @@ try {
     concurrencyRoot,
     chimeraScopeRoot,
     chimeraGeneralistRoot,
-    chimeraCampaignListRoot
+    chimeraCampaignListRoot,
+    calibrationRoot
   ]) {
     rmTemp(root);
   }
