@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.1.11 - 2026-10-17
+
+### Fixed
+
+- Kept live Chimera sessions visible on macOS and other POSIX systems without `/proc` by reading process command lines through `ps`.
+- Matched logical and physical session paths so symlinked workspace or temporary roots do not make live sessions appear stopped.
+- Resolved smoke-test temporary roots before comparing absolute paths on macOS.
+
+### Changed
+
+- Added full macOS test coverage to CI and made releases wait for it.
+
 ## 2.1.10 - 2026-09-07
 
 ### Added
