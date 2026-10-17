@@ -2798,7 +2798,15 @@ function isSessionProcessAlive(pid, sessionDir) {
     const commandLine = processCommandLine(pid);
     if (!commandLine)
         return false;
-    return commandLine.toLowerCase().includes(node_path_1.default.resolve(sessionDir).toLowerCase());
+    const sessionPaths = new Set([node_path_1.default.resolve(sessionDir)]);
+    try {
+        sessionPaths.add(node_fs_1.default.realpathSync(sessionDir));
+    }
+    catch {
+        // The logical path still permits liveness checks if the session directory disappears mid-read.
+    }
+    const normalizedCommandLine = commandLine.toLowerCase();
+    return [...sessionPaths].some((candidate) => normalizedCommandLine.includes(candidate.toLowerCase()));
 }
 function processCommandLine(pid) {
     try {
@@ -2816,6 +2824,19 @@ function processCommandLine(pid) {
         const cmdlinePath = `/proc/${pid}/cmdline`;
         if (node_fs_1.default.existsSync(cmdlinePath)) {
             return node_fs_1.default.readFileSync(cmdlinePath, "utf8").replace(/\0/g, " ").trim() || null;
+        }
+        // macOS and other BSD-style systems expose no /proc. -ww prevents ps from
+        // truncating the command line used to identify the owning Chimera session.
+        const psResult = (0, node_child_process_1.spawnSync)("ps", ["-ww", "-o", "command=", "-p", String(pid)], {
+            encoding: "utf8",
+            windowsHide: true,
+            timeout: 2000,
+            maxBuffer: 64 * 1024
+        });
+        if (psResult.status === 0) {
+            const psCommandLine = String(psResult.stdout ?? "").trim();
+            if (psCommandLine)
+                return psCommandLine;
         }
     }
     catch {

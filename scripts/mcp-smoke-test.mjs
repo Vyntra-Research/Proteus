@@ -34,9 +34,9 @@ const canonicalRoi = {
   lowSignalHistory: 0
 };
 const mockOpenCode = path.join(repoRoot, "scripts", "mock-opencode.mjs");
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-smoke-"));
-const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-global-smoke-"));
-const mergeSourceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proteus-mcp-merge-source-smoke-"));
+const tmpRoot = makeTempRoot("proteus-mcp-smoke-");
+const globalRoot = makeTempRoot("proteus-mcp-global-smoke-");
+const mergeSourceRoot = makeTempRoot("proteus-mcp-merge-source-smoke-");
 const packagedPluginRoot = path.join(globalRoot, "packaged-plugin");
 fs.cpSync(path.join(repoRoot, "plugins", "proteus"), packagedPluginRoot, { recursive: true });
 const serverPath = path.join(packagedPluginRoot, "scripts", "proteus-mcp.cjs");
@@ -58,6 +58,14 @@ const child = spawn(process.execPath, [serverPath], {
 let nextId = 1;
 let stdout = "";
 const pending = new Map();
+
+function makeTempRoot(prefix) {
+  // Child processes report process.cwd() with symlinks already resolved, while
+  // os.tmpdir() is not resolved (macOS: /var/folders -> /private/var/folders).
+  // Pin every temp root to its physical path so absolute paths produced by the
+  // server compare equal to paths built from these roots on macOS and Linux alike.
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+}
 
 function createMockOpenCodeLauncher(root) {
   if (process.platform !== "win32") return null;
